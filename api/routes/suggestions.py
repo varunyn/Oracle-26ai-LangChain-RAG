@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 FOLLOW_UP_SYSTEM = """You suggest follow-up questions. Given an assistant's message, output 3 to 5 short follow-up questions a user might ask next.
 Return only a JSON array of strings. No markdown, no explanation. Example: ["First question?","Second question?"]"""
 
+RAW_TOOL_CALL_PATTERN = re.compile(r"^[\w\.]+\s*\([^)]*\)$")
+
+
+def _looks_like_raw_tool_call(text: str) -> bool:
+    candidate = text.strip()
+    return bool(candidate) and len(candidate) <= 200 and bool(RAW_TOOL_CALL_PATTERN.fullmatch(candidate))
+
 
 class SuggestionsRequest(BaseModel):
     """Request body for POST /api/suggestions."""
@@ -58,6 +65,8 @@ async def _generate_suggestions_async(last_message: str, model_id: str | None) -
 async def post_suggestions(request: SuggestionsRequest) -> SuggestionsResponse:
     """Generate 3–6 follow-up question suggestions from the last assistant message."""
     if not request.last_message.strip():
+        return SuggestionsResponse(suggestions=[])
+    if _looks_like_raw_tool_call(request.last_message):
         return SuggestionsResponse(suggestions=[])
     try:
         suggestions = await _generate_suggestions_async(
