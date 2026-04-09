@@ -53,8 +53,10 @@ MEDIA_TYPE = "application/json"
 def _fresh_turn_state(
     user_request: str,
     chat_history: Sequence[AIMessage | HumanMessage | SystemMessage],
+    previous_state: State | None = None,
 ) -> State:
     history_messages = list(chat_history)
+    previous = previous_state or {}
     state = {
         "user_request": user_request,
         "messages": [*history_messages, HumanMessage(content=user_request)],
@@ -73,6 +75,10 @@ def _fresh_turn_state(
         "mcp_used": None,
         "mcp_tools_used": [],
         "mcp_tool_match": None,
+        "selected_mcp_tool_names": list(previous.get("selected_mcp_tool_names") or []),
+        "selected_mcp_tool_descriptions": list(
+            previous.get("selected_mcp_tool_descriptions") or []
+        ),
         "context_usage": None,
         "final_answer": None,
         "round": None,
@@ -123,7 +129,8 @@ def run_rag_and_get_answer(
     )
     langfuse.add_langfuse_callbacks(run_config, session_id=session_id, user_id=None)
 
-    state = _fresh_turn_state(user_request, chat_history)
+    previous_values = cast(dict[str, object] | None, graph_service.get_state_values(run_config))
+    state = _fresh_turn_state(user_request, chat_history, cast(State | None, previous_values))
 
     register_tools_for_run(user_request, run_config)
     logger.debug("MCP: sync registration hook invoked before graph invoke")

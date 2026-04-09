@@ -81,6 +81,7 @@ class State(TypedDict, total=False):
     history_text: NotRequired[str | None]
     followup_intent: NotRequired[str | None]
     response_instruction: NotRequired[str | None]
+    latest_answer: NotRequired[str | None]
 
     # Search/Rerank artifacts (docs are dicts with page_content+metadata)
     retriever_docs: NotRequired[list[DocSerializable] | None]
@@ -99,6 +100,8 @@ class State(TypedDict, total=False):
     mcp_used: NotRequired[bool | None]
     mcp_tools_used: NotRequired[list[str] | None]
     mcp_tool_match: NotRequired[bool | None]
+    selected_mcp_tool_names: NotRequired[list[str] | None]
+    selected_mcp_tool_descriptions: NotRequired[list[str] | None]
 
     # Routing
     mode: NotRequired[str | None]  # rag | mcp | mixed | direct
@@ -138,6 +141,7 @@ PER_TURN_KEYS: tuple[str, ...] = (
     "history_text",
     "followup_intent",
     "response_instruction",
+    "latest_answer",
     "retriever_docs",
     "reranker_docs",
     "citations",
@@ -152,6 +156,8 @@ PER_TURN_KEYS: tuple[str, ...] = (
     "mcp_used",
     "mcp_tools_used",
     "mcp_tool_match",
+    "selected_mcp_tool_names",
+    "selected_mcp_tool_descriptions",
     "context_usage",
     # control + errors
     "round",

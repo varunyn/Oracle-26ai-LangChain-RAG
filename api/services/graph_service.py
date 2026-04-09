@@ -116,6 +116,12 @@ class GraphService:
                 raise
         return self._graph.get_state(run_config)  # type: ignore
 
+    def get_state_values(self, run_config: dict[str, Any]) -> dict[str, Any] | None:
+        """Return checkpointed state values for sync request paths when available."""
+        snapshot = self._graph.get_state(run_config)  # type: ignore
+        values = getattr(snapshot, "values", None)
+        return values if isinstance(values, dict) else None
+
     async def delete_thread(self, thread_id: str) -> None:
         """Delete all checkpoints for the given thread_id.
 
