@@ -1,0 +1,7 @@
+{
+  "baseUrl": "http://127.0.0.1:3002",
+  "defaultCollection": "RAG_KNOWLEDGE_BASE",
+  "defaultModel": "cohere.command-r-plus",
+  "threadId": "bruno-local-thread",
+  "sessionId": "bruno-local-session"
+}

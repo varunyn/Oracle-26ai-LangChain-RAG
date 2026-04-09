@@ -1,0 +1,30 @@
+meta {
+  name: Chat Stream
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/chat
+  body: json
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "model": "{{defaultModel}}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Explain the current RAG workflow."
+      }
+    ],
+    "stream": true,
+    "thread_id": "{{threadId}}",
+    "session_id": "{{sessionId}}",
+    "collection_name": "{{defaultCollection}}"
+  }
+}

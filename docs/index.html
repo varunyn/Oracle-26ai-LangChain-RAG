@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAG Agent – Documentation</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css" />
+</head>
+<body>
+  <div id="app">Loading…</div>
+  <script>
+    // basePath for GitHub Pages project site (e.g. https://user.github.io/custom-rag-agent-app/)
+    function getBasePath() {
+      var segs = window.location.pathname.split('/').filter(Boolean);
+      return segs.length ? '/' + segs[0] + '/' : '/';
+    }
+    window.$docsify = {
+      basePath: getBasePath(),
+      name: 'RAG Agent Docs',
+      homepage: 'GETTING-STARTED.md',
+      loadSidebar: true,
+      auto2top: true,
+      relativePath: true,
+      maxLevel: 3,
+      subMaxLevel: 3,
+      search: {
+        maxAge: 86400000,
+        paths: 'auto',
+        placeholder: 'Search docs',
+        noData: 'No results',
+        depth: 4,
+      },
+      mermaid: {
+        theme: 'default',
+      },
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4"></script>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: true });
+    window.mermaid = mermaid;
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-mermaid@latest/dist/docsify-mermaid.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+</body>
+</html>

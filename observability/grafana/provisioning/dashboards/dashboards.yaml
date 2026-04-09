@@ -1,0 +1,13 @@
+# Provision dashboards from this directory (RAG API observability)
+apiVersion: 1
+
+providers:
+  - name: "default"
+    orgId: 1
+    folder: "RAG API"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

@@ -1,0 +1,110 @@
+{
+  "operations": [
+    {
+      "method": "POST",
+      "operationId": "chat_completions_api_chat_post",
+      "path": "/api/chat",
+      "summary": "Chat Completions",
+      "tags": [
+        "chat"
+      ]
+    },
+    {
+      "method": "GET",
+      "operationId": "get_config_api_config_get",
+      "path": "/api/config",
+      "summary": "Get Config",
+      "tags": [
+        "config"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "operationId": "delete_document_source_api_documents_source_delete",
+      "path": "/api/documents/source",
+      "summary": "Delete Document Source",
+      "tags": [
+        "documents"
+      ]
+    },
+    {
+      "method": "GET",
+      "operationId": "list_document_sources_api_documents_sources_get",
+      "path": "/api/documents/sources",
+      "summary": "List Document Sources",
+      "tags": [
+        "documents"
+      ]
+    },
+    {
+      "method": "POST",
+      "operationId": "upload_documents_api_documents_upload_post",
+      "path": "/api/documents/upload",
+      "summary": "Upload Documents",
+      "tags": [
+        "documents"
+      ]
+    },
+    {
+      "method": "POST",
+      "operationId": "post_feedback_api_feedback_post",
+      "path": "/api/feedback",
+      "summary": "Post Feedback",
+      "tags": [
+        "feedback"
+      ]
+    },
+    {
+      "method": "POST",
+      "operationId": "api_mcp_chat_api_mcp_chat_post",
+      "path": "/api/mcp/chat",
+      "summary": "Api Mcp Chat",
+      "tags": [
+        "mcp"
+      ]
+    },
+    {
+      "method": "POST",
+      "operationId": "post_suggestions_api_suggestions_post",
+      "path": "/api/suggestions",
+      "summary": "Post Suggestions",
+      "tags": []
+    },
+    {
+      "method": "DELETE",
+      "operationId": "delete_thread_api_threads__thread_id__delete",
+      "path": "/api/threads/{thread_id}",
+      "summary": "Delete Thread",
+      "tags": [
+        "chat"
+      ]
+    },
+    {
+      "method": "GET",
+      "operationId": "get_graph_mermaid_graph_mermaid_get",
+      "path": "/graph/mermaid",
+      "summary": "Get Graph Mermaid",
+      "tags": [
+        "graph"
+      ]
+    },
+    {
+      "method": "GET",
+      "operationId": "health_health_get",
+      "path": "/health",
+      "summary": "Health",
+      "tags": [
+        "health"
+      ]
+    },
+    {
+      "method": "POST",
+      "operationId": "invoke_invoke_post",
+      "path": "/invoke",
+      "summary": "Invoke",
+      "tags": [
+        "chat"
+      ]
+    }
+  ]
+}

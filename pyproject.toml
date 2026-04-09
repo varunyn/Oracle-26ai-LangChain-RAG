@@ -1,0 +1,158 @@
+[project]
+name = "oracle-26ai-langchain-rag"
+version = "0.1.0"
+description = "Custom RAG Agent with LangGraph, Oracle 26AI Vector Store, and MCP integration"
+readme = "docs/README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "Varun Yadav"}
+]
+keywords = ["rag", "langgraph", "oracle", "vector-search", "mcp", "llm"]
+
+dependencies = [
+    # LangChain / LangGraph core
+    "langchain==1.2.15",
+    "langchain-community==0.4.1",
+    "langchain-core==1.2.15",
+    "langgraph==1.1.6",
+    "langgraph-checkpoint==4.0.0",
+    "langgraph-checkpoint-sqlite==3.0.3",
+    "langchain-text-splitters>=1.1.0",
+    "typing-extensions>=4.15.0",
+
+    # FastAPI / server runtime
+    "fastapi==0.135.3",
+    "pydantic>=2.11.7",
+    "pydantic-settings>=2.8.1",
+    "starlette>=0.40.0",
+    "uvicorn>=0.35.0",
+
+    # MCP
+    "fastmcp>=3.2.0",
+    "mcp>=1.17.0,<2.0.0",
+
+    # Oracle / OCI
+    "oci>=2.154.3",
+    "oracledb>=3.0.0",
+    # Official Oracle LangChain integrations (replaces langchain-community for OCI/Oracle)
+    "langchain-oci>=0.2.5",
+    "langchain-oracledb>=1.1.0",
+
+    # OpenAI integration
+    "langchain-openai>=1.0.0",
+
+    # Document ingestion / text extraction
+    "langchain-unstructured>=1.0.0",
+    "pdfminer.six>=20231228",
+    "pi_heif>=0.17.0",
+    "unstructured>=0.18.2",
+    "unstructured-client>=0.37.2",
+
+    # HTTP / networking
+    "httpcore>=1.0.7",
+    "httpx>=0.28.1",
+    "httpx-sse>=0.4.0",
+    "requests>=2.32.3",
+
+    # Authentication / security
+    "cryptography>=44.0.2",
+    "PyJWT>=2.10.1",
+
+    # Observability
+    "langfuse==4.0.0",
+    "langsmith[otel]==0.7.6",
+    # OpenTelemetry for FastAPI and LangChain/LangGraph via LangSmith OTEL; OCI APM supports OTLP
+    "opentelemetry-api>=1.39.1",
+    "opentelemetry-exporter-otlp>=1.39.1",
+    "opentelemetry-instrumentation-asgi>=0.45b0",
+    "opentelemetry-instrumentation-fastapi>=0.45b0",
+    "opentelemetry-instrumentation-requests>=0.45b0",
+    "opentelemetry-sdk>=1.39.1",
+
+    # Data processing / search
+    "numpy>=2.2.3",
+    "rank-bm25>=0.2.2",
+
+    # Serialization / configuration / utilities
+    "code-mode>=0.0.3",
+    "orjson>=3.11.5",
+    "python-dateutil>=2.9.0.post0",
+    "python-dotenv>=1.1.1",
+    "PyYAML>=6.0.2",
+    "tiktoken>=0.12.0",
+    "utcp>=1.1.2",
+    "utcp-mcp>=1.0.2",
+]
+
+[project.scripts]
+# Entry points for command-line tools (if needed)
+# Example: rag-agent = "src.rag_agent.rag_agent:main"
+
+[dependency-groups]
+# Group dependencies for different use cases
+# Usage: uv sync --group dev
+dev = [
+    "black>=24.0.0",
+    "mypy>=1.8.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.5.0",
+    # Integration testing tooling
+    "agentevals>=0.0.9",
+    "pytest-recording>=0.13.1",
+    "vcrpy>=6.0.1",
+]
+
+[tool.uv]
+package = false  # This is an application, not a package to be installed
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: run against live graph/API (DB, OCI, MCP); skip in fast CI with -m 'not integration'",
+    "vcr: record/replay HTTP via VCR",
+    "langsmith: log results to LangSmith when --langsmith-output is provided",
+]
+addopts = "--record-mode=once"
+testpaths = ["tests"]
+filterwarnings = [
+    'ignore:mcp_use\.config is deprecated\.:DeprecationWarning',
+    'ignore:mcp_use\.connectors is deprecated\.:DeprecationWarning',
+    'ignore:mcp_use\.session\.MCPSession is deprecated\.:DeprecationWarning',
+    'ignore:Support for class-based `config` is deprecated.*:DeprecationWarning',
+    'ignore:Use `streamable_http_client` instead\.:DeprecationWarning',
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]  # Line too long (handled by formatter)
+# E402: imports not at top are required for bootstrap/scripts (sys.path, env) before other imports
+[tool.ruff.lint.per-file-ignores]
+"api/main.py" = ["E402"]
+"api/rag_agent_api.py" = ["E402"]
+"mcp_servers/*.py" = ["E402"]
+"scripts/*.py" = ["E402"]
+"tests/run_*.py" = ["E402"]
+"ui/*.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = ["langchain_oci.*", "langchain_oracledb.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["rank_bm25.*"]
+ignore_missing_imports = true
+

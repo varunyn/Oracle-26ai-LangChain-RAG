@@ -1,0 +1,22 @@
+meta {
+  name: Feedback
+  type: http
+  seq: 1
+}
+
+post {
+  url: {baseUrl}/api/feedback
+  body: json
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+{
+  "question": "What is Oracle vector search?",
+  "answer": "It is a database-native vector retrieval capability.",
+  "feedback": 5
+}
+}

@@ -1,0 +1,56 @@
+# Configuration file (contains sensitive information)
+config.py
+# Local runtime config (OCI, wallet) — used with or without Docker; do not commit
+local-config/*.pem
+local-config/wallet/
+local-config/oci/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# uv lockfile (optional - can be committed for reproducibility)
+# uv.lock
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# IDE / editor
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+
+# Uploaded files (copies of processed documents)
+uploaded_files/
+
+.docs/
+
+# Log files (created at runtime)
+logs/
+.local-data/
+
+local-data/*
+
+.impeccable.md
+skills-lock.json

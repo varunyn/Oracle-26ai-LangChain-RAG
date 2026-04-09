@@ -1,0 +1,17 @@
+<!-- Sidebar nav for Docsify. Rendered when loadSidebar: true -->
+
+- [Home](/)
+- [Getting started](GETTING-STARTED.md)
+- [Configuration](CONFIGURATION.md)
+- [Docker setup](DOCKER-SETUP.md)
+- [Chat streaming](CHAT_STREAMING_PROTOCOL.md)
+- [Chat memory & sessions](CHAT_MEMORY_AND_SESSIONS.md)
+- [Server-owned memory](SERVER-OWNED-MEMORY.md)
+- [MCP usage](MCP-USAGE.md)
+- [Database setup](DATABASE-SETUP.md)
+- [Document population](DOCUMENT-POPULATION.md)
+- [OCI session token](OCI-SESSION-TOKEN.md)
+- [Observability](OBSERVABILITY.md)
+- [Observability routing](OBSERVABILITY_ROUTING.md)
+- [Tracing](TRACING.md)
+- [Logging Analytics](LOGGING-ANALYTICS.md)

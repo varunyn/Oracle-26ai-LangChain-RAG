@@ -1,0 +1,35 @@
+# Let Grafana use HTTP for streaming (avoids gRPC on 3200)
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"  # Collector (same network) sends traces here
+        http:
+          endpoint: "0.0.0.0:4318"
+
+ingester:
+  max_block_bytes: 1000000
+  max_block_duration: 30s
+  trace_idle_period: 2s
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    wal:
+      path: /var/tempo/wal
+
+compactor:
+  compaction:
+    compacted_block_retention: 1h
+
+query_frontend:
+  search:
+    max_duration: 0

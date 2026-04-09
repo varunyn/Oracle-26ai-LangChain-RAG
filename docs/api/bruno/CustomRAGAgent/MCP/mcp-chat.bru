@@ -1,0 +1,26 @@
+meta {
+  name: MCP Chat
+  type: http
+  seq: 1
+}
+
+post {
+  url: {baseUrl}/api/mcp/chat
+  body: json
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Search for relevant Oracle AI docs"
+    }
+  ],
+  "stream": false
+}
+}

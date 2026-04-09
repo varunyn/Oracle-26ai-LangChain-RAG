@@ -1,0 +1,110 @@
+{
+  "operations": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "mode": "generated",
+      "name": "Health",
+      "bodyKind": "none",
+      "output": "bruno/CustomRAGAgent/Health/health.bru",
+      "seq": 1
+    },
+    {
+      "method": "POST",
+      "path": "/invoke",
+      "mode": "generated",
+      "name": "Invoke",
+      "bodyKind": "json",
+      "output": "bruno/CustomRAGAgent/Chat/invoke.bru",
+      "seq": 3
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat",
+      "mode": "curated",
+      "name": "Chat",
+      "output": "bruno/CustomRAGAgent/Chat/chat-json.bru"
+    },
+    {
+      "method": "GET",
+      "path": "/graph/mermaid",
+      "mode": "generated",
+      "name": "Graph Mermaid",
+      "bodyKind": "none",
+      "output": "bruno/CustomRAGAgent/Graph/mermaid.bru",
+      "seq": 1
+    },
+    {
+      "method": "POST",
+      "path": "/api/mcp/chat",
+      "mode": "generated",
+      "name": "MCP Chat",
+      "bodyKind": "json",
+      "output": "bruno/CustomRAGAgent/MCP/mcp-chat.bru",
+      "seq": 1
+    },
+    {
+      "method": "POST",
+      "path": "/api/suggestions",
+      "mode": "generated",
+      "name": "Suggestions",
+      "bodyKind": "json",
+      "output": "bruno/CustomRAGAgent/Suggestions/suggestions.bru",
+      "seq": 1
+    },
+    {
+      "method": "GET",
+      "path": "/api/config",
+      "mode": "generated",
+      "name": "Config",
+      "bodyKind": "none",
+      "output": "bruno/CustomRAGAgent/Config/config.bru",
+      "seq": 1
+    },
+    {
+      "method": "POST",
+      "path": "/api/feedback",
+      "mode": "generated",
+      "name": "Feedback",
+      "bodyKind": "json",
+      "output": "bruno/CustomRAGAgent/Feedback/feedback.bru",
+      "seq": 1
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/documents/source",
+      "mode": "generated",
+      "name": "Delete Document Source",
+      "bodyKind": "none",
+      "output": "bruno/CustomRAGAgent/Documents/delete-source.bru",
+      "seq": 2
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/sources",
+      "mode": "generated",
+      "name": "List Document Sources",
+      "bodyKind": "none",
+      "output": "bruno/CustomRAGAgent/Documents/list-sources.bru",
+      "seq": 3
+    },
+    {
+      "method": "POST",
+      "path": "/api/documents/upload",
+      "mode": "generated",
+      "name": "Upload Documents",
+      "bodyKind": "multipart-form",
+      "output": "bruno/CustomRAGAgent/Documents/upload.bru",
+      "seq": 1
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/threads/{thread_id}",
+      "mode": "generated",
+      "name": "Delete Thread",
+      "bodyKind": "none",
+      "output": "bruno/CustomRAGAgent/Chat/delete-thread.bru",
+      "seq": 4
+    }
+  ]
+}

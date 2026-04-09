@@ -1,0 +1,30 @@
+meta {
+  name: Chat JSON
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/chat
+  body: json
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "model": "{{defaultModel}}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What documents mention Oracle vector search?"
+      }
+    ],
+    "stream": false,
+    "thread_id": "{{threadId}}",
+    "session_id": "{{sessionId}}",
+    "collection_name": "{{defaultCollection}}"
+  }
+}

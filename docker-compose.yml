@@ -1,0 +1,137 @@
+networks:
+  rag-network:
+    name: rag-network
+    driver: bridge
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: custom-rag-agent-backend:latest
+    container_name: rag-backend
+    networks:
+      - rag-network
+    ports:
+      - "3002:3002"
+    # So backend in Docker can reach MCP (or other services) on host via host.docker.internal (Mac/Win have it; Linux needs this)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3002
+      - VECTOR_WALLET_DIR=/app/wallet
+      - OCI_KEY_FILE=/run/secrets/oci_api_key
+      # OTLP: in Docker use collector hostname so backend can reach it (start observability profile for otel-collector)
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://otel-collector:4318/v1/logs
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://otel-collector:4318/v1/traces
+      # Langfuse: when Langfuse stack uses same network (rag-network), use service name; internal port is 3000
+      - LANGFUSE_HOST=http://langfuse-web:3000
+      - MCP_USE_ANONYMIZED_TELEMETRY=false
+      - SCARF_NO_ANALYTICS=true
+      - DO_NOT_TRACK=true
+      - POSTHOG_DISABLED=true
+    secrets:
+      - oci_api_key
+    env_file:
+      - .env
+    volumes:
+      - ./local-config:/app/local-config:ro
+      - ./local-config/wallet:/app/wallet:ro
+      - ./local-data:/app/.local-data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3002/health', timeout=10)",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: custom-rag-agent-frontend:latest
+    container_name: rag-frontend
+    networks:
+      - rag-network
+    ports:
+      - "4000:3000"
+    environment:
+      - FASTAPI_BACKEND_URL=http://backend:3002
+      - NODE_ENV=production
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Observability stack (optional). Start with: docker compose --profile observability up
+  # Disable by omitting the profile. Set ENABLE_OBSERVABILITY_STACK=False in config to avoid starting from run_api.sh.
+  loki:
+    image: grafana/loki:3.6.5
+    container_name: loki
+    command: -config.file=/etc/loki/loki.yaml
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/loki.yaml:ro
+    ports:
+      - "3100:3100"
+    networks:
+      - rag-network
+    restart: unless-stopped
+    profiles:
+      - observability
+
+  tempo:
+    image: grafana/tempo:2.10.0
+    container_name: tempo
+    command: -config.file=/etc/tempo/tempo.yaml
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo/tempo.yaml:ro
+    ports:
+      - "3200:3200"
+    networks:
+      - rag-network
+    restart: unless-stopped
+    profiles:
+      - observability
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.145.0
+    container_name: otel-collector
+    command: ["--config", "/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4318:4318"
+    networks:
+      - rag-network
+    depends_on:
+      - loki
+      - tempo
+    restart: unless-stopped
+    profiles:
+      - observability
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3051:3000"
+    volumes:
+      - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    networks:
+      - rag-network
+    restart: unless-stopped
+    profiles:
+      - observability
+
+secrets:
+  oci_api_key:
+    file: ./local-config/oci_api_key.pem

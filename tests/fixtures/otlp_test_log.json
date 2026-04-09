@@ -1,0 +1,24 @@
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "rag-api"}}
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": {"name": "test", "version": "1.0.0"},
+          "logRecords": [
+            {
+              "timeUnixNano": "1758112881118549000",
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "body": {"stringValue": "OCI CLI test log from custom-rag-agent-app"}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

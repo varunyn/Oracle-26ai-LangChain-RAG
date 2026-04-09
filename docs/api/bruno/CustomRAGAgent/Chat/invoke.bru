@@ -1,0 +1,20 @@
+meta {
+  name: Invoke
+  type: http
+  seq: 3
+}
+
+post {
+  url: {baseUrl}/invoke
+  body: json
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+{
+  "user_input": "What documents mention Oracle vector search?"
+}
+}

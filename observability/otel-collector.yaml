@@ -1,0 +1,35 @@
+# OTLP receiver: API on host sends to localhost:4318 (Docker maps to collector)
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  # Logs: Loki 3.x native OTLP (loki exporter was removed from contrib in 0.145).
+  # Loki can be slow to respond (~15s); increase timeout so collector does not drop logs.
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    timeout: 30s
+  # Traces to Tempo (gRPC) - per Grafana Tempo docs
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+service:
+  telemetry:
+    logs:
+      level: debug
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo]

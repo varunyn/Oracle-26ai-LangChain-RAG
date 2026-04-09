@@ -1,0 +1,29 @@
+# Used when building backend (context: .). Reduces context size and avoids copying secrets.
+.git
+.gitignore
+.dockerignore
+*.md
+!README.md
+.env
+.env.*
+config.py
+.venv
+__pycache__
+*.py[cod]
+*.so
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+# Frontend not needed for backend image
+frontend
+# Optional: keep tests out of image to shrink it (uncomment if you want tests in image)
+# tests
+# Docs and images not needed at runtime
+docs
+images
+*.png
+*.jpg
+.cursor
+run_api.sh
