@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from typing import Any, TypedDict, cast
 
+from api.settings import get_settings
+
 from .direct_mcp_tools import get_mcp_tool_metadata, get_mcp_tool_metadata_async
+from .oci_models import get_embedding_model
 
 
 class ToolDescriptor(TypedDict):
@@ -27,6 +31,68 @@ class ToolSelectionResult(TypedDict):
     total_tools: int
     selection_failed: bool
     failure: ToolSelectionFailure | None
+
+
+def _schema_terms(input_schema: Mapping[str, Any]) -> list[str]:
+    terms: list[str] = []
+    properties = input_schema.get("properties")
+    if isinstance(properties, Mapping):
+        for key, value in properties.items():
+            terms.append(str(key))
+            if isinstance(value, Mapping):
+                title = value.get("title")
+                description = value.get("description")
+                if isinstance(title, str) and title.strip():
+                    terms.append(title.strip())
+                if isinstance(description, str) and description.strip():
+                    terms.append(description.strip())
+    required = input_schema.get("required")
+    if isinstance(required, Sequence) and not isinstance(required, (str, bytes)):
+        for item in required:
+            if isinstance(item, str) and item.strip():
+                terms.append(item.strip())
+    return terms
+
+
+def _descriptor_text(descriptor: ToolDescriptor) -> str:
+    parts = [
+        descriptor["canonical_name"],
+        descriptor["tool_name"],
+        descriptor["server_key"],
+        descriptor["description"],
+        *_schema_terms(descriptor["input_schema"]),
+    ]
+    return "\n".join(part for part in parts if part)
+
+
+def _cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    numerator = sum(a * b for a, b in zip(left, right, strict=False))
+    left_norm = math.sqrt(sum(a * a for a in left))
+    right_norm = math.sqrt(sum(b * b for b in right))
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return numerator / (left_norm * right_norm)
+
+
+def _rank_descriptors(question: str, descriptors: list[ToolDescriptor]) -> list[ToolDescriptor]:
+    if not question.strip() or not descriptors:
+        return []
+
+    embeddings = get_embedding_model(get_settings().EMBED_MODEL_TYPE)
+    question_embedding = embeddings.embed_query(question)
+    scored: list[tuple[float, ToolDescriptor]] = []
+    threshold = 0.25
+
+    for descriptor in descriptors:
+        descriptor_embedding = embeddings.embed_query(_descriptor_text(descriptor))
+        score = _cosine_similarity(question_embedding, descriptor_embedding)
+        if score >= threshold:
+            scored.append((score, descriptor))
+
+    scored.sort(key=lambda item: (item[0], item[1]["canonical_name"]), reverse=True)
+    return [descriptor for _, descriptor in scored]
 
 
 def _normalize_descriptor(raw: Mapping[str, Any]) -> ToolDescriptor | None:
@@ -123,8 +189,8 @@ async def select_mcp_tools_for_question_async(
             continue
         descriptors.append(descriptor)
 
-    descriptors.sort(key=lambda item: item["canonical_name"])
-    selected = _apply_limit(descriptors, limit)
+    ranked = _rank_descriptors(question, descriptors)
+    selected = _apply_limit(ranked, limit)
 
     return _build_result(
         question=question,
@@ -164,8 +230,8 @@ def select_mcp_tools_for_question(
             continue
         descriptors.append(descriptor)
 
-    descriptors.sort(key=lambda item: item["canonical_name"])
-    selected = _apply_limit(descriptors, limit)
+    ranked = _rank_descriptors(question, descriptors)
+    selected = _apply_limit(ranked, limit)
 
     return _build_result(
         question=question,

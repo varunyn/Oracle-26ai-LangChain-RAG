@@ -114,3 +114,56 @@ def test_select_mcp_tools_for_question_sync_matches_async(monkeypatch):
     )
 
     assert sync_result == async_result
+
+
+def test_select_mcp_tools_for_question_async_returns_no_tools_when_metadata_is_irrelevant(
+    monkeypatch,
+):
+    selector_mod = importlib.import_module("rag_agent.infrastructure.tool_selection")
+
+    async def fake_get_mcp_tool_metadata_async(*, server_keys=None, run_config=None):
+        return [
+            {
+                "canonical_name": "docs.install",
+                "tool_name": "install",
+                "server_key": "docs",
+                "description": "Install and configure the OpenCode CLI on macOS systems",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"platform": {"type": "string"}},
+                },
+            },
+            {
+                "canonical_name": "docs.proxy",
+                "tool_name": "proxy",
+                "server_key": "docs",
+                "description": "Troubleshoot npm proxy and SSL configuration issues",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"host": {"type": "string"}},
+                },
+            },
+        ]
+
+    class FakeEmbeddings:
+        def embed_query(self, text: str) -> list[float]:
+            if text == "Solve the following equation: x^2 - 5x + 6 = 0 use tools":
+                return [1.0, 0.0]
+            return [0.0, 1.0]
+
+    monkeypatch.setattr(
+        selector_mod,
+        "get_mcp_tool_metadata_async",
+        fake_get_mcp_tool_metadata_async,
+    )
+    monkeypatch.setattr(selector_mod, "get_embedding_model", lambda *args, **kwargs: FakeEmbeddings())
+
+    result = asyncio.run(
+        selector_mod.select_mcp_tools_for_question_async(
+            "Solve the following equation: x^2 - 5x + 6 = 0 use tools",
+            limit=5,
+        )
+    )
+
+    assert result["selection_failed"] is False
+    assert result["selected_tools"] == []
