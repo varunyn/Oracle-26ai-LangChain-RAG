@@ -256,3 +256,8 @@ graph TD;
 
 - [FastMCP Documentation](https://gofastmcp.com/getting-started/welcome)
 - [MCP Protocol Specification](https://modelcontextprotocol.io/)
+# Code mode runtime gate
+
+Code mode is now gated behind `CODE_MODE_ENABLED` and is **disabled by default**. The active `/api/chat`
+MCP path uses direct MCP tool binding; code mode remains optional infrastructure for separate runtime/server
+paths and legacy tests.

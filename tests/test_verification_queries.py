@@ -19,6 +19,8 @@ from urllib.parse import urlparse, urlunparse
 
 import pytest
 
+from api.settings import get_settings
+
 # Import after path is set (conftest / project root); API adds project root to path
 
 os.environ.setdefault("LANGFUSE_TRACING_ENVIRONMENT", "development")
@@ -80,7 +82,7 @@ except ImportError:
 # Fixed set of verification queries: tool-heavy, RAG-heavy, tool-heavy
 VERIFICATION_QUERIES = [
     "Solve the following equation: x^2 - 5x + 6 = 0",
-    "how to config oci cli in linux",
+    "How do I integrate my visual application with a Git repository?",
     "Calculate the integral of x^2 * e^x.",
 ]
 
@@ -212,6 +214,9 @@ _code_mode_client_ready: bool | None = None
 def _ensure_code_mode_client() -> bool:
     global _code_mode_client_ready
     if _code_mode_client_ready is not None:
+        return _code_mode_client_ready
+    if not get_settings().CODE_MODE_ENABLED:
+        _code_mode_client_ready = False
         return _code_mode_client_ready
     if init_code_mode_client is None or get_code_mode_client is None:
         _code_mode_client_ready = False
