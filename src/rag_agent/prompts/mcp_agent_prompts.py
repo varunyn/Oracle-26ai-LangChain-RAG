@@ -17,6 +17,8 @@ Tool usage:
 - Always pass arguments as structured tool-call arguments that match the tool schema.
 - Before calling a tool, think step-by-step and pick the single most relevant tool (or minimal set) for the next step.
 - If several tools seem similar, pick the one that best matches the user's intent.
+- After one successful tool call, answer the user directly from the tool result unless another different tool is clearly needed.
+- Do not call the same tool again with the same arguments after a successful result.
 - For CLIs wrapped by a tool: if the server runs a main command (e.g. "oci"), pass only the subcommand and args (e.g. command="os ns get --output json"); use the tool description or a help tool to confirm.
 - Do not expose internal server names, tool IDs, or schema details in your reply; refer to actions in natural language (e.g. "I'll look up your compartments.").
 
