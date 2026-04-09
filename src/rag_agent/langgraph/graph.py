@@ -43,8 +43,13 @@ def route_after_router(state: State) -> Literal["followup", "select_mcp", "direc
     return "followup" if route == "search" else route
 
 
-def route_after_followup_interpreter(state: State) -> Literal["search", "reformat"]:
-    return "reformat" if (state.get("followup_intent") or "").strip() == "reformat" else "search"
+def route_after_followup_interpreter(state: State) -> Literal["search", "reformat", "select_mcp"]:
+    intent = (state.get("followup_intent") or "").strip()
+    if intent == "reformat":
+        return "reformat"
+    if intent == "mcp_followup":
+        return "select_mcp"
+    return "search"
 
 
 def route_after_search(state: State) -> Literal["error", "rerank"]:
@@ -175,7 +180,7 @@ def create_workflow(
     workflow.add_conditional_edges(
         "FollowUpInterpreter",
         route_after_followup_interpreter,
-        {"search": "Search", "reformat": "GroundedReformatAnswer"},
+        {"search": "Search", "reformat": "GroundedReformatAnswer", "select_mcp": "SelectMCPTools"},
     )
     workflow.add_edge("SelectMCPTools", "CallMCPTools")
     workflow.add_edge("CallMCPTools", "DraftAnswer")

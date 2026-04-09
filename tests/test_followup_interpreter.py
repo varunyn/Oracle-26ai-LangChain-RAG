@@ -88,6 +88,69 @@ def test_followup_interpreter_rewrites_contextual_followup_for_retrieval() -> No
     assert result["response_instruction"] is None
 
 
+def test_followup_interpreter_uses_mcp_answer_as_latest_grounded_answer() -> None:
+    from src.rag_agent.langgraph.nodes.followup_interpreter import FollowUpInterpreter
+
+    interpreter = FollowUpInterpreter()
+    captured_prompt: dict[str, str] = {}
+
+    mock_llm = MagicMock()
+
+    def fake_invoke(messages, config=None):
+        _ = config
+        captured_prompt["content"] = messages[0].content
+        return MagicMock(
+            content='{"intent":"reformat","standalone_question":null,"response_instruction":"Restate the result plainly.","reasoning":"The user is asking for the previous tool result in plain language."}'
+        )
+
+    mock_llm.invoke.side_effect = fake_invoke
+
+    state: State = {
+        "user_request": "ok and what's the answer?",
+        "messages": [
+            HumanMessage(content="Solve the equation x^2 - 5x + 6 = 0 use tools"),
+            AIMessage(content='calculator.solve_equation(equation="x**2 - 5*x + 6 = 0")'),
+            HumanMessage(content="ok and what's the answer?"),
+        ],
+        "history_text": "human: Solve the equation x^2 - 5x + 6 = 0 use tools\nai: calculator.solve_equation(equation=\"x**2 - 5*x + 6 = 0\")\nhuman: ok and what's the answer?",
+        "mcp_answer": "The solutions are x = 2 and x = 3.",
+    }
+
+    with patch("src.rag_agent.langgraph.nodes.followup_interpreter.get_llm", return_value=mock_llm):
+        result = interpreter.invoke(
+            state, config={"configurable": {"model_id": "meta.llama-4-scout-17b-16e-instruct"}}
+        )
+
+    assert "Latest grounded answer: The solutions are x = 2 and x = 3." in captured_prompt["content"]
+    assert result["followup_intent"] == "reformat"
+
+
+def test_followup_interpreter_parse_failure_routes_mcp_followup_when_mcp_answer_exists() -> None:
+    from src.rag_agent.langgraph.nodes.followup_interpreter import FollowUpInterpreter
+
+    interpreter = FollowUpInterpreter()
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value = MagicMock(content="not json")
+
+    state: State = {
+        "user_request": "ok and what's the answer?",
+        "messages": [],
+        "history_text": "human: Solve the equation\nai: calculator.solve_equation(...)\nhuman: ok and what's the answer?",
+        "mcp_answer": "The solutions are x = 2 and x = 3.",
+        "mode": "mixed",
+        "mcp_tool_match": True,
+    }
+
+    with patch("src.rag_agent.langgraph.nodes.followup_interpreter.get_llm", return_value=mock_llm):
+        result = interpreter.invoke(
+            state, config={"configurable": {"model_id": "meta.llama-4-scout-17b-16e-instruct"}}
+        )
+
+    assert result["followup_intent"] == "mcp_followup"
+    assert result["standalone_question"] is None
+    assert result["response_instruction"] is None
+
+
 def test_grounded_reformat_answer_uses_existing_grounded_answer_without_retrieval() -> None:
     from src.rag_agent.langgraph.nodes.followup_interpreter import GroundedReformatAnswer
 

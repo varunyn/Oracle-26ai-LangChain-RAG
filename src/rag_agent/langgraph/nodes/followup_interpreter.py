@@ -28,7 +28,7 @@ Decide how the latest user request should be handled.
 
 Return ONLY a JSON object with this exact schema:
 {{
-  "intent": "retrieve" | "reformat",
+  "intent": "retrieve" | "reformat" | "mcp_followup",
   "standalone_question": string | null,
   "response_instruction": string | null,
   "reasoning": string
@@ -39,6 +39,8 @@ Rules:
 - For intent="retrieve", rewrite the latest user request into a standalone retrieval-ready question using the chat history when necessary.
 - Use intent="reformat" when the user is asking to transform, restyle, retry, summarize, bulletize, shorten, translate, or otherwise re-present the most recent grounded answer without needing new retrieval.
 - For intent="reformat", set standalone_question to null and describe the presentation change in response_instruction.
+- Use intent="mcp_followup" when the user is following up on a recent tool/computation turn and the answer should come from continuing the MCP/tool path rather than retrieval.
+- For intent="mcp_followup", set standalone_question to null and response_instruction to null.
 - Do not hardcode phrase checks; decide from the conversation context.
 - Keep reasoning short.
 
@@ -72,7 +74,7 @@ def _parse_followup_interpretation(raw_content: str) -> FollowUpInterpretation:
         raise ValueError("Follow-up interpreter returned non-object JSON")
 
     intent = str(parsed.get("intent") or "").strip().lower()
-    if intent not in {"retrieve", "reformat"}:
+    if intent not in {"retrieve", "reformat", "mcp_followup"}:
         raise ValueError(f"Unsupported follow-up intent: {intent}")
 
     standalone_question_value = parsed.get("standalone_question")
@@ -117,7 +119,12 @@ class FollowUpInterpreter(Runnable[State, dict[str, object | None]]):
         user_request = str(input.get("user_request") or "").strip()
         history_text = str(input.get("history_text") or "").strip()
         latest_answer = str(
-            input.get("final_answer") or input.get("rag_answer") or input.get("direct_answer") or ""
+            input.get("latest_answer")
+            or input.get("final_answer")
+            or input.get("mcp_answer")
+            or input.get("rag_answer")
+            or input.get("direct_answer")
+            or ""
         ).strip()
 
         prompt = PromptTemplate.from_template(FOLLOWUP_INTERPRETER_PROMPT_TEMPLATE)
@@ -145,6 +152,21 @@ class FollowUpInterpreter(Runnable[State, dict[str, object | None]]):
                 "response_instruction": interpretation["response_instruction"],
             }
         except Exception as exc:  # noqa: BLE001
+            mcp_answer = str(input.get("mcp_answer") or input.get("latest_answer") or "").strip()
+            is_mixed = (str(input.get("mode") or "").strip().lower() == "mixed")
+            if is_mixed and input.get("mcp_tool_match") and mcp_answer:
+                logger.warning(
+                    "FollowUpInterpreter failed, defaulting to mcp_followup: %s",
+                    exc,
+                )
+                duration_ms = (time.perf_counter() - t0) * 1000
+                log_node_end("FollowUpInterpreter", duration_ms=duration_ms, intent="mcp_followup")
+                return {
+                    "followup_intent": "mcp_followup",
+                    "standalone_question": None,
+                    "response_instruction": None,
+                }
+
             logger.warning("FollowUpInterpreter failed, defaulting to retrieve: %s", exc)
             duration_ms = (time.perf_counter() - t0) * 1000
             log_node_end("FollowUpInterpreter", duration_ms=duration_ms, intent="retrieve")
@@ -211,6 +233,7 @@ class GroundedReformatAnswer(Runnable[State, dict[str, object]]):
         return {
             "rag_answer": result_answer,
             "rag_has_citations": "[" in result_answer and "]" in result_answer,
+            "latest_answer": result_answer,
             "context_usage": context_usage,
         }
 

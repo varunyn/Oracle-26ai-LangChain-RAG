@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Sequence
 from typing import Any, cast
@@ -20,6 +21,13 @@ from ...utils.context_window import (
 )
 
 logger = logging.getLogger(__name__)
+
+_RAW_TOOL_CALL_PATTERN = re.compile(r"^[\w\.]+\s*\([^)]*\)$")
+
+
+def _looks_like_unresolved_tool_call(text: str) -> bool:
+    candidate = text.strip()
+    return bool(candidate) and len(candidate) <= 200 and bool(_RAW_TOOL_CALL_PATTERN.fullmatch(candidate))
 
 
 class SelectMCPTools(Runnable[State, dict[str, object]]):
@@ -52,7 +60,14 @@ class SelectMCPTools(Runnable[State, dict[str, object]]):
         max_rounds = run_config.get("configurable", {}).get("max_rounds", 2)
         logger.debug("SelectMCPTools: round=%d, max_rounds=%d", round_val + 1, max_rounds)
         log_node_end("SelectMCPTools", round=round_val + 1, max_rounds=max_rounds)
-        return {"round": round_val + 1, "max_rounds": max_rounds}
+        return {
+            "round": round_val + 1,
+            "max_rounds": max_rounds,
+            "selected_mcp_tool_names": list(input.get("selected_mcp_tool_names") or []),
+            "selected_mcp_tool_descriptions": list(
+                input.get("selected_mcp_tool_descriptions") or []
+            ),
+        }
 
 
 def _ensure_message_list(messages_in: Sequence[object]) -> list[HumanMessage | AIMessage]:
@@ -180,10 +195,23 @@ class CallMCPTools(Runnable[State, dict[str, object]]):
         log_node_end(
             "CallMCPTools", duration_ms=duration_ms, tools_used_count=len(tools_used or [])
         )
+        if not tools_used and _looks_like_unresolved_tool_call(answer or ""):
+            logger.warning("CallMCPTools: unresolved textual tool call rejected: %s", answer)
+            return {
+                "mcp_answer": "",
+                "mcp_tools_used": [],
+                "mcp_used": False,
+                "latest_answer": "",
+                "error": "Unresolved MCP tool call. Please try again.",
+                "context_usage": _compute_context_usage(
+                    question, history_messages, model_id, history_text
+                ),
+            }
         return {
             "mcp_answer": answer or "",
             "mcp_tools_used": tools_used or [],
             "mcp_used": bool(tools_used),
+            "latest_answer": answer or "",
             "context_usage": _compute_context_usage(
                 question, history_messages, model_id, history_text
             ),
@@ -281,6 +309,7 @@ class CallMCPTools(Runnable[State, dict[str, object]]):
             "mcp_answer": answer or "",
             "mcp_tools_used": tools_used or [],
             "mcp_used": bool(tools_used),
+            "latest_answer": answer or "",
             "context_usage": _compute_context_usage(
                 question, history_messages, model_id, history_text
             ),

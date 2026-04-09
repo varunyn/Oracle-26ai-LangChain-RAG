@@ -10,6 +10,7 @@ import pytest
 from httpx import ASGITransport
 from langchain_core.messages import AnyMessage
 from pytest import MonkeyPatch
+from src.rag_agent.agent_state import State
 
 
 @pytest.fixture()
@@ -218,6 +219,9 @@ def test_new_turn_resets_stale_standalone_question_before_search(
             def __init__(self) -> None:
                 self.captured_state: State | None = None
 
+            def get_state_values(self, _run_config: dict[str, object]) -> dict[str, object] | None:
+                return None
+
             def invoke(self, state: State, _run_config: dict[str, object]) -> State:
                 self.captured_state = state
                 messages = cast(Sequence[AnyMessage], state.get("messages") or [])
@@ -269,3 +273,31 @@ def test_new_turn_resets_stale_standalone_question_before_search(
         assert captured_state.get("history_text") is None
 
     asyncio.run(run())
+
+
+def test_fresh_turn_state_preserves_selected_mcp_tool_names_from_history_state() -> None:
+    from api.routes.chat import _fresh_turn_state
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    chat_history = [
+        HumanMessage(content="Solve the following equation: x^2 - 5x + 6 = 0"),
+        AIMessage(content="intermediate answer"),
+    ]
+
+    state = _fresh_turn_state(
+        "what's the answer?",
+        chat_history,
+        previous_state=cast(
+            State,
+            cast(
+                object,
+                {
+                    "selected_mcp_tool_names": ["calculator.solve_equation"],
+                    "selected_mcp_tool_descriptions": ["Solve equations"],
+                },
+            ),
+        ),
+    )
+
+    assert state.get("selected_mcp_tool_names") == ["calculator.solve_equation"]
+    assert state.get("selected_mcp_tool_descriptions") == ["Solve equations"]

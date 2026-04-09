@@ -1,4 +1,5 @@
 import importlib
+from typing import cast
 
 from src.rag_agent.agent_state import State
 
@@ -127,3 +128,13 @@ def test_router_rag_mode_routes_search():
 
     assert out["route"] == "search"
     assert out["mode"] == "rag"
+
+
+def test_route_after_followup_interpreter_routes_mcp_followup_to_select_mcp():
+    graph_mod = importlib.import_module("src.rag_agent.langgraph.graph")
+
+    route = graph_mod.route_after_followup_interpreter(
+        cast(State, cast(object, {"followup_intent": "mcp_followup"}))
+    )
+
+    assert route == "select_mcp"
