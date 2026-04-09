@@ -12,8 +12,53 @@ from unittest.mock import patch
 from langchain_core.runnables.config import RunnableConfig
 
 from src.rag_agent.agent_state import State
+from src.rag_agent.langgraph.nodes.answer_generator import AnswerFromDocs
 from src.rag_agent.langgraph.nodes.answer_generator import DraftAnswer
 from src.rag_agent.langgraph.nodes.mixed import CallMCPTools
+
+
+def test_route_after_answer_from_docs_mixed_falls_back_when_citations_are_ungrounded():
+    graph_mod = importlib.import_module("src.rag_agent.langgraph.graph")
+    answer_node = AnswerFromDocs()
+
+    state: State = {
+        "user_request": "Solve the following equation: x^2 - 5x + 6 = 0 use tools",
+        "messages": [],
+        "mode": "mixed",
+        "mcp_tool_match": True,
+        "reranker_docs": [
+            {
+                "page_content": "Install OpenCode CLI on macOS.",
+                "metadata": {"source": "opencode.md", "page": 1},
+            }
+        ],
+        "citations": [{"source": "opencode.md", "page": 1}],
+    }
+
+    def fake_try_structured_path(
+        llm: object,
+        the_question: str,
+        context: str,
+        chat_history_text: str,
+        num_sources: int,
+        run_config: RunnableConfig,
+    ) -> str | None:
+        _ = (llm, the_question, context, chat_history_text, num_sources, run_config)
+        return "The solutions are x = 2 and x = 3 [1]."
+
+    with patch.object(answer_node, "_try_structured_path", side_effect=fake_try_structured_path), patch(
+        "src.rag_agent.langgraph.nodes.answer_generator.get_llm",
+        return_value=object(),
+    ):
+        answer_state = answer_node.invoke(state)
+
+    assert answer_state["rag_has_citations"] is False
+
+    combined_state = {**state, **answer_state}
+
+    route = graph_mod.route_after_answer_from_docs(combined_state)
+
+    assert route == "select_mcp"
 
 
 def test_draft_answer_rag_not_substantive_mcp_substantive():
@@ -189,6 +234,9 @@ def test_call_mcp_tools_mixed_uses_selected_tools(monkeypatch):
     assert result["mcp_answer"] == "tool answer"
     assert result["mcp_tools_used"] == ["math.solve"]
     assert result["mcp_used"] is True
+    assert result["latest_answer"] == "tool answer"
+
+
 
 
 def _make_state(user_request: str = "question", mode: str = "mixed") -> dict[str, object]:

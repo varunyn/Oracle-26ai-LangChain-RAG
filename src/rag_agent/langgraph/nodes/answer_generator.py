@@ -30,10 +30,7 @@ from ...agent_state import State
 from ...core.node_logging import log_node_end, log_node_start
 from ...infrastructure.oci_models import get_llm
 from ...prompts import ANSWER_STRUCTURED_PROMPT_TEMPLATE
-from ...schemas import (
-    StructuredRAGAnswer,
-    validate_structured_markdown_answer,
-)
+from ...schemas import StructuredRAGAnswer, extract_inline_citation_ids, validate_structured_markdown_answer
 from ...utils.context_window import (
     calculate_context_usage,
     log_context_usage,
@@ -62,6 +59,33 @@ logger = logging.getLogger(__name__)
 
 STRUCTURED_FAILED_MESSAGE = "**I couldn't generate a cited answer. Please try again.**"
 REMOVE_ALL_MESSAGES_ID = "__remove_all__"
+
+
+def _is_rag_answer_grounded(answer: str, docs: list[object]) -> bool:
+    citation_ids = extract_inline_citation_ids(answer)
+    if not citation_ids:
+        return False
+
+    normalized_answer = re.sub(r"\[\d+\]", " ", answer.lower())
+    answer_terms = {term for term in re.findall(r"[a-z0-9]+", normalized_answer) if len(term) >= 3}
+    if not answer_terms:
+        return False
+
+    for citation_id in citation_ids:
+        index = citation_id - 1
+        if index < 0 or index >= len(docs):
+            return False
+        doc = docs[index]
+        if isinstance(doc, dict):
+            content = str(doc.get("page_content", "")).strip()
+        else:
+            content = str(getattr(doc, "page_content", "")).strip()
+        if not content:
+            return False
+        doc_terms = {term for term in re.findall(r"[a-z0-9]+", content.lower()) if len(term) >= 3}
+        if not answer_terms.intersection(doc_terms):
+            return False
+    return True
 
 
 class AnswerFromDocs(Runnable[State, dict[str, object]]):
@@ -223,7 +247,8 @@ class AnswerFromDocs(Runnable[State, dict[str, object]]):
         return {
             "rag_answer": rag_answer or "",
             "rag_context": context,
-            "rag_has_citations": bool(re.search(r"\[\d+\]", rag_answer or "")),
+            "rag_has_citations": _is_rag_answer_grounded(rag_answer or "", docs),
+            "latest_answer": rag_answer or "",
             "citations": citations,
             "context_usage": context_usage,
         }
