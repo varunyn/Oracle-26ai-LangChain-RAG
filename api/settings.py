@@ -159,6 +159,7 @@ class Settings(BaseSettings):
     # MCP (client)
     # =============================================================================
     ENABLE_MCP_TOOLS: bool = True
+    CODE_MODE_ENABLED: bool = False
     MCP_SERVER_KEYS: list[str] | None = None  # .env: comma-separated e.g. "default,context7"
 
     @field_validator("MCP_SERVER_KEYS", mode="before")

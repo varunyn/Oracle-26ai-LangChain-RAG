@@ -46,7 +46,8 @@ async def create_app_resources() -> AppResources:
     create_workflow_func = cast(Callable[..., object], rag_graph.create_workflow)
     graph = create_workflow_func(checkpointer=saver)
     graph_service = GraphService(graph=graph)
-    await init_code_mode_client()
+    if settings.CODE_MODE_ENABLED:
+        await init_code_mode_client()
     return AppResources(
         settings=settings,
         graph_service=graph_service,
