@@ -9,6 +9,7 @@ OCI Gen AI does not support parallel tool calls; we process one tool call per ro
 import asyncio
 import json
 import logging
+import re
 import threading
 from collections.abc import Coroutine, Mapping, Sequence
 from typing import Protocol, cast
@@ -36,6 +37,13 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["SYSTEM_PROMPT", "SYSTEM_PROMPT_MIXED", "get_mcp_answer", "get_mcp_answer_async"]
 
+_RAW_TOOL_CALL_PATTERN = re.compile(r"^[\w\.]+\s*\([^)]*\)$")
+
+
+def _looks_like_unresolved_tool_call(text: str) -> bool:
+    candidate = text.strip()
+    return bool(candidate) and len(candidate) <= 200 and bool(_RAW_TOOL_CALL_PATTERN.fullmatch(candidate))
+
 
 class _ToolInvoker(Protocol):
     def invoke(self, tool_call: dict[str, object]) -> object: ...
@@ -54,7 +62,7 @@ class _ToolBound(Protocol):
 
 
 class _ToolBindable(Protocol):
-    def bind_tools(self, tools: Sequence[BaseTool]) -> _ToolBound: ...
+    def bind_tools(self, tools: Sequence[BaseTool], **kwargs: object) -> _ToolBound: ...
 
 
 def _message_to_langchain(m: object) -> BaseMessage | None:
@@ -185,6 +193,11 @@ def _normalize_tool_args(tc: dict[str, object]) -> dict[str, object]:
     return {**tc, "args": out}
 
 
+def _tool_call_signature(name: str, args_map: Mapping[str, object] | None) -> str:
+    payload = dict(args_map) if args_map is not None else {}
+    return f"{name}:{json.dumps(payload, sort_keys=True, default=str)}"
+
+
 def _run_coroutine_in_thread(coro: Coroutine[object, object, object]) -> object:
     result: dict[str, object] = {}
     error: dict[str, BaseException] = {}
@@ -252,11 +265,15 @@ async def _get_mcp_answer_impl(
         return "MCP tools are currently unavailable. Please try again.", []
 
     llm = cast(_ToolBindable, cast(object, get_llm(model_id=model_id)))
-    llm_with_tools = llm.bind_tools(tools)
-    tools_by_name = {t.name: t for t in tools}
-    messages = _build_messages(chat_history or [], question, tools)
+    tools_to_bind = list(tools[:1]) if require_tool_call and tools else list(tools)
+    bind_kwargs: dict[str, object] = {}
+    if require_tool_call and len(tools_to_bind) == 1:
+        bind_kwargs["tool_choice"] = "required"
+    llm_with_tools = llm.bind_tools(tools_to_bind, **bind_kwargs)
+    tools_by_name = {t.name: t for t in tools_to_bind}
+    messages = _build_messages(chat_history or [], question, tools_to_bind)
     if require_tool_call:
-        available_tools = ", ".join(t.name for t in tools)
+        available_tools = ", ".join(t.name for t in tools_to_bind)
         messages.insert(
             -1,
             SystemMessage(
@@ -269,7 +286,9 @@ async def _get_mcp_answer_impl(
         )
     tools_used: list[str] = []
     tool_call_attempts = 0
-    tool_names = [t.name for t in tools]
+    tool_names = [t.name for t in tools_to_bind]
+    last_tool_signature: str | None = None
+    last_successful_tool_result: str | None = None
     logger.debug("MCP: available tools=%s for question='%s'", tool_names, question[:100])
 
     while True:
@@ -308,6 +327,25 @@ async def _get_mcp_answer_impl(
                 if content_raw is not None
                 else ""
             )
+            if _looks_like_unresolved_tool_call(answer):
+                if require_tool_call and not tools_used and tool_call_attempts < 1:
+                    tool_call_attempts += 1
+                    messages.append(
+                        SystemMessage(
+                            content=(
+                                "Your previous response looked like a textual tool call instead of an actual "
+                                "structured tool invocation. You must call exactly one available tool using the "
+                                f"tool interface. Available tools: {', '.join(tool_names)}."
+                            )
+                        )
+                    )
+                    continue
+                if not tools_used:
+                    logger.warning("MCP: unresolved textual tool call rejected: %s", answer)
+                    return (
+                        "MCP tool call required but none was produced after retry. Please try again.",
+                        tools_used,
+                    )
             if require_tool_call and not tools_used:
                 return (
                     "MCP tool call required but none was produced after retry. Please try again.",
@@ -356,14 +394,36 @@ async def _get_mcp_answer_impl(
                 cast(Mapping[str, object], args_value) if isinstance(args_value, Mapping) else None
             )
             args_keys = list(args_map.keys()) if args_map is not None else []
+            signature = _tool_call_signature(name, args_map)
+            if signature == last_tool_signature:
+                logger.warning(
+                    "mcp_tool_repeat_detected name=%s tool_call_id=%s args_keys=%s",
+                    name,
+                    tool_call_id,
+                    args_keys,
+                )
+                if last_successful_tool_result is not None:
+                    logger.info(
+                        "mcp_answer_out answer_len=%s tools_used=%s",
+                        len(last_successful_tool_result),
+                        tools_used,
+                    )
+                    return last_successful_tool_result, tools_used
+                return (
+                    "The model repeated the same tool call without progressing. Please try again.",
+                    tools_used,
+                )
             logger.info(
                 "mcp_tool_call name=%s tool_call_id=%s args_keys=%s", name, tool_call_id, args_keys
             )
             try:
                 result = await _invoke_tool_async(tool, tc)
+                last_tool_signature = signature
                 content = _tool_result_to_content(result)
+                last_successful_tool_result = content
                 if name not in tools_used:
                     tools_used.append(name)
+                    llm_with_tools = llm.bind_tools(tools_to_bind)
                 messages.append(ToolMessage(content=content, tool_call_id=tool_call_id, name=name))
             except Exception as e:
                 logger.warning("mcp_tool_error name=%s error=%s", name, e)
