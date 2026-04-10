@@ -112,6 +112,21 @@ def _rrf_fuse(vector_docs: list[Document], text_docs: list[Document], top_k: int
     return [doc_map[key] for key, _ in ordered[: max(1, int(top_k))]]
 
 
+def _matches_metadata_filters(doc: Document, metadata_filters: dict[str, object]) -> bool:
+    for key, expected in metadata_filters.items():
+        if doc.metadata.get(key) != expected:
+            return False
+    return True
+
+
+def _apply_metadata_filters(
+    docs: list[Document], metadata_filters: dict[str, object] | None
+) -> list[Document]:
+    if not metadata_filters:
+        return docs
+    return [doc for doc in docs if _matches_metadata_filters(doc, metadata_filters)]
+
+
 def search_documents(
     conn: oracledb.Connection,
     collection_name: str,
@@ -119,21 +134,24 @@ def search_documents(
     query: str,
     top_k: int,
     search_mode: str,
+    metadata_filters: dict[str, object] | None = None,
 ) -> list[Document]:
     mode = normalize_search_mode(search_mode)
     k = max(1, int(top_k))
 
     if mode == "text":
-        return _text_search_docs(conn, collection_name, query, k)
+        return _apply_metadata_filters(_text_search_docs(conn, collection_name, query, k), metadata_filters)[:k]
 
     v_store = get_oracle_vs(conn=conn, collection_name=collection_name, embed_model=embed_model)
     if mode == "vector":
-        return cast(list[Document], v_store.similarity_search(query=query, k=k))
+        docs = cast(list[Document], v_store.similarity_search(query=query, k=max(k * 2, 6)))
+        return _apply_metadata_filters(docs, metadata_filters)[:k]
 
     vector_docs = cast(list[Document], v_store.similarity_search(query=query, k=max(k * 2, 6)))
     text_docs = _text_search_docs(conn, collection_name, query, max(k * 2, 6))
     if not vector_docs:
-        return text_docs[:k]
+        return _apply_metadata_filters(text_docs, metadata_filters)[:k]
     if not text_docs:
-        return vector_docs[:k]
-    return _rrf_fuse(vector_docs, text_docs, k)
+        return _apply_metadata_filters(vector_docs, metadata_filters)[:k]
+    fused = _rrf_fuse(vector_docs, text_docs, max(k * 2, 6))
+    return _apply_metadata_filters(fused, metadata_filters)[:k]
