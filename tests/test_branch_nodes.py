@@ -145,7 +145,11 @@ def test_run_rag_retrieve_docs_v2_forwards_filters_and_top_k(
     monkeypatch.setattr("src.rag_agent.langgraph.nodes.run_rag.search_documents", fake_search_documents)
 
     result = node._retrieve_docs_v2(
-        {"standalone_question": "What does --namespace-name do?", "user_request": "What does --namespace-name do?"},
+        {
+            "standalone_question": "What does --namespace-name do?",
+            "user_request": "What does --namespace-name do?",
+            "messages": [],
+        },
         config={
             "configurable": {
                 "collection_name": "docs",

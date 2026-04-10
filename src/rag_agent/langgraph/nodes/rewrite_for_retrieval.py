@@ -148,7 +148,7 @@ class RewriteForRetrieval:
                 parsed = self._parse_json_object(content)
 
             normalized = self._normalize_rewrite_decision(parsed, fallback=deterministic)
-            return normalized["standalone_question"], normalized
+            return str(normalized["standalone_question"]), normalized
         except Exception as exc:  # noqa: BLE001
             logger.warning("Retrieval rewrite refinement failed; using deterministic fallback: %s", exc)
             fallback = self._fallback_metadata(deterministic)
