@@ -119,6 +119,49 @@ def test_run_rag_build_run_config_maps_keyword_to_text() -> None:
     assert configurable["metadata_filters"] == {"language": "en"}
 
 
+def test_run_rag_retrieve_docs_v2_forwards_filters_and_top_k(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = RunRAG()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("src.rag_agent.langgraph.nodes.run_rag.get_embedding_model", lambda *_args: object())
+
+    class DummyConn:
+        def __enter__(self) -> "DummyConn":
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            _ = exc_type
+            _ = exc
+            _ = tb
+
+    monkeypatch.setattr("src.rag_agent.langgraph.nodes.run_rag.get_pooled_connection", lambda: DummyConn())
+
+    def fake_search_documents(**kwargs: object) -> list[dict[str, object]]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr("src.rag_agent.langgraph.nodes.run_rag.search_documents", fake_search_documents)
+
+    result = node._retrieve_docs_v2(
+        {"standalone_question": "What does --namespace-name do?", "user_request": "What does --namespace-name do?"},
+        config={
+            "configurable": {
+                "collection_name": "docs",
+                "search_mode": "text",
+                "top_k": 4,
+                "metadata_filters": {"language": "en"},
+            }
+        },
+    )
+
+    assert result["retriever_docs"] == []
+    assert captured["top_k"] == 4
+    assert captured["search_mode"] == "text"
+    assert captured["metadata_filters"] == {"language": "en"}
+
+
 def test_run_mcp_preserves_protocol_order_and_records_tool_usage(monkeypatch: pytest.MonkeyPatch) -> None:
     node = RunMCP()
     state: MixedV2State = {
