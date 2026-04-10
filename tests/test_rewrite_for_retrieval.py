@@ -1,6 +1,8 @@
 from typing import cast
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
+from pydantic import BaseModel
 
 from src.rag_agent.langgraph.nodes.rewrite_for_retrieval import RewriteForRetrieval
 from src.rag_agent.langgraph.state import MixedV2State, RetrievalIntent
@@ -103,5 +105,70 @@ def test_rewrite_for_retrieval_broad_question_prefers_semantic() -> None:
     result = node(state)
 
     retrieval_intent = cast(RetrievalIntent, result["retrieval_intent"])
+    assert retrieval_intent["search_mode"] == "semantic"
+    assert retrieval_intent.get("metadata_filters") is None
+
+
+def test_rewrite_for_retrieval_contextual_followup_uses_llm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = RewriteForRetrieval()
+
+    class FakeStructuredModel:
+        def invoke(self, messages: list[object]) -> object:
+            assert len(messages) == 2
+            return {
+                "standalone_question": "How do I create an OCI bucket?",
+                "search_mode": "semantic",
+                "product_area": None,
+                "doc_version": None,
+                "language": None,
+                "top_k": None,
+                "decision_reason": "resolved pronoun from history",
+            }
+
+    class FakeLLM:
+        def with_structured_output(self, _schema: type[BaseModel]) -> FakeStructuredModel:
+            return FakeStructuredModel()
+
+    monkeypatch.setattr("src.rag_agent.langgraph.nodes.rewrite_for_retrieval.get_llm", lambda: FakeLLM())
+
+    state: MixedV2State = {
+        "user_request": "How do I create one?",
+        "messages": [
+            HumanMessage(content="Tell me about OCI buckets."),
+            AIMessage(content="OCI buckets are object storage containers."),
+            HumanMessage(content="How do I create one?"),
+        ],
+        "intent": "retrieve",
+    }
+
+    result = node(state)
+    assert result["standalone_question"] == "How do I create an OCI bucket?"
+
+
+def test_rewrite_for_retrieval_llm_failure_preserves_deterministic_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node = RewriteForRetrieval()
+
+    class FailingLLM:
+        def with_structured_output(self, _schema: type[BaseModel]) -> object:
+            raise RuntimeError("structured output unavailable")
+
+    monkeypatch.setattr("src.rag_agent.langgraph.nodes.rewrite_for_retrieval.get_llm", lambda: FailingLLM())
+
+    state: MixedV2State = {
+        "user_request": "How do I create one?",
+        "messages": [
+            HumanMessage(content="Tell me about buckets."),
+            HumanMessage(content="How do I create one?"),
+        ],
+        "intent": "retrieve",
+    }
+
+    result = node(state)
+    retrieval_intent = cast(RetrievalIntent, result["retrieval_intent"])
+    assert retrieval_intent["standalone_question"] == "How do I create one?"
     assert retrieval_intent["search_mode"] == "semantic"
     assert retrieval_intent.get("metadata_filters") is None

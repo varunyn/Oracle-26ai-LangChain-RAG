@@ -8,7 +8,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from src.rag_agent.infrastructure.oci_models import get_llm
@@ -50,44 +50,28 @@ _CONTEXTUAL_REFERENCE_PATTERN = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-_REWRITE_PROMPT = """
-You rewrite the latest user request into a standalone retrieval question.
+_REWRITE_SYSTEM_PROMPT = """
+You normalize the latest user request into retrieval intent.
 
-Goals:
-- Preserve the user's exact intent.
-- Resolve pronouns and elliptical references using recent conversation context.
-- Do not add facts not supported by the conversation.
-- If the latest user request is already standalone, return it unchanged.
-- Keep the rewritten question concise and suitable for retrieval/search.
+Return JSON with:
+- standalone_question
+- search_mode: semantic | hybrid | keyword
+- product_area: string | null
+- doc_version: string | null
+- language: string | null
+- top_k: integer | null
+- decision_reason: string
 
-Return ONLY valid JSON with this exact schema:
-{
-  "standalone_question": string,
-  "search_mode": "semantic" | "hybrid",
-  "product_area": string | null,
-  "doc_version": string | null,
-  "language": string | null,
-  "top_k": integer | null,
-  "decision_reason": string
-}
-
-Notes:
-- Only set product_area if the conversation explicitly identifies one.
-- Only set doc_version if the conversation explicitly mentions one.
-- Prefer search_mode="semantic" unless explicit metadata clearly supports hybrid.
-- top_k should usually be null unless the user explicitly asks for a count or limit.
-
-Latest user request:
-{user_request}
-
-Recent conversation:
-{history}
+Rules:
+- Use history only when needed to resolve references.
+- Do not invent metadata.
+- Preserve exact terms when they appear.
 """.strip()
 
 
 class RewriteDecisionModel(BaseModel):
     standalone_question: str = Field(min_length=1)
-    search_mode: Literal["semantic", "hybrid"] = "semantic"
+    search_mode: Literal["semantic", "hybrid", "keyword"] = "semantic"
     product_area: str | None = None
     doc_version: str | None = None
     language: str | None = None
@@ -129,9 +113,9 @@ class RewriteForRetrieval:
             return deterministic.standalone_question, self._fallback_metadata(deterministic)
 
         history = self._history_summary(messages)
-        prompt = _REWRITE_PROMPT.format(
-            user_request=user_request,
-            history=history,
+        refinement_input = (
+            f"Latest user request:\n{deterministic.standalone_question}\n\n"
+            f"Recent conversation:\n{history}\n"
         )
 
         try:
@@ -140,7 +124,12 @@ class RewriteForRetrieval:
 
             if callable(parser):
                 structured_llm = parser(RewriteDecisionModel)
-                structured = structured_llm.invoke([HumanMessage(content=prompt)])
+                structured = structured_llm.invoke(
+                    [
+                        SystemMessage(content=_REWRITE_SYSTEM_PROMPT),
+                        HumanMessage(content=refinement_input),
+                    ]
+                )
                 if isinstance(structured, RewriteDecisionModel):
                     parsed = structured.model_dump(mode="python")
                 elif isinstance(structured, Mapping):
@@ -148,7 +137,12 @@ class RewriteForRetrieval:
                 else:
                     parsed = {}
             else:
-                response = llm.invoke([HumanMessage(content=prompt)])
+                response = llm.invoke(
+                    [
+                        SystemMessage(content=_REWRITE_SYSTEM_PROMPT),
+                        HumanMessage(content=refinement_input),
+                    ]
+                )
                 raw_content = getattr(response, "content", "")
                 content = raw_content if isinstance(raw_content, str) else str(raw_content)
                 parsed = self._parse_json_object(content)
@@ -156,8 +150,10 @@ class RewriteForRetrieval:
             normalized = self._normalize_rewrite_decision(parsed, fallback=deterministic)
             return normalized["standalone_question"], normalized
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Retrieval rewrite failed; using original request: %s", exc)
-            return deterministic.standalone_question, self._fallback_metadata(deterministic)
+            logger.warning("Retrieval rewrite refinement failed; using deterministic fallback: %s", exc)
+            fallback = self._fallback_metadata(deterministic)
+            fallback["decision_reason"] = "llm refinement failed; used deterministic fallback"
+            return deterministic.standalone_question, fallback
 
     def _deterministic_intent(
         self, user_request: str, messages: Sequence[BaseMessage]
