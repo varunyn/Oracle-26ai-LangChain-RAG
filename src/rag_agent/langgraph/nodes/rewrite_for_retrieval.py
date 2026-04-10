@@ -50,20 +50,6 @@ _CONTEXTUAL_REFERENCE_PATTERN = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-_VERSION_PATTERN = re.compile(
-    r"""
-    \b
-    (?:
-        (?P<prefix>v(?:ersion)?|ver|release|rel)\s*
-        (?P<number_prefixed>\d+(?:\.\d+)*(?:\.x)?)
-        |
-        (?P<number_plain>\d+(?:\.\d+)+(?:\.x)?|\d+\.x)
-    )
-    \b
-    """,
-    re.IGNORECASE | re.VERBOSE,
-)
-
 _REWRITE_PROMPT = """
 You rewrite the latest user request into a standalone retrieval question.
 
@@ -138,8 +124,9 @@ class RewriteForRetrieval:
         user_request: str,
         messages: Sequence[BaseMessage],
     ) -> tuple[str, dict[str, object]]:
-        if not self._needs_contextual_rewrite(user_request):
-            return user_request, self._fallback_metadata(user_request)
+        deterministic = self._deterministic_intent(user_request, messages)
+        if not deterministic.needs_llm_refinement:
+            return deterministic.standalone_question, self._fallback_metadata(deterministic)
 
         history = self._history_summary(messages)
         prompt = _REWRITE_PROMPT.format(
@@ -166,11 +153,46 @@ class RewriteForRetrieval:
                 content = raw_content if isinstance(raw_content, str) else str(raw_content)
                 parsed = self._parse_json_object(content)
 
-            normalized = self._normalize_rewrite_decision(parsed, fallback=user_request)
+            normalized = self._normalize_rewrite_decision(parsed, fallback=deterministic)
             return normalized["standalone_question"], normalized
         except Exception as exc:  # noqa: BLE001
             logger.warning("Retrieval rewrite failed; using original request: %s", exc)
-            return user_request, self._fallback_metadata(user_request)
+            return deterministic.standalone_question, self._fallback_metadata(deterministic)
+
+    def _deterministic_intent(
+        self, user_request: str, messages: Sequence[BaseMessage]
+    ) -> DeterministicIntentModel:
+        _ = messages
+        normalized = _normalize_user_request(user_request)
+        top_k = _extract_top_k(normalized)
+        normalized_lower = normalized.lower()
+        has_exact_tokens = bool(
+            re.search(r'("[^"]+"|`[^`]+`|--[a-z0-9-]+)', normalized, re.IGNORECASE)
+        )
+        has_codeish_tokens = bool(
+            re.search(r"\b[a-z0-9_./:-]*[-_/.:][a-z0-9_./:-]*\b", normalized_lower)
+        )
+        needs_context = self._needs_contextual_rewrite(normalized)
+
+        if has_exact_tokens and any(
+            term in normalized_lower for term in ["what does", "flag", "parameter", "command"]
+        ):
+            search_mode: SearchMode = "keyword"
+            reason = "exact-term query detected"
+        elif has_exact_tokens or has_codeish_tokens:
+            search_mode = "hybrid"
+            reason = "mixed exact-term and semantic cues detected"
+        else:
+            search_mode = "semantic"
+            reason = "broad conceptual query detected"
+
+        return DeterministicIntentModel(
+            standalone_question=normalized,
+            search_mode=search_mode,
+            top_k=top_k,
+            needs_llm_refinement=needs_context,
+            decision_reason=reason,
+        )
 
     def _needs_contextual_rewrite(self, user_request: str) -> bool:
         return bool(_CONTEXTUAL_REFERENCE_PATTERN.search(user_request))
@@ -205,27 +227,26 @@ class RewriteForRetrieval:
         self,
         raw: object,
         *,
-        fallback: str,
+        fallback: DeterministicIntentModel,
     ) -> dict[str, object]:
         if not isinstance(raw, Mapping):
             return self._fallback_metadata(fallback)
 
-        standalone_question = str(raw.get("standalone_question") or "").strip() or fallback
+        standalone_question = str(raw.get("standalone_question") or "").strip() or fallback.standalone_question
 
-        raw_search_mode = str(raw.get("search_mode") or "semantic").strip().lower()
-        search_mode: SearchMode = "hybrid" if raw_search_mode == "hybrid" else "semantic"
+        raw_search_mode = str(raw.get("search_mode") or fallback.search_mode).strip().lower()
+        search_mode: SearchMode = (
+            cast(SearchMode, raw_search_mode)
+            if raw_search_mode in {"semantic", "hybrid", "keyword"}
+            else fallback.search_mode
+        )
 
         product_area = self._normalize_optional_string(raw.get("product_area"))
-        doc_version = self._normalize_doc_version(raw.get("doc_version")) or self._extract_doc_version(
-            standalone_question
-        )
+        doc_version = self._normalize_optional_string(raw.get("doc_version"))
         language = self._normalize_optional_string(raw.get("language"))
 
         top_k_raw = raw.get("top_k")
-        top_k = top_k_raw if isinstance(top_k_raw, int) and top_k_raw > 0 else None
-
-        if product_area is None and doc_version is None and search_mode == "hybrid":
-            search_mode = "semantic"
+        top_k = top_k_raw if isinstance(top_k_raw, int) and top_k_raw > 0 else fallback.top_k
 
         return {
             "standalone_question": standalone_question,
@@ -234,7 +255,7 @@ class RewriteForRetrieval:
             "doc_version": doc_version,
             "language": language,
             "top_k": top_k,
-            "decision_reason": str(raw.get("decision_reason") or "").strip(),
+            "decision_reason": str(raw.get("decision_reason") or fallback.decision_reason).strip(),
         }
 
     def _build_retrieval_intent(
@@ -245,31 +266,20 @@ class RewriteForRetrieval:
         metadata = metadata or {}
 
         product_area = self._normalize_optional_string(metadata.get("product_area"))
-        doc_version = self._normalize_doc_version(metadata.get("doc_version")) or self._extract_doc_version(
-            standalone_question
-        )
+        doc_version = self._normalize_optional_string(metadata.get("doc_version"))
         language = self._normalize_optional_string(metadata.get("language"))
 
         top_k_raw = metadata.get("top_k")
         top_k = top_k_raw if isinstance(top_k_raw, int) and top_k_raw > 0 else None
 
         raw_search_mode = str(metadata.get("search_mode") or "semantic").strip().lower()
-        search_mode: SearchMode = "hybrid" if raw_search_mode == "hybrid" else "semantic"
+        search_mode: SearchMode = (
+            cast(SearchMode, raw_search_mode)
+            if raw_search_mode in {"semantic", "hybrid", "keyword"}
+            else "semantic"
+        )
 
-        metadata_filters: dict[str, object] | None = None
-        compact_filters = {
-            key: value
-            for key, value in {
-                "product_area": product_area,
-                "doc_version": doc_version,
-            }.items()
-            if value is not None
-        }
-        if compact_filters:
-            metadata_filters = compact_filters
-
-        if metadata_filters is None and search_mode == "hybrid":
-            search_mode = "semantic"
+        metadata_filters = None
 
         return {
             "standalone_question": standalone_question,
@@ -281,52 +291,16 @@ class RewriteForRetrieval:
             "top_k": top_k,
         }
 
-    def _fallback_metadata(self, standalone_question: str) -> dict[str, object]:
+    def _fallback_metadata(self, deterministic: DeterministicIntentModel) -> dict[str, object]:
         return {
-            "standalone_question": standalone_question,
-            "search_mode": "semantic",
+            "standalone_question": deterministic.standalone_question,
+            "search_mode": deterministic.search_mode,
             "product_area": None,
-            "doc_version": self._extract_doc_version(standalone_question),
+            "doc_version": None,
             "language": None,
-            "top_k": None,
-            "decision_reason": "fallback to original request",
+            "top_k": deterministic.top_k,
+            "decision_reason": deterministic.decision_reason,
         }
-
-    def _extract_doc_version(self, text: str) -> str | None:
-        match = _VERSION_PATTERN.search(text)
-        if not match:
-            return None
-
-        raw_value = match.group("number_prefixed") or match.group("number_plain")
-        return self._normalize_doc_version(raw_value)
-
-    def _normalize_doc_version(self, value: object) -> str | None:
-        normalized = self._normalize_optional_string(value)
-        if normalized is None:
-            return None
-
-        cleaned = normalized.strip().lower()
-
-        if cleaned.startswith("version "):
-            cleaned = cleaned[len("version ") :].strip()
-        elif cleaned.startswith("ver "):
-            cleaned = cleaned[len("ver ") :].strip()
-        elif cleaned.startswith("release "):
-            cleaned = cleaned[len("release ") :].strip()
-        elif cleaned.startswith("rel "):
-            cleaned = cleaned[len("rel ") :].strip()
-        elif cleaned.startswith("v "):
-            cleaned = cleaned[len("v ") :].strip()
-
-        cleaned = cleaned.lstrip("v").strip()
-
-        if not cleaned:
-            return None
-
-        if not re.fullmatch(r"\d+(?:\.\d+)*(?:\.x)?|\d+\.x", cleaned, flags=re.IGNORECASE):
-            return None
-
-        return f"v{cleaned}"
 
     def _normalize_optional_string(self, value: object) -> str | None:
         if not isinstance(value, str):

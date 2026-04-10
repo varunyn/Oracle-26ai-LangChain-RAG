@@ -73,3 +73,35 @@ def test_rewrite_for_retrieval_empty_input_returns_empty_intent() -> None:
     assert retrieval_intent["standalone_question"] == ""
     assert retrieval_intent["search_mode"] == "semantic"
     assert retrieval_intent.get("metadata_filters") is None
+
+
+def test_rewrite_for_retrieval_exact_term_query_prefers_keyword_or_hybrid_without_metadata() -> None:
+    node = RewriteForRetrieval()
+    state: MixedV2State = {
+        "user_request": "What does --namespace-name do in os bucket create?",
+        "messages": [HumanMessage(content="What does --namespace-name do in os bucket create?")],
+        "intent": "retrieve",
+    }
+
+    result = node(state)
+
+    retrieval_intent = cast(RetrievalIntent, result["retrieval_intent"])
+    assert retrieval_intent["search_mode"] in {"keyword", "hybrid"}
+    assert retrieval_intent.get("product_area") is None
+    assert retrieval_intent.get("doc_version") is None
+    assert retrieval_intent.get("metadata_filters") is None
+
+
+def test_rewrite_for_retrieval_broad_question_prefers_semantic() -> None:
+    node = RewriteForRetrieval()
+    state: MixedV2State = {
+        "user_request": "How does object storage replication work?",
+        "messages": [HumanMessage(content="How does object storage replication work?")],
+        "intent": "retrieve",
+    }
+
+    result = node(state)
+
+    retrieval_intent = cast(RetrievalIntent, result["retrieval_intent"])
+    assert retrieval_intent["search_mode"] == "semantic"
+    assert retrieval_intent.get("metadata_filters") is None
