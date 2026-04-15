@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/api/chat
+  url: {{baseUrl}}/api/langgraph/threads/{{threadId}}/runs/stream
   body: json
 }
 
@@ -15,16 +15,17 @@ headers {
 
 body:json {
   {
-    "model": "{{defaultModel}}",
-    "messages": [
-      {
-        "role": "user",
-        "content": "Explain the current RAG workflow."
-      }
-    ],
-    "stream": true,
-    "thread_id": "{{threadId}}",
-    "session_id": "{{sessionId}}",
-    "collection_name": "{{defaultCollection}}"
+    "assistant_id": "mcp_agent_executor",
+    "input": {
+      "model": "{{defaultModel}}",
+      "messages": [
+        {
+          "type": "human",
+          "content": "Explain the current RAG workflow."
+        }
+      ],
+      "session_id": "{{sessionId}}",
+      "collection_name": "{{defaultCollection}}"
+    }
   }
 }

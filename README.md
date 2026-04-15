@@ -33,7 +33,7 @@ This application provides an intelligent question-answering system that:
 
 ## Architecture
 
-Router branches by `route`: **search** (handled through `FollowUpInterpreter`, which then either searches or reformats from grounded context), **select_mcp** (MCP tools path), or **direct** (LLM-only). In `mixed` mode, the workflow can start with retrieval and fall back to MCP when the RAG answer is weak or missing citations.
+The active backend runtime now uses the decision-first **LangGraph V2** workflow exposed through `src/rag_agent/workflow.py`. Instead of the legacy RAG-first mixed fallback path, V2 normalizes the turn, decides intent, and then executes exactly one branch: **retrieve**, **tool**, **direct**, or **reformat**. The finalizer packages the selected branch output into the stable `/api/chat` response and streaming contract.
 
 ### Key Directories
 
@@ -119,15 +119,19 @@ graph TD;
 ```
 User Query
     ↓
-[Router] → chooses search / select_mcp / direct
+[NormalizeTurn] → stabilize messages and current user request
     ↓
-[FollowUpInterpreter] → search or grounded reformat (when applicable)
+[DecideIntent] → choose retrieve / tool / direct / reformat
     ↓
-[Vector Search] → retrieves relevant chunks
+[Retrieve Path] RewriteForRetrieval → RunRAG
+        OR
+[Tool Path] RunMCP
+        OR
+[Direct Path] RunDirect
+        OR
+[Reformat Path] ReformatAnswer
     ↓
-[Reranker] → filters and ranks chunks
-    ↓
-[Answer Generator / MCP Path] → creates final answer
+[FinalizeResponse] → stable final answer + citations + references
     ↓
 Next.js UI → displays answer + citations
 ```

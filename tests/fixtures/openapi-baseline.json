@@ -27,146 +27,6 @@
         "title": "Body_upload_documents_api_documents_upload_post",
         "type": "object"
       },
-      "ChatCompletionsRequest": {
-        "properties": {
-          "collection_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Vector store collection/table name",
-            "title": "Collection Name"
-          },
-          "enable_reranker": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Enable reranker step",
-            "title": "Enable Reranker"
-          },
-          "enable_tracing": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Enable tracing",
-            "title": "Enable Tracing"
-          },
-          "mcp_server_keys": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "MCP server keys from MCP_SERVERS_CONFIG to load tools",
-            "title": "Mcp Server Keys"
-          },
-          "messages": {
-            "description": "Conversation messages (OpenAI-compatible format)",
-            "items": {
-              "$ref": "#/components/schemas/ChatMessage"
-            },
-            "title": "Messages",
-            "type": "array"
-          },
-          "mode": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Flow mode: rag | mcp | mixed | direct; default rag for backward compat",
-            "title": "Mode"
-          },
-          "model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Model ID",
-            "title": "Model"
-          },
-          "session_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Browser/session ID for grouping traces (new per tab load or refresh)",
-            "title": "Session Id"
-          },
-          "stream": {
-            "default": false,
-            "description": "If true, return SSE stream",
-            "title": "Stream",
-            "type": "boolean"
-          },
-          "thread_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Conversation thread ID for checkpointer memory",
-            "title": "Thread Id"
-          }
-        },
-        "required": [
-          "messages"
-        ],
-        "title": "ChatCompletionsRequest",
-        "type": "object"
-      },
-      "ChatMessage": {
-        "properties": {
-          "content": {
-            "title": "Content",
-            "type": "string"
-          },
-          "role": {
-            "title": "Role",
-            "type": "string"
-          }
-        },
-        "required": [
-          "role",
-          "content"
-        ],
-        "title": "ChatMessage",
-        "type": "object"
-      },
       "FeedbackRequest": {
         "properties": {
           "answer": {
@@ -206,22 +66,9 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
-      "InvokeRequest": {
+      "RunInput": {
         "properties": {
-          "user_input": {
-            "title": "User Input",
-            "type": "string"
-          }
-        },
-        "required": [
-          "user_input"
-        ],
-        "title": "InvokeRequest",
-        "type": "object"
-      },
-      "McpChatRequest": {
-        "properties": {
-          "mcp_url": {
+          "collection_name": {
             "anyOf": [
               {
                 "type": "string"
@@ -230,28 +77,105 @@
                 "type": "null"
               }
             ],
-            "description": "MCP server URL (e.g. http://host:port/mcp/); uses default if not set)",
-            "title": "Mcp Url"
+            "title": "Collection Name"
+          },
+          "enable_reranker": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Reranker"
+          },
+          "enable_tracing": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Tracing"
+          },
+          "mcp_server_keys": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mcp Server Keys"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
           },
           "messages": {
-            "description": "Conversation messages (OpenAI format)",
-            "items": {
-              "$ref": "#/components/schemas/ChatMessage"
-            },
-            "title": "Messages",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Messages"
           },
-          "stream": {
-            "default": true,
-            "description": "If true, return SSE stream",
-            "title": "Stream",
-            "type": "boolean"
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
           }
         },
-        "required": [
-          "messages"
-        ],
-        "title": "McpChatRequest",
+        "title": "RunInput",
         "type": "object"
       },
       "SuggestionsRequest": {
@@ -294,6 +218,229 @@
           }
         },
         "title": "SuggestionsResponse",
+        "type": "object"
+      },
+      "ThreadCreateRequest": {
+        "properties": {
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Id"
+          }
+        },
+        "title": "ThreadCreateRequest",
+        "type": "object"
+      },
+      "ThreadCreateResponse": {
+        "properties": {
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "thread_id"
+        ],
+        "title": "ThreadCreateResponse",
+        "type": "object"
+      },
+      "ThreadRunRequest": {
+        "properties": {
+          "assistant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assistant Id"
+          },
+          "collection_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Name"
+          },
+          "configurable": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Configurable"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          },
+          "enable_reranker": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Reranker"
+          },
+          "enable_tracing": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Tracing"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mcp_server_keys": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mcp Server Keys"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "messages": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Messages"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "title": "ThreadRunRequest",
+        "type": "object"
+      },
+      "ThreadRunResponse": {
+        "properties": {
+          "output": {
+            "additionalProperties": true,
+            "title": "Output",
+            "type": "object"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "thread_id",
+          "output"
+        ],
+        "title": "ThreadRunResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -344,46 +491,6 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/chat": {
-      "post": {
-        "description": "Chat: RAG + optional MCP (tools in LangChain). Single endpoint at /api/chat.",
-        "operationId": "chat_completions_api_chat_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChatCompletionsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Chat Completions",
-        "tags": [
-          "chat"
-        ]
-      }
-    },
     "/api/config": {
       "get": {
         "operationId": "get_config_api_config_get",
@@ -590,15 +697,118 @@
         ]
       }
     },
-    "/api/mcp/chat": {
+    "/api/langgraph/threads": {
       "post": {
-        "description": "Legacy MCP chat endpoint.\n\nThis route remains in the API surface for compatibility, but it is not the primary supported\nMCP integration path. Use `/api/chat` with `mode=\"mcp\"` or `mode=\"mixed\"` for active MCP use.",
-        "operationId": "api_mcp_chat_api_mcp_chat_post",
+        "operationId": "create_thread_api_langgraph_threads_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/McpChatRequest"
+                "$ref": "#/components/schemas/ThreadCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Thread",
+        "tags": [
+          "langgraph-runtime"
+        ]
+      }
+    },
+    "/api/langgraph/threads/{thread_id}/runs": {
+      "post": {
+        "operationId": "run_thread_api_langgraph_threads__thread_id__runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Thread",
+        "tags": [
+          "langgraph-runtime"
+        ]
+      }
+    },
+    "/api/langgraph/threads/{thread_id}/runs/stream": {
+      "post": {
+        "operationId": "stream_thread_run_api_langgraph_threads__thread_id__runs_stream_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadRunRequest"
               }
             }
           },
@@ -624,9 +834,9 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Api Mcp Chat",
+        "summary": "Stream Thread Run",
         "tags": [
-          "mcp"
+          "langgraph-runtime"
         ]
       }
     },
@@ -705,29 +915,7 @@
         },
         "summary": "Delete Thread",
         "tags": [
-          "chat"
-        ]
-      }
-    },
-    "/graph/mermaid": {
-      "get": {
-        "description": "Return the RAG workflow as Mermaid diagram text.\n\nUses LangGraph's get_graph().draw_mermaid() (see docs:\nhttps://docs.langchain.com/oss/python/langgraph/use-graph-api#mermaid).\nYou can paste the response into Mermaid Live Editor or render in docs.",
-        "operationId": "get_graph_mermaid_graph_mermaid_get",
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Graph Mermaid",
-        "tags": [
-          "graph"
+          "langgraph-runtime"
         ]
       }
     },
@@ -748,45 +936,6 @@
         "summary": "Health",
         "tags": [
           "health"
-        ]
-      }
-    },
-    "/invoke": {
-      "post": {
-        "operationId": "invoke_invoke_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InvokeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Invoke",
-        "tags": [
-          "chat"
         ]
       }
     }

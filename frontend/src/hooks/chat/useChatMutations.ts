@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { toApiUrl } from "@/lib/api-base";
 
 export function useChatMutations(collectionName: string) {
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
@@ -15,7 +16,7 @@ export function useChatMutations(collectionName: string) {
     if (collectionName) formData.append("collection_name", collectionName);
 
     try {
-      const res = await fetch("/api/upload", {
+      const res = await fetch(toApiUrl("/api/documents/upload"), {
         method: "POST",
         body: formData,
       });

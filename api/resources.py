@@ -1,7 +1,7 @@
 """
 App-level resources created at startup and cleaned up at shutdown.
 
-- Centralizes construction of long-lived services (e.g., GraphService)
+- Centralizes construction of long-lived services (e.g., ChatRuntimeService)
 - Keeps request-time dependencies (FastAPI Depends) separate from resource wiring
 
 This module has no import-time side effects.
@@ -10,17 +10,14 @@ This module has no import-time side effects.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import cast
 
-from api.services.graph_service import GraphService
+from api.services.graph_service import ChatRuntimeService
 from api.settings import Settings, get_settings
-from src.rag_agent.infrastructure.code_mode_client import (
-    aclose_code_mode_client,
-    init_code_mode_client,
-)
-from src.rag_agent.langgraph import graph as rag_graph
+from src.rag_agent.infrastructure.mcp_adapter_runtime import clear_adapter_runtime_cache
+from src.rag_agent.utils.langfuse_tracing import safe_shutdown as langfuse_safe_shutdown
 
 
 @dataclass
@@ -28,30 +25,24 @@ class AppResources:
     """Container for application-scoped resources."""
 
     settings: Settings
-    graph_service: GraphService
-    _checkpointer_conn: object | None = None  # aiosqlite.Connection; closed on shutdown
+    chat_runtime_service: ChatRuntimeService
+    _state_conn: object | None = None  # Reserved for optional durable-state backends.
 
-    def get_checkpointer_conn(self) -> object | None:
-        return self._checkpointer_conn
+    def get_state_conn(self) -> object | None:
+        return self._state_conn
 
 
 async def create_app_resources() -> AppResources:
     """Build and return application-scoped resources.
 
-    Called once in FastAPI lifespan startup. Uses AsyncSqliteSaver so that
-    graph.astream() and checkpoint access work natively in async context.
+    Called once in FastAPI lifespan startup.
     """
     settings = get_settings()
-    saver, conn_obj = cast(tuple[object, object], await rag_graph.create_async_checkpointer())
-    create_workflow_func = cast(Callable[..., object], rag_graph.create_workflow)
-    graph = create_workflow_func(checkpointer=saver)
-    graph_service = GraphService(graph=graph)
-    if settings.CODE_MODE_ENABLED:
-        await init_code_mode_client()
+    chat_runtime_service = ChatRuntimeService()
     return AppResources(
         settings=settings,
-        graph_service=graph_service,
-        _checkpointer_conn=conn_obj,
+        chat_runtime_service=chat_runtime_service,
+        _state_conn=None,
     )
 
 
@@ -59,8 +50,16 @@ async def shutdown_app_resources(resources: AppResources | None) -> None:
     """Tear down resources on application shutdown."""
     if not resources:
         return
-    await aclose_code_mode_client()
-    conn = resources.get_checkpointer_conn()
+    try:
+        langfuse_safe_shutdown()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        await clear_adapter_runtime_cache()
+    except Exception:  # noqa: BLE001
+        pass
+    get_state_conn = getattr(resources, "get_state_conn", None)
+    conn = get_state_conn() if callable(get_state_conn) else None
     if conn is not None:
         close_method = getattr(conn, "close", None)
         if callable(close_method):
@@ -70,4 +69,4 @@ async def shutdown_app_resources(resources: AppResources | None) -> None:
                     _ = await cast(Awaitable[object], result_obj)
             except Exception:  # noqa: BLE001
                 pass
-        object.__setattr__(resources, "_checkpointer_conn", None)
+        object.__setattr__(resources, "_state_conn", None)

@@ -1,28 +1,32 @@
 # Custom RAG Agent
 
-A production-ready **Retrieval-Augmented Generation (RAG)** agent built with **LangGraph**, **Oracle 26AI Vector Store**, and **OCI Generative AI**. This agent implements an advanced multi-step workflow for intelligent document Q&A with streaming responses.
+A production-ready **Retrieval-Augmented Generation (RAG)** agent built with **LangChain**, **Oracle 26AI Vector Store**, and **OCI Generative AI**. It supports RAG, MCP, mixed, and direct chat modes with streaming responses.
 
 ## Overview
 
 This application provides an intelligent question-answering system that:
 
-- Processes user queries through a multi-stage pipeline
+- Processes user queries through runtime mode dispatch (`rag`, `mcp`, `mixed`, `direct`)
 - Searches documents using semantic vector search
-- Reranks results using LLM-based relevance scoring
 - Generates contextual answers with citations
 - Supports streaming responses and real-time UI updates
 
 ## Architecture
 
-Router branches by `route`: **search** (handled through `FollowUpInterpreter`, which then either rewrites for retrieval or reformats from grounded context), **select_mcp** (MCP tools path), or **direct** (LLM-only). In `mixed` mode, the workflow can start with the retrieval path and fall back to MCP when the RAG answer is weak or missing citations.
+Chat execution is handled by `ChatRuntimeService` (`api/services/graph_service.py`) with explicit mode dispatch:
+
+- `rag`: Oracle vector similarity search + answer prompt
+- `mcp`: MCP tools only through `langchain_mcp_adapters` + LangChain agent loop
+- `mixed`: local retrieval tool (`oracle_retrieval`) + MCP tools together in one tool loop
+- `direct`: plain LLM response from chat history
 
 ### Key Directories
 
 | Directory        | Purpose                                                                                       |
 | ---------------- | --------------------------------------------------------------------------------------------- |
-| `src/rag_agent/` | LangGraph workflow, follow-up interpretation, search, reranker, answer generator, router, MCP nodes |
-| `api/`           | FastAPI app, chat/config/documents/feedback/health routers, graph invocation                  |
-| `frontend/`      | Next.js app; `src/app` (pages, API routes), `src/components`, `src/lib` (chat, config, types) |
+| `src/rag_agent/` | Runtime and infrastructure modules (OCI models, MCP adapter/executor, prompts, tracing utilities) |
+| `api/`           | FastAPI app, chat/config/documents/feedback/health routers, runtime invocation                 |
+| `frontend/`      | Next.js app; `src/app` (pages/layout), `src/components`, `src/lib` (chat, config, types) |
 | `mcp_servers/`   | MCP servers (RAG, semantic search, minimal)                                                   |
 | `scripts/`       | Document population, table create/drop/truncate, BM25                                         |
 | `tests/`         | Pytest and manual run scripts for MCP/workflow                                                |
@@ -36,35 +40,27 @@ config:
 ---
 graph TD;
     __start__([<p>__start__</p>]):::first
-    Router(Router)
-    Search(Search)
-    SearchErrorResponse(SearchErrorResponse)
-    Rerank(Rerank)
-    AnswerFromDocs(AnswerFromDocs)
-    DraftAnswer(DraftAnswer)
-    FollowUpInterpreter(FollowUpInterpreter)
-    GroundedReformatAnswer(GroundedReformatAnswer)
-    SelectMCPTools(SelectMCPTools)
-    CallMCPTools(CallMCPTools)
-    DirectAnswer(DirectAnswer)
+    ChatRequest["POST /api/langgraph/threads/{thread_id}/runs(/stream)"]
+    Mode{"mode"}
+    RAG["RAG path<br/>vector search + prompt"]
+    MCP["MCP path<br/>create_agent + MCP tools"]
+    Mixed["Mixed path<br/>oracle_retrieval + MCP tools"]
+    Direct["Direct path<br/>LLM on history"]
+    Persist["Store thread state by thread_id"]
+    Stream["AI SDK stream / JSON response"]
     __end__([<p>__end__</p>]):::last
-    AnswerFromDocs -. &nbsp;draft&nbsp; .-> DraftAnswer;
-    AnswerFromDocs -. &nbsp;select_mcp&nbsp; .-> SelectMCPTools;
-    CallMCPTools --> DraftAnswer;
-    DirectAnswer --> DraftAnswer;
-    FollowUpInterpreter -. &nbsp;reformat&nbsp; .-> GroundedReformatAnswer;
-    FollowUpInterpreter -. &nbsp;search&nbsp; .-> Search;
-    GroundedReformatAnswer --> DraftAnswer;
-    Rerank --> AnswerFromDocs;
-    Router -. &nbsp;direct&nbsp; .-> DirectAnswer;
-    Router -. &nbsp;followup&nbsp; .-> FollowUpInterpreter;
-    Router -. &nbsp;select_mcp&nbsp; .-> SelectMCPTools;
-    Search -. &nbsp;error&nbsp; .-> SearchErrorResponse;
-    Search -. &nbsp;rerank&nbsp; .-> Rerank;
-    SelectMCPTools --> CallMCPTools;
-    __start__ --> Router;
-    DraftAnswer --> __end__;
-    SearchErrorResponse --> __end__;
+    __start__ --> ChatRequest
+    ChatRequest --> Mode
+    Mode -->|rag| RAG
+    Mode -->|mcp| MCP
+    Mode -->|mixed| Mixed
+    Mode -->|direct| Direct
+    RAG --> Persist
+    MCP --> Persist
+    Mixed --> Persist
+    Direct --> Persist
+    Persist --> Stream
+    Stream --> __end__
     classDef default fill:#f2f0ff,line-height:1.2
     classDef first fill-opacity:0
     classDef last fill:#bfb6fc
@@ -72,48 +68,46 @@ graph TD;
 
 ## Key Components
 
-### 1. **Semantic Search** (`vector_search.py`)
+### 1. **Semantic Search**
 
-- Performs retrieval in Oracle 23AI with configurable mode
-- Supports `vector`, `hybrid` (vector + lexical fusion), or `text` retrieval
-- Uses embedding model for vector component and returns top K relevant chunks
+- Performed via `langchain-oracledb` vector store in `ChatRuntimeService`
+- Supports `vector`, `hybrid`, or `text` modes through settings
+- Returns relevant chunks and normalized citations
 
-### 2. **Reranker** (`reranker.py`)
+### 2. **MCP Adapter Runtime**
 
-- Uses LLM to evaluate and rank retrieved documents
-- Filters out irrelevant results
-- Improves answer quality by focusing on best matches
+- `MultiServerMCPClient` wiring in `src/rag_agent/infrastructure/mcp_adapter_runtime.py`
+- Caches clients/tools per connection set
+- Supports per-request server selection via `mcp_server_keys`
 
-### 3. **Answer Generator** (`answer_generator.py`)
+### 3. **MCP Agent Executor**
 
-- Generates final answer using retrieved context
-- Includes citations to source documents
-- Supports streaming for real-time responses
+- `create_agent(...)` loop in `src/rag_agent/infrastructure/mcp_agent_executor.py`
+- Built-in middleware for retries/tool-call bounds
+- Shared prompts for MCP-only and mixed mode
 
-### 5. **State Management** (`agent_state.py`)
+### 4. **Citation Normalization**
 
-- Manages workflow state across all nodes
-- Tracks: user request, chat history, documents, answers, errors
+- Centralized in `src/rag_agent/core/citations.py`
+- Used across runtime and API response shaping
 
 ## Data Flow
 
 ```
 User Query
     ↓
-[Query Rewriter] → Reformulates using history
+[Mode Dispatch] → rag | mcp | mixed | direct
     ↓
-[Vector Search] → Finds similar documents
+[Runtime Execution] → retrieval and/or MCP tools
     ↓
-[Reranker] → Filters & ranks documents
-    ↓
-[Answer Generator] → Creates final answer
+[Citations + State] → normalized refs + thread state update
     ↓
 Next.js UI → Displays answer + citations
 ```
 
 ## Technology Stack
 
-- **Framework**: LangGraph (agent orchestration)
+- **Framework**: LangChain v1 agents + MCP adapters
 - **Vector Database**: Oracle 26AI with VECTOR data type
 - **LLM**: OCI Generative AI (Meta Llama, Cohere, OpenAI models)
 - **Embeddings**: OCI Generative AI (Cohere multilingual)
@@ -284,11 +278,9 @@ The Langfuse UI will run at `http://localhost:3300` (default) using its own comp
 ### 3. Query the Knowledge Base
 
 1. Enter your question in the chat interface
-2. The agent processes through all workflow stages
-3. View intermediate results in the sidebar:
-   - Standalone question (when a follow-up is rewritten for retrieval)
-   - References (after reranking)
-4. Receive streaming answer with citations
+2. The backend routes by `mode` (`rag`, `mcp`, `mixed`, `direct`)
+3. Receive streaming answer with references (`data-references`, `source-document`, `source-url`)
+4. Inspect citations/sources in the chat UI
 
 ## Features
 
@@ -300,16 +292,14 @@ The Langfuse UI will run at `http://localhost:3300` (default) using its own comp
 
 ### 🔄 Chat History and Memory
 
-- Maintains conversation context (follow-up interpreter and answer generator use `chat_history` from state)
-- Rewrites retrieval-oriented follow-up questions into standalone questions when needed
-- Configurable history length (`MAX_MSGS_IN_HISTORY`)
-- **LangGraph checkpointer**: state (including chat history) is persisted per `thread_id` via SQLite/AsyncSqliteSaver in the API runtime, and persisted message history is capped by `MAX_MSGS_IN_HISTORY` to avoid unbounded growth
+- Maintains conversation context by `thread_id`
+- Server-side short-term memory in `ChatRuntimeService`
+- Cleared through `DELETE /api/threads/{thread_id}`
 
-### 🎯 Intelligent Reranking
+### 🧭 Retrieval Relevance Filtering
 
-- LLM-based relevance scoring
-- Filters out irrelevant documents
-- Improves answer accuracy
+- Mixed mode applies lightweight overlap filtering to retrieved docs
+- Prevents obviously off-topic retrieval snippets from becoming citations
 
 ### 📊 Observability (Optional)
 
@@ -383,7 +373,7 @@ See [MCP usage](MCP-USAGE.md) for usage guide.
 
 ## Advantages of Agentic Approach
 
-The modular LangGraph architecture provides:
+The modular runtime architecture provides:
 
 1. **Flexibility**: Easy to add/remove/modify workflow steps
 2. **Observability**: Each step can be monitored independently
@@ -399,9 +389,8 @@ The modular LangGraph architecture provides:
 ```
 User: "What is Oracle 23AI?"
 
-1. [Search] → Found 6 relevant document chunks
-2. [Rerank] → Ranked and filtered to top 3 chunks
-3. [Answer] → Generated answer with citations:
+1. [RAG Search] → Found relevant document chunks
+2. [Answer] → Generated answer with citations:
 
    "Oracle 23AI is Oracle's next-generation database..."
 
@@ -445,7 +434,7 @@ MIT License
 
 ## References
 
-- [LangGraph Documentation](https://docs.langchain.com/oss/python/langgraph/overview)
+- [LangChain Agents Documentation](https://docs.langchain.com/oss/python/langchain/agents)
 - [Oracle LangChain integration (langchain-oci, langchain-oracledb)](https://github.com/oracle/langchain-oracle)
 - [Oracle 23AI Vector Search](https://docs.oracle.com/en/database/oracle/oracle-database/26/vecse/)
 - [OCI Generative AI](https://docs.oracle.com/en-us/iaas/Content/generative-ai/home.htm)

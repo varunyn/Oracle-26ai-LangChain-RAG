@@ -1,25 +1,26 @@
 import { expect, test, type Page } from '@playwright/test'
 
 const PROMPT = 'how can I deploy grafana?'
-const COLLECTION = 'ORACLE_WEB_EMBEDDINGS'
 
-async function selectCollection(page: Page, value: string) {
+async function selectCollection(page: Page) {
   const select = page.getByRole('combobox', { name: 'Collection' })
   await expect(select).toBeVisible()
 
-  const option = select.locator(`option[value="${value}"]`)
-  if (!(await option.count())) {
-    const optionByText = select.locator('option', { hasText: value })
-    if (!(await optionByText.count())) {
-      throw new Error(
-        `Required collection option not found: ${value}. Ensure backend config exposes it in appConfig.collection_list.`,
-      )
-    }
-    await select.selectOption({ label: value })
-    return
+  const options = select.locator('option')
+  await expect(options).not.toHaveCount(0)
+
+  const selectedValue = await options.first().getAttribute('value')
+  const selectedLabel = (await options.first().textContent())?.trim()
+
+  expect(selectedValue ?? selectedLabel).toBeTruthy()
+
+  if (selectedValue) {
+    await select.selectOption({ value: selectedValue })
+    return selectedValue
   }
 
-  await select.selectOption({ value })
+  await select.selectOption({ label: selectedLabel! })
+  return selectedLabel!
 }
 
 async function askQuestion(page: Page, prompt: string) {
@@ -27,12 +28,15 @@ async function askQuestion(page: Page, prompt: string) {
   const send = page.getByRole('button', { name: 'Ask' })
 
   await expect(input).toBeVisible()
+  await expect(send).toHaveAccessibleName('Ask')
   await input.fill(prompt)
   await expect(send).toBeEnabled()
 
   const chatResponsePromise = page.waitForResponse(
     (response) =>
-      response.url().endsWith('/api/chat') && response.request().method() === 'POST',
+      response.url().includes('/api/langgraph/threads/') &&
+      response.url().endsWith('/runs/stream') &&
+      response.request().method() === 'POST',
   )
 
   await send.click()
@@ -53,7 +57,7 @@ async function expectAssistantAnswer(page: Page) {
 test.describe('chat streaming', () => {
   test('streams responses and renders citations', async ({ page }) => {
     await page.goto('/')
-    await selectCollection(page, COLLECTION)
+    await selectCollection(page)
 
     const { input, chatResponsePromise } = await askQuestion(page, PROMPT)
 
@@ -62,7 +66,6 @@ test.describe('chat streaming', () => {
 
     const chatResponse = await chatResponsePromise
     const chatHeaders = chatResponse.headers()
-    expect(chatHeaders['x-vercel-ai-ui-message-stream']).toBe('v1')
     expect(chatHeaders['content-type']).toContain('text/event-stream')
 
     await expect(input).toBeEnabled({ timeout: 120_000 })
@@ -73,7 +76,7 @@ test.describe('chat streaming', () => {
 
   test('clear chat resets the visible conversation', async ({ page }) => {
     await page.goto('/')
-    await selectCollection(page, COLLECTION)
+    await selectCollection(page)
 
     const { input } = await askQuestion(page, PROMPT)
 

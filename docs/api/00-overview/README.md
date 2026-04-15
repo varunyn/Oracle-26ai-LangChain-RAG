@@ -37,10 +37,11 @@ Use this docs tree for:
 
 ## Streaming contract summary
 
-For AI SDK UI message stream responses:
+For `/api/langgraph/threads/{thread_id}/runs/stream` responses:
 
-- header: `x-vercel-ai-ui-message-stream: v1`
 - content-type: `text/event-stream`
-- terminator frame: `data: [DONE]`
+- event name: `values`
+- frame payload: `{"messages":[...]}`
+- completion: stream close (no `[DONE]` frame)
 
-Those are implementation-level compatibility requirements, not optional details.
+These are contract requirements between frontend and backend.

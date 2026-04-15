@@ -1,18 +1,15 @@
 import Image from "next/image";
 import {
   Command,
-  CommandDialog,
   CommandEmpty,
-  CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
-  CommandShortcut,
 } from "@/components/ui/command";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
@@ -33,26 +30,23 @@ export const ModelSelectorTrigger = (props: ModelSelectorTriggerProps) => (
 
 export type ModelSelectorContentProps = ComponentProps<typeof DialogContent> & {
   title?: ReactNode;
+  description?: ReactNode;
 };
 
 export const ModelSelectorContent = ({
   className,
   children,
   title = "Model Selector",
+  description = "Choose a model for this chat.",
   ...props
 }: ModelSelectorContentProps) => (
   <DialogContent className={cn("p-0", className)} {...props}>
     <DialogTitle className="sr-only">{title}</DialogTitle>
+    <DialogDescription className="sr-only">{description}</DialogDescription>
     <Command className="**:data-[slot=command-input-wrapper]:h-auto">
       {children}
     </Command>
   </DialogContent>
-);
-
-export type ModelSelectorDialogProps = ComponentProps<typeof CommandDialog>;
-
-export const ModelSelectorDialog = (props: ModelSelectorDialogProps) => (
-  <CommandDialog {...props} />
 );
 
 export type ModelSelectorInputProps = ComponentProps<typeof CommandInput>;
@@ -76,30 +70,10 @@ export const ModelSelectorEmpty = (props: ModelSelectorEmptyProps) => (
   <CommandEmpty {...props} />
 );
 
-export type ModelSelectorGroupProps = ComponentProps<typeof CommandGroup>;
-
-export const ModelSelectorGroup = (props: ModelSelectorGroupProps) => (
-  <CommandGroup {...props} />
-);
-
 export type ModelSelectorItemProps = ComponentProps<typeof CommandItem>;
 
 export const ModelSelectorItem = (props: ModelSelectorItemProps) => (
   <CommandItem {...props} />
-);
-
-export type ModelSelectorShortcutProps = ComponentProps<typeof CommandShortcut>;
-
-export const ModelSelectorShortcut = (props: ModelSelectorShortcutProps) => (
-  <CommandShortcut {...props} />
-);
-
-export type ModelSelectorSeparatorProps = ComponentProps<
-  typeof CommandSeparator
->;
-
-export const ModelSelectorSeparator = (props: ModelSelectorSeparatorProps) => (
-  <CommandSeparator {...props} />
 );
 
 export type ModelSelectorLogoProps = Omit<

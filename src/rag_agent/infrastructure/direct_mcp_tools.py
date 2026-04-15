@@ -7,12 +7,10 @@ from collections.abc import Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-from fastmcp import Client as FastMCPClient
 from langchain_core.tools import BaseTool
-from pydantic import Field
-from typing_extensions import override
 
-from .mcp_settings import get_mcp_servers_config, get_mcp_settings
+from .mcp_adapter_runtime import load_adapter_tools
+from .mcp_settings import get_mcp_servers_config
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +31,6 @@ class MCPToolMetadata:
             "description": self.description,
             "input_schema": self.input_schema,
         }
-
-
-@dataclass(frozen=True)
-class _LoadedTool:
-    tool: BaseTool
-    metadata: MCPToolMetadata
 
 
 def _run_coroutine_in_thread(coro: Coroutine[object, object, object]) -> object:
@@ -107,183 +99,43 @@ def _serialize_tool_result(result: object) -> object:
     return str(result)
 
 
-class DirectMCPTool(BaseTool):
-    name: str = Field(default="")
-    description: str = ""
-    server_key: str
-    mcp_tool_name: str
-    server_config: dict[str, Any]
-    mcp_input_schema: dict[str, Any] = {}
-
-    @override
-    def _run(self, **kwargs: Any) -> object:
-        try:
-            _ = asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(self._arun(**kwargs))
-        return _run_coroutine_in_thread(self._arun(**kwargs))
-
-    @override
-    async def _arun(self, **kwargs: Any) -> object:
-        client = _build_fastmcp_client(self.server_key, self.server_config)
-        async with client:
-            result = await client.call_tool(self.mcp_tool_name, arguments=kwargs or None)
-        return _serialize_tool_result(result)
-
-
-def _extract_configurable(run_config: Mapping[str, Any] | None) -> Mapping[str, Any]:
-    if not isinstance(run_config, Mapping):
+def _schema_from_tool(tool: BaseTool) -> dict[str, Any]:
+    args_schema = getattr(tool, "args_schema", None)
+    if isinstance(args_schema, Mapping):
+        return dict(cast(Mapping[str, Any], args_schema))
+    if args_schema is None:
         return {}
-    configurable = run_config.get("configurable")
-    if isinstance(configurable, Mapping):
-        return cast(Mapping[str, Any], configurable)
-    return run_config
+    model_json_schema = getattr(args_schema, "model_json_schema", None)
+    if callable(model_json_schema):
+        schema = model_json_schema()
+        if isinstance(schema, Mapping):
+            return dict(cast(Mapping[str, Any], schema))
+    schema_attr = getattr(tool, "args", None)
+    if isinstance(schema_attr, Mapping):
+        return dict(cast(Mapping[str, Any], schema_attr))
+    return {}
 
 
-def _extract_server_keys_from_run_config(run_config: Mapping[str, Any] | None) -> list[str] | None:
-    configurable = _extract_configurable(run_config)
-    selected = configurable.get("mcp_server_keys")
-    if not isinstance(selected, Sequence) or isinstance(selected, (str, bytes)):
-        return None
-    keys = [str(item).strip() for item in selected if str(item).strip()]
-    return keys or None
-
-
-def _extract_mcp_url_from_run_config(run_config: Mapping[str, Any] | None) -> str | None:
-    configurable = _extract_configurable(run_config)
-    mcp_url = configurable.get("mcp_url")
-    if isinstance(mcp_url, str) and mcp_url.strip():
-        return mcp_url.strip()
-    return None
-
-
-def _select_server_keys(
-    configured_servers: Mapping[str, Mapping[str, Any]],
-    *,
-    server_keys: Sequence[str] | None,
-    run_config: Mapping[str, Any] | None,
-) -> list[str]:
-    configured_keys = list(configured_servers.keys())
-    if not configured_keys:
-        return []
-
-    requested_keys = [key.strip() for key in server_keys or [] if key.strip()]
-    if not requested_keys:
-        requested_from_run_config = _extract_server_keys_from_run_config(run_config)
-        if requested_from_run_config:
-            requested_keys = requested_from_run_config
-
-    if requested_keys:
-        return [key for key in requested_keys if key in configured_servers]
-
-    mcp_url = _extract_mcp_url_from_run_config(run_config)
-    if mcp_url:
-        matched = [
-            key
-            for key, server_cfg in configured_servers.items()
-            if isinstance(server_cfg.get("url"), str) and server_cfg.get("url") == mcp_url
-        ]
-        if matched:
-            return matched
-
-    settings_keys = get_mcp_settings().mcp_server_keys
-    if settings_keys:
-        filtered = [key for key in settings_keys if key in configured_servers]
-        if filtered:
-            return filtered
-
-    if "default" in configured_servers:
-        return ["default"]
-    return configured_keys
-
-
-def _build_fastmcp_client(
-    server_key: str,
-    server_config: Mapping[str, Any],
-):
-    url = server_config.get("url")
-    if isinstance(url, str) and url.strip():
-        return FastMCPClient(url.strip(), name=f"direct-mcp-{server_key}")
-    return FastMCPClient(dict(server_config), name=f"direct-mcp-{server_key}")
-
-
-async def _load_tools_for_server_async(
-    server_key: str,
-    server_config: Mapping[str, Any],
-) -> list[_LoadedTool]:
-    client = _build_fastmcp_client(server_key, server_config)
-    async with client:
-        tool_objects = await client.list_tools()
-
-    loaded: list[_LoadedTool] = []
-    for tool_obj in cast(Sequence[object], tool_objects or []):
-        tool_name = _coerce_tool_name(tool_obj)
-        if tool_name is None:
+def _metadata_from_tools(tools: Sequence[BaseTool]) -> list[dict[str, Any]]:
+    metadata: list[dict[str, Any]] = []
+    for tool in tools:
+        canonical_name = str(getattr(tool, "name", "") or "").strip()
+        if not canonical_name:
             continue
-        canonical_name = _canonical_tool_name(server_key, tool_name)
-        description = _coerce_tool_description(tool_obj)
-        input_schema = _coerce_tool_schema(tool_obj)
-        wrapped_tool = DirectMCPTool(
-            name=canonical_name,
-            description=description,
-            server_key=server_key,
-            mcp_tool_name=tool_name,
-            server_config=_coerce_dict(server_config),
-            mcp_input_schema=input_schema,
+        if "." in canonical_name:
+            server_key, tool_name = canonical_name.split(".", 1)
+        else:
+            server_key, tool_name = "", canonical_name
+        metadata.append(
+            MCPToolMetadata(
+                canonical_name=canonical_name,
+                tool_name=tool_name,
+                server_key=server_key,
+                description=str(getattr(tool, "description", "") or "").strip(),
+                input_schema=_schema_from_tool(tool),
+            ).to_dict()
         )
-        loaded.append(
-            _LoadedTool(
-                tool=wrapped_tool,
-                metadata=MCPToolMetadata(
-                    canonical_name=canonical_name,
-                    tool_name=tool_name,
-                    server_key=server_key,
-                    description=description,
-                    input_schema=input_schema,
-                ),
-            )
-        )
-    return loaded
-
-
-async def _load_catalog_async(
-    *,
-    server_keys: Sequence[str] | None = None,
-    run_config: Mapping[str, Any] | None = None,
-) -> list[_LoadedTool]:
-    settings = get_mcp_settings()
-    if not settings.enable_mcp_tools:
-        return []
-
-    configured = get_mcp_servers_config()
-    if not configured:
-        return []
-
-    selected_keys = _select_server_keys(
-        cast(Mapping[str, Mapping[str, Any]], configured),
-        server_keys=server_keys,
-        run_config=run_config,
-    )
-    if not selected_keys:
-        return []
-
-    catalog: list[_LoadedTool] = []
-    for server_key in selected_keys:
-        server_config = configured.get(server_key)
-        if not isinstance(server_config, Mapping):
-            logger.warning("Direct MCP tools: server config for key '%s' is invalid", server_key)
-            continue
-        try:
-            loaded_for_server = await _load_tools_for_server_async(server_key, server_config)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Direct MCP tools: failed loading tools for server '%s': %s",
-                server_key,
-                exc,
-            )
-            continue
-        catalog.extend(loaded_for_server)
-    return catalog
+    return metadata
 
 
 async def get_mcp_tools_async(
@@ -291,8 +143,46 @@ async def get_mcp_tools_async(
     server_keys: Sequence[str] | None = None,
     run_config: Mapping[str, Any] | None = None,
 ) -> list[BaseTool]:
-    catalog = await _load_catalog_async(server_keys=server_keys, run_config=run_config)
-    return [entry.tool for entry in catalog]
+    requested_keys = [str(key).strip() for key in (server_keys or []) if str(key).strip()]
+    configured = get_mcp_servers_config() or {}
+    configured_keys = [str(key).strip() for key in configured.keys() if str(key).strip()]
+    target_keys = requested_keys or configured_keys
+
+    try:
+        return await load_adapter_tools(server_keys=server_keys, run_config=run_config)
+    except Exception:  # noqa: BLE001
+        logger.exception("Direct MCP tools: failed loading adapter tools (all servers)")
+        if len(target_keys) <= 1:
+            return []
+
+        # Degrade gracefully: one broken MCP server should not hide tools from healthy servers.
+        tools: list[BaseTool] = []
+        seen_names: set[str] = set()
+        for key in target_keys:
+            try:
+                partial = await load_adapter_tools(server_keys=[key], run_config=run_config)
+            except Exception:  # noqa: BLE001
+                logger.exception("Direct MCP tools: failed loading server '%s'", key)
+                continue
+            for tool in partial:
+                tool_name = str(getattr(tool, "name", "") or "").strip()
+                if not tool_name or tool_name in seen_names:
+                    continue
+                seen_names.add(tool_name)
+                tools.append(tool)
+
+        if tools:
+            logger.warning(
+                "Direct MCP tools: recovered partial tool set after failures (servers=%d, tools=%d)",
+                len(target_keys),
+                len(tools),
+            )
+        else:
+            logger.warning(
+                "Direct MCP tools: no MCP tools available after per-server recovery attempts (servers=%d)",
+                len(target_keys),
+            )
+        return tools
 
 
 def get_mcp_tools(
@@ -313,8 +203,8 @@ async def get_mcp_tool_metadata_async(
     server_keys: Sequence[str] | None = None,
     run_config: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    catalog = await _load_catalog_async(server_keys=server_keys, run_config=run_config)
-    return [entry.metadata.to_dict() for entry in catalog]
+    tools = await get_mcp_tools_async(server_keys=server_keys, run_config=run_config)
+    return _metadata_from_tools(tools)
 
 
 def get_mcp_tool_metadata(
@@ -332,9 +222,9 @@ def get_mcp_tool_metadata(
 
 __all__ = [
     "MCPToolMetadata",
-    "DirectMCPTool",
     "get_mcp_tools",
     "get_mcp_tools_async",
     "get_mcp_tool_metadata",
     "get_mcp_tool_metadata_async",
+    "load_adapter_tools",
 ]

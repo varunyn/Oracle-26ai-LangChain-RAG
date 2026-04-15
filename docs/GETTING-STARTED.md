@@ -65,9 +65,9 @@ From the `frontend/` directory:
 cp env.example .env.local
 ```
 
-Set `FASTAPI_BACKEND_URL` if your API is not on `http://localhost:3002`.
+Set `NEXT_PUBLIC_API_BASE` if your API is not on `http://localhost:3002`.
 
-You usually do **not** need any other frontend env values for a basic local run.
+`FASTAPI_BACKEND_URL` can be kept as a server-side fallback, but browser chat calls use `NEXT_PUBLIC_API_BASE`.
 
 ## 4. Create the vector table (once)
 
@@ -129,8 +129,8 @@ Then ensure `ENABLE_MCP_TOOLS=true` and `MCP_SERVERS_CONFIG` are set in `.env` (
 
 - **No answers / empty search results** → ensure documents were ingested and the collection exists.
 - **Database errors** → verify wallet path and `VECTOR_*` values in `.env`.
-- **Frontend can’t reach API** → set `FASTAPI_BACKEND_URL` in `frontend/.env.local`.
-- **The app runs but answers are weak or empty** → confirm the collection name, ingestion step, and `RAG_SEARCH_MODE` / `TOP_K` settings.
+- **Frontend can’t reach API** → set `NEXT_PUBLIC_API_BASE` in `frontend/.env.local`.
+- **The app runs but answers are weak or empty** → confirm the collection name, ingestion step, and `RAG_SEARCH_MODE` setting.
 
 For deeper setup details, see:
 

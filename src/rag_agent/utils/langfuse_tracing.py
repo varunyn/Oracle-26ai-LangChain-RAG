@@ -109,8 +109,8 @@ def add_langfuse_callbacks(
 ) -> None:
     """Add Langfuse CallbackHandler to run_config when Langfuse is enabled.
 
-    Mutates run_config in place: adds callbacks and metadata so the LangGraph
-    invoke/astream is fully traced (nodes, LLM, tools) in Langfuse. The handler
+    Mutates run_config in place: adds callbacks and metadata so chat runtime
+    invoke/stream execution is fully traced (LLM + tools) in Langfuse. The handler
     reads langfuse_session_id and langfuse_user_id from config metadata.
     """
     if not langfuse_enabled():
@@ -414,6 +414,25 @@ def safe_flush(timeout: float = DEFAULT_FLUSH_TIMEOUT) -> None:
         await asyncio.to_thread(_flush)
 
     loop.create_task(_async_flush())
+
+
+def safe_shutdown() -> None:
+    """Best-effort Langfuse shutdown for long-running app teardown."""
+    global _LANGFUSE_CLIENT
+    client = get_langfuse_client()
+    if client is None:
+        return
+    try:
+        shutdown = getattr(client, "shutdown", None)
+        if callable(shutdown):
+            shutdown()
+        else:
+            client.flush()
+    except Exception as exc:
+        logger.debug("Langfuse shutdown failed: %s", exc)
+    finally:
+        with _CLIENT_LOCK:
+            _LANGFUSE_CLIENT = None
 
 
 def _disable(reason: str) -> None:

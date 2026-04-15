@@ -4,7 +4,7 @@
 
 - In `.env` set `ENABLE_OTEL_TRACING=true` (or export `ENABLE_OTEL_TRACING=1`).
 - `OTEL_TRACES_ENDPOINT` (or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) points to the OTLP consumer; default is the local collector `http://localhost:4318/v1/traces`.
-- Tracing covers FastAPI requests, outgoing HTTP, LangGraph/LangChain nodes, LLM/tool spans. The app fails open—if the endpoint is down, the API still runs.
+- Tracing covers FastAPI requests, outgoing HTTP, LangChain runtime events, and LLM/tool spans. The app fails open—if the endpoint is down, the API still runs.
 
 ## 2. Local Grafana/Tempo
 
@@ -34,26 +34,24 @@
 1. Grab the `X-Request-ID` from the HTTP response.
 2. In Grafana Loki: `Explore → Loki → {service_name="rag-api"} |= "<request_id>"` (time range Last 1h).
 3. Look for key log lines:
-   - `Router: mode=... → route=...`
-   - `Result from similarity search: N docs`
-   - `MCP tool selection ...`
-   - `CallMCPTools ... tools_count=N`
-   - `flow_trace route=... mode=... answer_source=...`
-4. Interpreting `flow_trace`:
+   - `chat_in stream=... messages_count=...`
+   - `chat_runtime_mcp_tools_loaded mode=... tool_count=...`
+   - `stream_out references citations=... mcp_used=...`
+   - `chat_out answer_len=... mcp_used=...`
+4. Interpreting runtime logs:
 
 | Field           | Notes                                   |
 | --------------- | --------------------------------------- |
-| `route`         | `rewrite` (RAG), `select_mcp`, `direct` |
-| `mode`          | `rag`, `mixed`, `mcp`                   |
-| `tools_used`    | Actual tool names invoked               |
-| `answer_source` | `rag` / `mcp` / `direct`                |
-| `docs`          | Documents passed to DraftAnswer         |
+| `mode`          | `rag`, `mixed`, `mcp`, `direct`         |
+| `tool_count`    | Number of MCP tools loaded for the turn |
+| `mcp_used`      | Whether tools were actually invoked      |
+| `citations`     | Number of normalized citations emitted  |
 
-If answer_source ≠ expected (e.g., question should use RAG but shows `mcp`), inspect MCP selection logs and tool calls to see why.
+If mode/tool usage is unexpected (for example a RAG-only question calling MCP tools), inspect `chat_runtime_mcp_tools_loaded`, tool-call traces, and emitted `data-references`.
 
 ## 6. Langfuse SDK (optional)
 
-Tracing is done **only via the LangChain/LangGraph callback** (no API-level manual trace). When enabled, each `/api/chat` request produces one Langfuse trace with the **full graph breakdown** (nodes, LLM calls, tools).
+Tracing is done **via the LangChain callback stack** (no API-level manual trace). When enabled, each `/api/langgraph/threads/{thread_id}/runs` request produces one Langfuse trace with nested spans for runtime steps, LLM calls, and tools.
 
 1. **Bring up Langfuse (optional)**
    - Copy `observability/langfuse/.env.example` → `.env` and update all secrets
@@ -64,7 +62,7 @@ Tracing is done **only via the LangChain/LangGraph callback** (no API-level manu
    - `LANGFUSE_HOST` (e.g., `http://localhost:3300` for the local stack)
    - `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`
    - `LANGFUSE_TRACING_ENVIRONMENT` (optional, defaults to `development`)
-3. Restart `./run_api.sh`. The chat route injects a Langfuse `CallbackHandler` into the graph run config when Langfuse is enabled. Every invoke/stream sends a **single trace** with nested spans for Router, Search, Rerank, DraftAnswer, MCP, etc., and token usage where available.
+3. Restart `./run_api.sh`. The chat route injects a Langfuse `CallbackHandler` into run config when Langfuse is enabled. Every invoke/stream sends a **single trace** with nested spans for LLM and tool execution, plus token usage where available.
 4. Inspect the trace in Langfuse (Sessions → latest trace). The SDK runs fail-open—if Langfuse is offline, requests continue without blocking.
 5. **Session vs thread**: The frontend sends a **session_id** (new per tab load/refresh, not persisted) and a **thread_id** (conversation continuity, persisted in localStorage). The backend passes `session_id` into the run config metadata (`langfuse_session_id`) so Langfuse groups traces into Sessions (one “browser visit”).
 

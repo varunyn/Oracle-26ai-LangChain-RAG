@@ -1,37 +1,27 @@
 # Chat API
 
-This app exposes two main chat-style entrypoints:
+This app exposes thread/run chat endpoints:
 
-- `POST /invoke`
-- `POST /api/chat`
-
-`/api/chat` is the primary public API and the supported entrypoint for RAG-only, MCP-only, and mixed RAG+MCP chat.
+- `POST /api/langgraph/threads`
+- `POST /api/langgraph/threads/{thread_id}/runs`
+- `POST /api/langgraph/threads/{thread_id}/runs/stream`
 
 ## Request model highlights
 
-`ChatCompletionsRequest` fields include:
+`ThreadRunRequest` accepts:
 
-- `model`
-- `messages`
-- `stream`
-- `thread_id`
-- `session_id`
-- `collection_name`
-- `enable_reranker`
-- `enable_tracing`
-- `mode`
-- `mcp_server_keys`
+- top-level `messages` or nested `input.messages`
+- top-level `message` or nested `input.message`
+- optional runtime options (`model`, `session_id`, `collection_name`, `enable_reranker`, `enable_tracing`, `mode`, `mcp_server_keys`) at top level or under `input`
 
 `mcp_server_keys` limits which configured MCP servers/tools are loaded when MCP is enabled. It does not by itself choose the chat mode; use `mode="mcp"` or `mode="mixed"` for MCP-enabled chat.
 
 ## Important validation rule
 
-`messages` must contain at least one `user` message, and the final message must have `role: "user"`.
+Thread/run payloads must provide either `input.messages` (with at least one user/human message) or
+`input.message`.
 
-`/api/chat` accepts full message history in OpenAI-style order. The backend uses earlier
-messages as chat history and treats the final user message as the current request.
-
-## POST `/api/chat`
+## POST `/api/langgraph/threads/{thread_id}/runs`
 
 ### Non-stream example
 
@@ -52,7 +42,6 @@ messages as chat history and treats the final user message as the current reques
       "content": "What documents mention Oracle vector search?"
     }
   ],
-  "stream": false,
   "thread_id": "demo-thread",
   "collection_name": "RAG_KNOWLEDGE_BASE"
 }
@@ -72,31 +61,23 @@ Returns a JSON object including:
 
 ### Stream example
 
-Use the same request body but set `stream: true`.
+Use `POST /api/langgraph/threads/{thread_id}/runs/stream` with the same request body.
 
 ### Streaming behavior
 
-When `stream=true`, the response is SSE and includes these important headers:
+The response is SSE (`text/event-stream`) using repeated `event: values` frames.
 
-- `content-type: text/event-stream`
-- `x-vercel-ai-ui-message-stream: v1`
-- `cache-control: no-cache`
-- `x-accel-buffering: no`
-
-The stream ends with:
+Each frame contains a full `messages` snapshot, for example:
 
 ```text
-data: [DONE]
+event: values
+data: {"messages":[...]}
 ```
+
+There is no `[DONE]` sentinel; completion is stream close.
 
 ### Recommended verification
 
 ```bash
 ./scripts/streaming_smoke_test.sh
 ```
-
-## POST `/invoke`
-
-This endpoint is a simpler invoke-style entrypoint and is mainly useful for backend-level invocation/testing.
-
-Prefer `/api/chat` for documented client integrations.

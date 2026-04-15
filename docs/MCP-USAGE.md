@@ -109,23 +109,23 @@ The RAG backend and UIs **consume** MCP: they connect to MCP server(s) and attac
   ```
 
 - **Next.js UI**: In the sidebar, paste the preset URL you want (for a local server, typically `http://localhost:9000/mcp`) and click **Connect / Reload tools**.
-- **Legacy API note**: `POST /api/mcp/chat` remains in the repo for compatibility, but in the current codebase it reports `MCP integration not available` because the old `AgentWithMCP` path is stubbed. Use `POST /api/chat` with `mode="mcp"` or `mode="mixed"` for supported MCP-enabled chat.
+- **API note**: MCP-enabled chat is supported through `POST /api/langgraph/threads/{thread_id}/runs` with `mode="mcp"` or `mode="mixed"`.
 
 ### 3. Use multiple MCPs in RAG chat at once
 
-#### Tool selection (code-mode)
+#### Which servers and tools load
 
-In mixed mode, the router uses code-mode tool discovery to decide whether the question matches any MCP tool. This keeps the RAG and MCP paths mutually exclusive (per question) and avoids calling irrelevant tools. The number of tools considered per question is capped by `MCP_TOOL_SELECTION_MAX_TOOLS`.
+- **Servers**: `MCP_SERVER_KEYS` (optional) limits which keys from `MCP_SERVERS_CONFIG` are connected when loading tools. The request may also pass `mcp_server_keys` (same idea). This does not choose `mode`; it only filters which MCP endpoints are used.
+- **Tools**: Tools come from `langchain_mcp_adapters.MultiServerMCPClient.get_tools()` (see `src/rag_agent/infrastructure/mcp_adapter_runtime.py`). Server names are prefixed on tool names when `tool_name_prefix=True` (e.g. `default.semantic_search`).
+- **Large tool lists**: Optional cap via `MCP_TOOL_SELECTION_MAX_TOOLS` and `MCP_TOOL_SELECTION_ALWAYS_INCLUDE`; applied in `get_mcp_answer` / `_apply_mcp_tool_budget` in `mcp_agent.py` after tools load.
 
-**Tool selection:** We use an LLM-based selector in `tool_selector.py` to pick a subset of MCP tools per question (Router for mixed-mode routing, and CallMCPTools when tools are not pre-registered). That fits our RAG + MCP flow. For very large tool sets, an embedding-based selector could be added later.
-
-- Set which configured servers to load via `MCP_SERVER_KEYS` (optional; if unset, only `"default"` is used). This limits which MCP servers/tools are loaded; it does not by itself choose `mode`.
+- Set which configured servers to load via `MCP_SERVER_KEYS` (optional; if unset, defaults follow `mcp_adapter_runtime._select_server_keys`, typically `"default"` when present).
 
   ```python
   MCP_SERVER_KEYS = ["default", "context7"]
   ```
 
-- Ensure each key exists in `MCP_SERVERS_CONFIG`. Restart the backend. The Answer node binds tools from all listed servers; duplicate tool names are prefixed (e.g. `context7_query-docs`, `default_semantic_search`).
+- Ensure each key exists in `MCP_SERVERS_CONFIG`. Restart the backend.
 
 ### 4. Use an external MCP server (outside this project)
 
@@ -154,90 +154,57 @@ You can point this app at any HTTP MCP server (different repo or machine).
 
 ## RAG vs MCP flow (mode)
 
-The graph has three entry routes after `Router`:
+Chat is handled by `ChatRuntimeService` in `api/services/graph_service.py` (no LangGraph graph). Request **`mode`** selects the path:
 
-- **`followup`** → `FollowUpInterpreter`, which then routes to either `Search` (`search`) or `GroundedReformatAnswer` (`reformat`)
-- **`select_mcp`** → `SelectMCPTools` → `CallMCPTools`
-- **`direct`** → `DirectAnswer`
+| API `mode` | Behavior                                                                                                                                                  |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `direct`   | LLM on chat history only; no vector search, no MCP tools.                                                                                                 |
+| `rag`      | Vector similarity search + single answer prompt; MCP tools are not loaded.                                                                                |
+| `mcp`      | MCP tools only (`get_mcp_answer_async`); tools from `langchain_mcp_adapters`.                                                                             |
+| `mixed`    | **`oracle_retrieval`** (same retrieval as RAG) **and** MCP tools together in one tool loop; the model may call retrieval or an MCP tool in the same turn. |
 
-In `mixed` mode, the workflow can start with retrieval and still fall back to MCP after `AnswerFromDocs` when `mcp_tool_match` is present and the RAG answer is weak or missing citations.
+**Follow-up transform:** Before mode dispatch, the service may detect a follow-up that should **reformat** the previous assistant answer (LLM JSON `kind: transform`) and return that answer without running RAG or MCP.
 
-| mode     | Behavior                                                                                                                                                                                                       |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rag`    | Retrieval path: `Router` → `FollowUpInterpreter` → `Search` → `Rerank` → `AnswerFromDocs` → `DraftAnswer`. If the follow-up intent is `reformat`, the graph uses `GroundedReformatAnswer` instead of `Search`. |
-| `mcp`    | MCP-only path: `Router` → `SelectMCPTools` → `CallMCPTools` → `DraftAnswer`.                                                                                                                                   |
-| `mixed`  | Starts with the retrieval path or MCP path based on routing. After `AnswerFromDocs`, the graph can still route to `SelectMCPTools` when `mcp_tool_match` is set and the RAG answer is weak or lacks citations. |
-| `direct` | No retrieval or tools: `Router` → `DirectAnswer` → `DraftAnswer`.                                                                                                                                              |
-
-- **API**: Send `mode` and optional `mcp_server_keys`. If you send `mcp_server_keys` and omit `mode`, the backend defaults to `mode=mixed`.
-- **Reranker**: Still optional via `enable_reranker` (config or request). When enabled, `Rerank` runs after `Search`; when disabled, `retriever_docs` are passed through as `reranker_docs`.
-- **Loop cap**: `max_rounds` (configurable, default 2) caps the MCP path for future “More info?” loops.
+- **Default `mode`** (when not sent): `build_chat_config` in `api/dependencies.py` sets `mixed` when `ENABLE_MCP_TOOLS` is true and `MCP_SERVERS_CONFIG` is non-empty; otherwise `rag`.
+- **API**: Send `mode` and optional `mcp_server_keys` to limit which MCP servers load (must match keys in `MCP_SERVERS_CONFIG`).
+- **RAG path**: Uses Oracle vector similarity search and a single answer prompt in `ChatRuntimeService`.
+- **MCP rounds**: `MCP_MAX_ROUNDS` (default 2) is passed in config; the tool loop in `mcp_agent.py` respects the configured max rounds.
 
 ### Testing mixed mode
 
-**From the UI:** In the sidebar, set **Flow mode** to **Mixed (RAG + MCP)**. Send a question; the backend routes **either** to RAG **or** MCP tools per question (never both in the same turn).
+**From the UI:** In the sidebar, set **Flow mode** to **Mixed (RAG + MCP)**. Send a question; the backend loads both `oracle_retrieval` and configured MCP tools in one agent tool loop, and the model decides which tools to call per turn.
 
-**With curl:** `curl -s -X POST http://localhost:3002/api/chat -H "Content-Type: application/json" -d '{"messages": [{"role": "user", "content": "What is OCI CLI? Then compute 2+2."}], "mode": "mixed", "stream": false}'`
+**With curl:** `curl -s -X POST http://localhost:3002/api/langgraph/threads/demo-thread/runs -H "Content-Type: application/json" -d '{"assistant_id":"mcp_agent_executor","input":{"messages":[{"type":"human","content":"What is OCI CLI? Then compute 2+2."}],"mode":"mixed"}}'`
 
-Use `"mode": "mcp"` for tools only, `"mode": "rag"` for RAG only, `"mode": "direct"` for no RAG and no tools. Optionally send `"mcp_server_keys": ["default", "calculator"]` (keys must exist in `MCP_SERVERS_CONFIG`).
+Use `"mode": "mcp"` for MCP tools only, `"mode": "rag"` for retrieval-only, `"mode": "direct"` for no retrieval and no MCP tools. Optionally send `"mcp_server_keys": ["default", "calculator"]` (keys must exist in `MCP_SERVERS_CONFIG`).
 
 ---
 
 ## Implementation (consuming side)
 
-The flow uses the **code-mode MCP client/runtime** for tools. **CallMCPTools** (MCP path only) runs tools in a single-tool-per-turn loop in `get_mcp_answer`, where the LLM calls the `call_tool_chain` tool and code-mode executes the underlying MCP tools. **Router** routes into `FollowUpInterpreter`, `SelectMCPTools`, or `DirectAnswer`. `FollowUpInterpreter` then decides whether the next step is `Search` or `GroundedReformatAnswer`. After retrieval, `AnswerFromDocs` can still route to `SelectMCPTools` in `mixed` mode when `mcp_tool_match` is set and the RAG answer is weak or lacks citations. See `.env.example` and `docs/ORACLE-LANGCHAIN-STACK.md`.
+MCP and mixed chat modes load tools through **`langchain_mcp_adapters.MultiServerMCPClient`** (`src/rag_agent/infrastructure/mcp_adapter_runtime.py`; clients and tool lists are cached per connection set). The tool loop runs in **`src/rag_agent/infrastructure/mcp_agent.py`**, invoked from **`api/services/graph_service.py`**. RAG-only and direct modes do not load MCP tools.
 
-### Flow diagram
+### Flow diagram (high level)
 
 ```mermaid
----
-config:
-  flowchart:
-    curve: linear
----
-graph TD;
-    __start__([<p>__start__</p>]):::first
-    Router(Router)
-    Search(Search)
-    SearchErrorResponse(SearchErrorResponse)
-    Rerank(Rerank)
-    AnswerFromDocs(AnswerFromDocs)
-    DraftAnswer(DraftAnswer)
-    FollowUpInterpreter(FollowUpInterpreter)
-    GroundedReformatAnswer(GroundedReformatAnswer)
-    SelectMCPTools(SelectMCPTools)
-    CallMCPTools(CallMCPTools)
-    DirectAnswer(DirectAnswer)
-    __end__([<p>__end__</p>]):::last
-    AnswerFromDocs -. &nbsp;draft&nbsp; .-> DraftAnswer;
-    AnswerFromDocs -. &nbsp;select_mcp&nbsp; .-> SelectMCPTools;
-    CallMCPTools --> DraftAnswer;
-    DirectAnswer --> DraftAnswer;
-    FollowUpInterpreter -. &nbsp;reformat&nbsp; .-> GroundedReformatAnswer;
-    FollowUpInterpreter -. &nbsp;search&nbsp; .-> Search;
-    GroundedReformatAnswer --> DraftAnswer;
-    Rerank --> AnswerFromDocs;
-    Router -. &nbsp;direct&nbsp; .-> DirectAnswer;
-    Router -. &nbsp;followup&nbsp; .-> FollowUpInterpreter;
-    Router -. &nbsp;select_mcp&nbsp; .-> SelectMCPTools;
-    Search -. &nbsp;error&nbsp; .-> SearchErrorResponse;
-    Search -. &nbsp;rerank&nbsp; .-> Rerank;
-    SelectMCPTools --> CallMCPTools;
-    __start__ --> Router;
-    DraftAnswer --> __end__;
-    SearchErrorResponse --> __end__;
-    classDef default fill:#f2f0ff,line-height:1.2
-    classDef first fill-opacity:0
-    classDef last fill:#bfb6fc
+flowchart TD
+    A[POST /api/langgraph/threads/{thread_id}/runs] --> C{mode}
+    C -->|direct| D[LLM on message history]
+    C -->|rag| E[Vector search + answer prompt]
+    C -->|mcp| F[MultiServerMCPClient.get_tools + get_mcp_answer_async]
+    C -->|mixed| G[oracle_retrieval + MCP tools + get_mcp_answer_async]
+    D --> H[Thread state + response]
+    E --> H
+    F --> H
+    G --> H
 ```
 
-| Path                     | When                                                                            | Outcome                                                                                   |
-| ------------------------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| **Follow-up → search**   | Router resolves to `followup` and the follow-up intent is retrieval             | `Router` → `FollowUpInterpreter` → `Search` → `Rerank` → `AnswerFromDocs` → `DraftAnswer` |
-| **Follow-up → reformat** | Router resolves to `followup` and the follow-up intent is `reformat`            | `Router` → `FollowUpInterpreter` → `GroundedReformatAnswer` → `DraftAnswer`               |
-| **MCP path**             | Router resolves to `select_mcp`, or `AnswerFromDocs` falls back in `mixed` mode | `SelectMCPTools` → `CallMCPTools` → `DraftAnswer`                                         |
-| **Direct**               | `mode=direct`                                                                   | `Router` → `DirectAnswer` → `DraftAnswer`                                                 |
-| **Search error**         | `Search` sets `state["error"]`                                                  | `Search` → `SearchErrorResponse` → `END`                                                  |
+| Path         | When         | Main modules                                                 |
+| ------------ | ------------ | ------------------------------------------------------------ |
+| **`rag`**    | `mode=rag`   | Oracle VS + `RAG_ANSWER_PROMPT_TEMPLATE` in `graph_service` |
+| **`mcp`**    | `mode=mcp`   | `mcp_adapter_runtime` → `get_mcp_answer_async`              |
+| **`mixed`**  | `mode=mixed` | `oracle_retrieval` tool + MCP tools → `get_mcp_answer_async`|
+| **`direct`** | `mode=direct`| `get_llm().invoke` on history                               |
 
 ---
 
@@ -256,8 +223,3 @@ graph TD;
 
 - [FastMCP Documentation](https://gofastmcp.com/getting-started/welcome)
 - [MCP Protocol Specification](https://modelcontextprotocol.io/)
-# Code mode runtime gate
-
-Code mode is now gated behind `CODE_MODE_ENABLED` and is **disabled by default**. The active `/api/chat`
-MCP path uses direct MCP tool binding; code mode remains optional infrastructure for separate runtime/server
-paths and legacy tests.

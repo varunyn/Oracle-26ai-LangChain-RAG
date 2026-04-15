@@ -11,6 +11,7 @@ interface MessagePart {
 
 /** Message with parts array (AI SDK useChat format) */
 interface MessageWithParts {
+  content?: unknown;
   parts?: MessagePart[];
 }
 
@@ -19,6 +20,17 @@ interface MessageWithParts {
  */
 export function getMessageContent(message: MessageWithParts | null | undefined): string {
   try {
+    if (typeof message?.content === "string") return message.content;
+    if (Array.isArray(message?.content)) {
+      const asText = message.content
+        .map((part: unknown) => {
+          if (!part || typeof part !== "object") return "";
+          const text = (part as { text?: unknown }).text;
+          return typeof text === "string" ? text : "";
+        })
+        .join("");
+      if (asText) return asText;
+    }
     if (!message?.parts) return "";
     if (!Array.isArray(message.parts)) return "";
     return message.parts

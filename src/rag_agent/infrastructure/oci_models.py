@@ -1,4 +1,4 @@
-"""OCI GenAI LLM/embeddings via ChatOCIGenAI and OCIGenAIEmbeddings; auth from config or OCI_KEY_FILE."""
+"""Thin langchain_oci constructors with shared OCI auth/config resolution."""
 
 from __future__ import annotations
 
@@ -19,6 +19,12 @@ from api.settings import get_settings
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _uses_auth_profile(auth_type: str | None) -> bool:
+    """True when auth requires config/profile-backed credentials."""
+    normalized = str(auth_type or "").strip().upper()
+    return normalized in {"API_KEY", "SECURITY_TOKEN"}
 
 
 def _resolve_oci_config_path(raw_path: str) -> str:
@@ -96,121 +102,67 @@ def _get_oci_auth_file_location() -> str:
     return _resolve_oci_config_key_file(path)
 
 
-ALLOWED_EMBED_MODELS_TYPE = {"OCI"}
-
-_llm_cache: dict = {}
-_embed_cache: dict = {}
-
-MODELS_WITHOUT_KWARGS = {
-    "openai.gpt-5",
-    "openai.gpt-4o-search-preview",
-    "openai.gpt-4o-search-preview-2025-03-11",
-}
-
-
-def _normalize_provider(model_id: str) -> str:
-    """Map model_id prefix to ChatOCIGenAI provider.
-
-    - Llama: meta.* -> "meta" (also xai/openai routed to meta).
-    - Gemini: google.* -> "generic".
-    - Others (e.g. cohere) passed through as-is.
-    """
-    provider = (model_id or "").split(".")[0].lower()
-    if provider in {"xai", "openai"}:
-        return "meta"
-    if provider == "google":
-        return "generic"
-    return provider
-
-
 def get_llm(
     model_id: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> ChatOCIGenAI:
-    """
-    Return a ChatOCIGenAI instance for OCI Gen AI (same auth pattern as main).
-    Used for RAG and MCP. Auth from config: OCI_PROFILE, OCI_CONFIG_FILE (local-config).
-    Clients are cached by (model_id, temperature, max_tokens).
-    """
+    """Return a ChatOCIGenAI configured from shared OCI settings."""
     if model_id is None:
         model_id = get_settings().LLM_MODEL_ID
     if temperature is None:
         temperature = get_settings().TEMPERATURE
     if max_tokens is None:
         max_tokens = get_settings().MAX_TOKENS
+    auth_type = get_settings().AUTH
 
-    cache_key = (model_id, float(temperature), max_tokens)
-    if cache_key in _llm_cache:
-        return _llm_cache[cache_key]
-
-    auth_file_location = _get_oci_auth_file_location()
     profile = get_settings().OCI_PROFILE or "DEFAULT"
-    provider = _normalize_provider(model_id)
+    use_profile = _uses_auth_profile(auth_type)
+    auth_file_location = _get_oci_auth_file_location() if use_profile else None
 
     endpoint = (
         getattr(get_settings(), "SERVICE_ENDPOINT", None)
         or f"https://inference.generativeai.{get_settings().REGION}.oci.oraclecloud.com"
     ).rstrip("/")
 
-    llm_kwargs = {
-        "auth_type": get_settings().AUTH,
+    model_kw: dict[str, Any] = {"temperature": temperature}
+    token_key = "max_completion_tokens" if model_id.startswith("openai.") else "max_tokens"
+    model_kw[token_key] = max_tokens
+    llm_kwargs: dict[str, Any] = {
+        "auth_type": auth_type,
         "model_id": model_id,
         "service_endpoint": endpoint,
         "compartment_id": get_settings().COMPARTMENT_ID,
-        "is_stream": True,
-        "provider": provider,
+        "model_kwargs": model_kw,
     }
-    if profile:
+    if use_profile and profile and auth_file_location:
         llm_kwargs["auth_profile"] = profile
         llm_kwargs["auth_file_location"] = auth_file_location
         logger.info("Using OCI profile: %s from %s", profile, auth_file_location)
-    if model_id not in MODELS_WITHOUT_KWARGS:
-        model_kwargs: dict[str, Any] = {
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        # Do not add tool_result_guidance: OCI GenAI rejects it for non-tool
-        # invocations (e.g. DirectAnswer) and some providers (e.g. Grok/xai).
-        # Use only temperature and max_tokens.
-        llm_kwargs["model_kwargs"] = model_kwargs
-    else:
-        llm_kwargs["model_kwargs"] = None
 
     llm = ChatOCIGenAI(**llm_kwargs)
-    _llm_cache[cache_key] = llm
     logger.info("OCI Gen AI via ChatOCIGenAI (profile=%s, model=%s)", profile, model_id)
     return llm
 
 
 def get_embedding_model(model_type: str = "OCI") -> OCIGenAIEmbeddings:
-    """
-    Initialize and return an instance of OCIGenAIEmbeddings.
-    The embedding model is cached by model_type so repeated calls reuse the same instance.
-
-    Returns:
-        OCIGenAIEmbeddings: An instance of the OCI GenAI embeddings model.
-    """
-    if model_type not in ALLOWED_EMBED_MODELS_TYPE:
-        raise ValueError(
-            f"Invalid value for model_type: must be one of {ALLOWED_EMBED_MODELS_TYPE}"
-        )
-
-    if model_type in _embed_cache:
-        return _embed_cache[model_type]
+    """Return an OCIGenAIEmbeddings instance configured from shared OCI settings."""
+    if model_type != "OCI":
+        raise ValueError("Invalid value for model_type: must be 'OCI'")
 
     endpoint = (
         getattr(get_settings(), "SERVICE_ENDPOINT", None)
         or f"https://inference.generativeai.{get_settings().REGION}.oci.oraclecloud.com"
     ).rstrip("/")
+    auth_type = get_settings().AUTH
 
     embed_kwargs = {
-        "auth_type": get_settings().AUTH,
+        "auth_type": auth_type,
         "model_id": get_settings().EMBED_MODEL_ID,
         "service_endpoint": endpoint,
         "compartment_id": get_settings().COMPARTMENT_ID,
     }
-    if get_settings().OCI_PROFILE:
+    if _uses_auth_profile(auth_type) and get_settings().OCI_PROFILE:
         embed_kwargs["auth_profile"] = get_settings().OCI_PROFILE
         embed_kwargs["auth_file_location"] = _get_oci_auth_file_location()
         logger.info(
@@ -221,7 +173,6 @@ def get_embedding_model(model_type: str = "OCI") -> OCIGenAIEmbeddings:
 
     embed_model = OCIGenAIEmbeddings(**embed_kwargs)
     logger.info("Embedding model is: %s", get_settings().EMBED_MODEL_ID)
-    _embed_cache[model_type] = embed_model
     return embed_model
 
 

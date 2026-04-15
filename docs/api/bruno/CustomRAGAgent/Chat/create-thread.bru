@@ -1,0 +1,20 @@
+meta {
+  name: Create Thread
+  type: http
+  seq: 0
+}
+
+post {
+  url: {{baseUrl}}/api/langgraph/threads
+  body: json
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "thread_id": "{{threadId}}"
+  }
+}

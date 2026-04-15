@@ -560,7 +560,7 @@ def setup_logging(console: bool = True) -> None:
         "httpcore",
     ):
         logging.getLogger(name).setLevel(logging.WARNING)
-    # aiosqlite (used by LangGraph AsyncSqliteSaver) logs every DB op at DEBUG including full
+    # aiosqlite can log every DB op at DEBUG including full
     # checkpoint payloads; silence to avoid huge log lines.
     logging.getLogger("aiosqlite").setLevel(logging.WARNING)
     # Downgrade SDK export-failure tracebacks (e.g. ReadTimeout when collector is down) to avoid console flood
@@ -574,9 +574,6 @@ def setup_logging(console: bool = True) -> None:
         "mcp_use.client.task_managers",
         "mcp_use.client.task_managers.streamable_http",
         "mcp_use.client.middleware",
-        "utcp_mcp",
-        "utcp_code_mode",
-        "utcp",
         "mcp",
     ):
         logging.getLogger(name).setLevel(logging.WARNING)

@@ -40,18 +40,6 @@ export const InlineCitation = ({
   />
 );
 
-type InlineCitationTextProps = ComponentProps<"span">;
-
-export const InlineCitationText = ({
-  className,
-  ...props
-}: InlineCitationTextProps) => (
-  <span
-    className={cn("transition-colors group-hover:bg-accent", className)}
-    {...props}
-  />
-);
-
 export type InlineCitationCardProps = ComponentProps<typeof HoverCard>;
 
 export const InlineCitationCard = (props: InlineCitationCardProps) => (

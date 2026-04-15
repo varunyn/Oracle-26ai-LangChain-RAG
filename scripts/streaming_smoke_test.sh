@@ -27,9 +27,9 @@ fi
 SMOKE_OUTPUT=$(mktemp)
 HEADER_FILE=$(mktemp)
 
-if ! curl -N -X POST "${API_URL}/api/chat" \
+if ! curl -N -X POST "${API_URL}/api/langgraph/threads/smoke-thread/runs/stream" \
     -H "Content-Type: application/json" \
-    -d '{"messages":[{"role":"user","content":"Hello"}],"stream":true}' \
+    -d '{"assistant_id":"mcp_agent_executor","input":{"messages":[{"type":"human","content":"Hello"}]}}' \
     --dump-header "$HEADER_FILE" \
     --max-time 30 2>/dev/null > "$SMOKE_OUTPUT"; then
     echo -e "${RED}❌ Streaming request failed${NC}"

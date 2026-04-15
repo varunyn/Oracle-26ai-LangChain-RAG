@@ -104,24 +104,6 @@ def generate_schemas_markdown(spec: dict[str, Any]) -> str:
 
 
 def default_body_for_operation(path: str) -> dict[str, Any] | None:
-    if path == "/api/chat":
-        return {
-            "model": "{{defaultModel}}",
-            "messages": [
-                {"role": "user", "content": "What documents mention Oracle vector search?"}
-            ],
-            "stream": False,
-            "thread_id": "{{threadId}}",
-            "session_id": "{{sessionId}}",
-            "collection_name": "{{defaultCollection}}",
-        }
-    if path == "/invoke":
-        return {"user_input": "What documents mention Oracle vector search?"}
-    if path == "/api/mcp/chat":
-        return {
-            "messages": [{"role": "user", "content": "Search for relevant Oracle AI docs"}],
-            "stream": False,
-        }
     if path == "/api/feedback":
         return {
             "question": "What is Oracle vector search?",

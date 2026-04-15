@@ -11,12 +11,15 @@ function generateSessionId(): string {
 
 export function useChatSession() {
   const [threadId, setThreadId] = useState(() => {
-    if (typeof window === "undefined") return generateThreadId();
-    try {
-      const stored = window.localStorage.getItem(THREAD_ID_STORAGE_KEY);
-      if (stored?.trim()) return stored;
-    } catch {
-      // ignore
+    if (typeof window !== "undefined") {
+      try {
+        const storedThreadId = window.localStorage.getItem(THREAD_ID_STORAGE_KEY);
+        if (storedThreadId && storedThreadId.trim().length > 0) {
+          return storedThreadId;
+        }
+      } catch {
+        // ignore
+      }
     }
     return generateThreadId();
   });
@@ -30,11 +33,8 @@ export function useChatSession() {
     }
   }, [threadId]);
 
-  function clearChat<TMessage, TReference, TContext>(helpers: {
-    setMessages: (value: TMessage[] | ((prev: TMessage[]) => TMessage[])) => void;
-    setReferencesByAssistantIndex: (
-      value: TReference[] | ((prev: TReference[]) => TReference[]),
-    ) => void;
+  function clearChat<TMessage, TContext>(helpers: {
+    setMessages?: (value: TMessage[] | ((prev: TMessage[]) => TMessage[])) => void;
     setFeedbackSubmitted: (value: boolean | ((prev: boolean) => boolean)) => void;
     setContextUsage: (
       value: TContext | null | ((prev: TContext | null) => TContext | null),
@@ -42,8 +42,7 @@ export function useChatSession() {
   }): void {
     const nextThreadId = generateThreadId();
     setThreadId(nextThreadId);
-    helpers.setMessages([]);
-    helpers.setReferencesByAssistantIndex([]);
+    helpers.setMessages?.([]);
     helpers.setFeedbackSubmitted(false);
     helpers.setContextUsage(null);
   }

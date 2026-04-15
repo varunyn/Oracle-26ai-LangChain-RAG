@@ -6,7 +6,30 @@ from fastapi import HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from api.middleware.request_context import REQUEST_ID_HEADER
+from api.settings import get_settings
+from src.rag_agent.utils.logging_config import REQUEST_ID_CTX
+
 logger = logging.getLogger(__name__)
+
+
+def _error_response_headers(request: Request) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    request_id = (
+        request.headers.get(REQUEST_ID_HEADER)
+        or getattr(request.state, "request_id", None)
+        or REQUEST_ID_CTX.get(None)
+    )
+    if request_id:
+        headers[REQUEST_ID_HEADER] = request_id
+
+    origin = request.headers.get("origin")
+    settings = get_settings()
+    allowed_origins = settings.CORS_ALLOW_ORIGINS if settings.ENABLE_CORS else []
+    if origin and origin in allowed_origins:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Vary"] = "Origin"
+    return headers
 
 
 def _sanitize_validation_errors(errors: Sequence[dict[str, object]]) -> list[dict[str, object]]:
@@ -42,11 +65,19 @@ def request_validation_exception_handler(request: Request, exc: Exception) -> JS
             "detail": "Validation error",
             "errors": _sanitize_validation_errors(exc.errors()),
         }
-        return JSONResponse(status_code=422, content=payload)
+        return JSONResponse(
+            status_code=422,
+            content=payload,
+            headers=_error_response_headers(request),
+        )
 
     # Fallback (should not occur via registration), but stay safe
     logger.warning("Validation handler received non-validation exception at %s", request.url.path)
-    return JSONResponse(status_code=422, content={"detail": "Validation error", "errors": []})
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "Validation error", "errors": []},
+        headers=_error_response_headers(request),
+    )
 
 
 def http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -75,7 +106,11 @@ def http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         )
 
     payload = {"detail": detail}
-    return JSONResponse(status_code=status, content=payload)
+    return JSONResponse(
+        status_code=status,
+        content=payload,
+        headers=_error_response_headers(request),
+    )
 
 
 def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -87,4 +122,8 @@ def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
     logger.error("Unhandled exception at %s", request.url.path, exc_info=exc)
     payload = {"detail": "An internal error occurred. Please try again later."}
-    return JSONResponse(status_code=500, content=payload)
+    return JSONResponse(
+        status_code=500,
+        content=payload,
+        headers=_error_response_headers(request),
+    )

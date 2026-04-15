@@ -1,11 +1,11 @@
 """
-OpenTelemetry tracing bootstrap for FastAPI and LangChain/LangGraph.
+OpenTelemetry tracing bootstrap for FastAPI and LangChain runtimes.
 
 Idempotent; exports via OTLP HTTP (default http://localhost:4318/v1/traces);
 sets Resource service.name=rag-api; ENABLE_OTEL_TRACING gates; fail-open.
 
 When ENABLE_OTEL_TRACING is on, call setup_otel_tracing_early() before importing
-any LangChain/LangGraph code so graph invokes are traced; then call
+any LangChain runtime code so agent/tool spans are traced; then call
 setup_otel_tracing(app) in lifespan to add FastAPI/Requests instrumentation.
 """
 
@@ -51,7 +51,11 @@ def _otel_safe_attribute_value(value: Any) -> Any:
         return value
     if isinstance(value, (list, tuple)):
         if all(type(x) in (bool, str, int, float) for x in value):
-            return list(value)
+            primitive_types = {type(x) for x in value}
+            if len(primitive_types) <= 1:
+                return list(value)
+            # OTEL sequence attributes must be homogeneous; coerce mixed primitives.
+            return [str(x) for x in value]
         return json.dumps(value)
     if isinstance(value, dict):
         return json.dumps(value)
@@ -132,7 +136,7 @@ def _get_traces_headers() -> dict[str, str] | None:
 
 
 def setup_otel_tracing_early() -> bool:
-    """Create TracerProvider and set it globally before any LangChain/LangGraph import.
+    """Create TracerProvider and set it globally before any LangChain runtime import.
 
     Call this in api/main.py before importing routers so agent_graph.invoke() and
     all LangChain runnables emit spans to our OTLP collector. Also sets
@@ -177,7 +181,7 @@ def setup_otel_tracing_early() -> bool:
             trace.set_tracer_provider(provider)
             _EARLY_PROVIDER = provider
             _patch_langsmith_otel_metadata()
-            _logger.info("OpenTelemetry early provider set (LangChain/LangGraph will be traced)")
+            _logger.info("OpenTelemetry early provider set (LangChain runtime will be traced)")
             return True
         except Exception as e:  # noqa: BLE001
             _logger.warning("Failed to set OTel early provider (non-fatal): %s", e)

@@ -29,7 +29,7 @@ export function useSessionUIState(appConfig: AppConfig | null) {
     () => appConfig?.collection_list?.[0] ?? "",
   );
   const [enableReranker, setEnableReranker] = useState(false);
-  const [enableTracing, setEnableTracing] = useState(false);
+  const [enableTracing, setEnableTracing] = useState(true);
   const [flowMode, setFlowMode] = useState<FlowMode>(getInitialFlowMode);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const hydrated = useSyncExternalStore(

@@ -16,10 +16,11 @@ type MessageLike = {
 type ChatMessageListProps = {
   messages: MessageLike[];
   status: string;
-  referencesByAssistantIndex: (MessageReferences | null)[];
   maxCitationsToShow: number;
   chatContainerRef: RefObject<HTMLDivElement | null>;
   onRetry: () => void;
+  onRecoverDirect: () => void;
+  onRecoverRagOnly: () => void;
   onFeedback: (stars: number) => void;
   feedbackSubmitted: boolean;
   enableUserFeedback?: boolean;
@@ -27,13 +28,33 @@ type ChatMessageListProps = {
   showOptimisticSuggestion: boolean;
 };
 
+const TOOL_PREFIX_PATTERNS: RegExp[] = [
+  /^⚡\s*Used tool:\s*([^\n]+)\n\n?/i,
+  /^(?:🔌\s*\n+)?MCP:\s*([^\n]+)\n+/i,
+];
+
+function extractToolHeader(text: string): { toolName: string | null; displayContent: string } {
+  for (const pattern of TOOL_PREFIX_PATTERNS) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const rawToolName = (match[1] ?? "").trim();
+    const nextContent = text.replace(pattern, "").trimStart();
+    return {
+      toolName: rawToolName || null,
+      displayContent: nextContent,
+    };
+  }
+  return { toolName: null, displayContent: text };
+}
+
 export function ChatMessageList({
   messages,
   status,
-  referencesByAssistantIndex,
   maxCitationsToShow,
   chatContainerRef,
   onRetry,
+  onRecoverDirect,
+  onRecoverRagOnly,
   onFeedback,
   feedbackSubmitted,
   enableUserFeedback,
@@ -70,18 +91,16 @@ export function ChatMessageList({
         const isLastMessage = index === messages.length - 1;
         const isStreaming =
           isLastMessage && (status === "submitted" || status === "streaming");
-        const toolRegex = /^⚡ Used tool: (.*?)\n\n/;
-        const toolMatch = isStreaming ? null : textContent.match(toolRegex);
-        const toolName = toolMatch ? toolMatch[1] : null;
-        const displayContent = toolMatch ? textContent.replace(toolRegex, "") : textContent;
+        const parsedHeader = isStreaming
+          ? { toolName: null, displayContent: textContent }
+          : extractToolHeader(textContent);
+        const toolName = parsedHeader.toolName;
+        const displayContent = parsedHeader.displayContent;
 
         if (!displayContent && !toolName) return null;
 
         const showActions =
           message.role === "assistant" && !!displayContent && !isStreaming;
-        const assistantIndex = messages
-          .slice(0, index)
-          .filter((m) => m.role === "assistant").length;
         const refPart =
           message.role === "assistant" &&
           Array.isArray(
@@ -107,11 +126,60 @@ export function ChatMessageList({
                   : [],
               } as MessageReferences)
             : null;
+        const sourceParts =
+          message.role === "assistant" &&
+          Array.isArray(
+            (message as {
+              parts?: {
+                type?: string;
+                sourceId?: string;
+                url?: string;
+                title?: string;
+              }[];
+            }).parts,
+          )
+            ? (
+                message as {
+                  parts: {
+                    type?: string;
+                    sourceId?: string;
+                    url?: string;
+                    title?: string;
+                  }[];
+                }
+              ).parts
+            : [];
+
+        const sourceCitations =
+          sourceParts.length > 0
+            ? sourceParts
+                .filter((p) => p?.type === "source-document" || p?.type === "source-url")
+                .map((p) => ({
+                  source:
+                    typeof p.url === "string" && p.url
+                      ? p.url
+                      : typeof p.sourceId === "string" && p.sourceId
+                        ? p.sourceId
+                        : typeof p.title === "string"
+                          ? p.title
+                          : "",
+                  page: "",
+                }))
+                .filter((c) => c.source.length > 0)
+            : [];
+        const dedupedSourceCitations = sourceCitations.filter(
+          (citation, index, arr) => arr.findIndex((c) => c.source === citation.source) === index,
+        );
+
         const messageReferences: MessageReferences | null =
           message.role === "assistant"
             ? (refFromParts ??
-              referencesByAssistantIndex[assistantIndex] ??
-              null)
+              (dedupedSourceCitations.length > 0
+                ? {
+                    citations: dedupedSourceCitations,
+                    reranker_docs: [],
+                  }
+                : null))
             : null;
 
         return (
@@ -126,6 +194,8 @@ export function ChatMessageList({
             messageReferences={messageReferences}
             maxCitationsToShow={maxCitationsToShow}
             onRetry={onRetry}
+            onRecoverDirect={onRecoverDirect}
+            onRecoverRagOnly={onRecoverRagOnly}
             onFeedback={onFeedback}
             feedbackSubmitted={feedbackSubmitted}
             enableUserFeedback={enableUserFeedback}

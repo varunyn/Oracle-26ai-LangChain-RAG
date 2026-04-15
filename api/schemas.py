@@ -1,16 +1,12 @@
 """Pydantic request/response models for the RAG Agent API."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-class InvokeRequest(BaseModel):
-    user_input: str
-
-
 class ChatMessage(BaseModel):
-    role: str
+    role: Literal["user", "assistant", "system"]
     content: str
 
     @model_validator(mode="before")
@@ -42,6 +38,18 @@ class ChatMessage(BaseModel):
                 return new_data
         return data
 
+    @field_validator("role", mode="before")
+    @classmethod
+    def _normalize_role(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip().lower()
+        if normalized == "human":
+            return "user"
+        if normalized == "ai":
+            return "assistant"
+        return normalized
+
 
 class Citation(BaseModel):
     source: str
@@ -51,46 +59,6 @@ class Citation(BaseModel):
 class RerankerDoc(BaseModel):
     page_content: str
     metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class ChatCompletionsRequest(BaseModel):
-    model: str | None = Field(default=None, description="Model ID")
-    messages: list[ChatMessage] = Field(
-        ..., description="Conversation messages (OpenAI-compatible format)"
-    )
-    stream: bool = Field(default=False, description="If true, return SSE stream")
-    thread_id: str | None = Field(
-        default=None, description="Conversation thread ID for checkpointer memory"
-    )
-    session_id: str | None = Field(
-        default=None,
-        description="Browser/session ID for grouping traces (new per tab load or refresh)",
-    )
-    collection_name: str | None = Field(
-        default=None, description="Vector store collection/table name"
-    )
-    enable_reranker: bool | None = Field(default=None, description="Enable reranker step")
-    enable_tracing: bool | None = Field(default=None, description="Enable tracing")
-    mode: str | None = Field(
-        default=None,
-        description="Flow mode: rag | mcp | mixed | direct; default rag for backward compat",
-    )
-    mcp_server_keys: list[str] | None = Field(
-        default=None,
-        description="MCP server keys from MCP_SERVERS_CONFIG to load tools",
-    )
-
-    @field_validator("messages")
-    @classmethod
-    def validate_messages_delta_only(cls, v):
-        if not v:
-            raise ValueError("messages cannot be empty")
-        if not any(message.role == "user" for message in v):
-            raise ValueError("messages must contain at least one user message")
-        last_message = v[-1]
-        if last_message.role != "user":
-            raise ValueError("last message role must be 'user'")
-        return v
 
 
 class ChatCompletionChoice(BaseModel):
@@ -130,12 +98,3 @@ class FeedbackRequest(BaseModel):
         if v < 1 or v > 5:
             raise ValueError("feedback must be between 1 and 5")
         return v
-
-
-class McpChatRequest(BaseModel):
-    messages: list[ChatMessage] = Field(..., description="Conversation messages (OpenAI format)")
-    mcp_url: str | None = Field(
-        default=None,
-        description="MCP server URL (e.g. http://host:port/mcp/); uses default if not set)",
-    )
-    stream: bool = Field(default=True, description="If true, return SSE stream")

@@ -16,10 +16,8 @@ Use the generated OpenAPI for schema truth and these docs for workflow guidance,
 
 - `00-overview/` — base URL, headers, auth assumptions, streaming contract
 - `10-health/` — health checks
-- `20-chat/` — `/api/chat` and `/invoke`
+- `20-chat/` — thread/run chat endpoints
 - `30-documents/` — document upload
-- `40-graph/` — graph Mermaid endpoint
-- `50-mcp/` — legacy MCP chat endpoint status and compatibility notes
 - `60-config-suggestions-feedback/` — config, suggestions, feedback
 - `environments/` — sample environment values
 - `bruno/` — Bruno collection and requests
@@ -36,7 +34,7 @@ FastAPI already generates OpenAPI automatically from:
 
 That means most schema docs can be generated automatically. These markdown files exist to document what OpenAPI alone does not explain well, especially:
 
-- SSE and AI SDK stream behavior
+- SSE stream behavior
 - required headers
 - request sequencing
 - practical examples for local development
@@ -54,8 +52,8 @@ http://127.0.0.1:3002
 
 ```bash
 curl -s http://127.0.0.1:3002/health
-uv run pytest tests/test_openapi_baseline.py -q
-uv run pytest tests/test_api_docs_sync.py -q
+uv run pytest tests/workflow_tests/test_openapi_baseline.py -q
+uv run pytest tests/workflow_tests/test_api_docs_sync.py -q
 uv run python scripts/sync_api_docs.py --check
 ./scripts/streaming_smoke_test.sh
 ```
@@ -73,18 +71,18 @@ Recommended workflow:
 
 ## Important contract notes
 
-### `/api/chat`
+### `/api/langgraph/threads/{thread_id}/runs`
 
-`/api/chat` is a public contract and has non-obvious constraints:
+Thread/run endpoints are the primary contract for frontend chat:
 
 - `messages` must contain **at least one** user message
 - the **final** message must have `role="user"`
 - earlier system/user/assistant messages are treated as chat history
-- when `stream=true`, the response is SSE with AI SDK UI message stream headers
-- the stream terminates with `data: [DONE]`
+- use `/runs/stream` for SSE `event: values` frames
+- stream completion is transport close (no `[DONE]`)
 
 See `20-chat/README.md` for details.
 
 ### MCP-enabled chat
 
-The primary supported MCP-enabled chat path is still `/api/chat`, using `mode="mcp"` or `mode="mixed"`. The separate `/api/mcp/chat` route remains in the API surface for compatibility but is documented as legacy.
+MCP-enabled chat is supported through thread/run endpoints using `mode="mcp"` or `mode="mixed"`.

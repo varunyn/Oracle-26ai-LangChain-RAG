@@ -2,77 +2,79 @@
 
 This repo supports chat streaming on:
 
-- `POST /api/chat`
+- `POST /api/langgraph/threads/{thread_id}/runs/stream`
 
-## Streaming (`stream: true`)
+## Streaming
 
-When `stream: true`, the response streams using the **AI SDK UI Message Stream Protocol**.
-
-Required response header:
-
-```http
-x-vercel-ai-ui-message-stream: v1
-```
+When streaming through thread/run endpoints, the response is SSE with `event: values` frames.
 
 SSE framing:
 
 ```text
-data: <json>\n\n
-...
-data: [DONE]\n\n
+event: values
+data: {"messages":[...]}
+
+event: values
+data: {"messages":[...]}
 ```
 
-Frontend proxy note:
+Notes:
 
-- The Next.js route `frontend/src/app/api/chat/route.ts` proxies the upstream stream.
-- It must not parse SSE or buffer/transform the stream.
+- Stream completion is transport close (there is no `[DONE]` sentinel).
+- Assistant references/citations are carried in `response_metadata` / `additional_kwargs`.
+- Frontend uses `@langchain/react` `useStream` against `${NEXT_PUBLIC_API_BASE}/api/langgraph`.
 
 Example request:
 
 ```bash
 curl -sS -N \
   -H 'Content-Type: application/json' \
-  -d '{"messages":[{"role":"user","content":"Hello"}],"stream":true}' \
-  http://localhost:3002/api/chat
+  -d '{"assistant_id":"mcp_agent_executor","input":{"messages":[{"type":"human","content":"Hello"}]}}' \
+  http://localhost:3002/api/langgraph/threads/thread-1/runs/stream
 ```
 
 ## Non-streaming (`stream: false`)
 
-When `stream: false`, the response is a single JSON payload. The JSON shape is unchanged for now.
+When `stream: false`, use `POST /api/langgraph/threads/{thread_id}/runs` and read the `output` object.
 
 Example request:
 
 ```bash
 curl -sS \
   -H 'Content-Type: application/json' \
-  -d '{"messages":[{"role":"user","content":"Hello"}],"stream":false}' \
-  http://localhost:3002/api/chat
+  -d '{"assistant_id":"mcp_agent_executor","input":{"messages":[{"type":"human","content":"Hello"}]}}' \
+  http://localhost:3002/api/langgraph/threads/thread-1/runs
 ```
 
 ---
 
 ## Server-owned memory: delta-only input + thread IDs
 
-- The server is the source of truth for chat history using a LangGraph checkpointer (SQLite by default) and the canonical `messages` state with the `add_messages` reducer.
-- API requests MUST be delta-only: `messages` must contain EXACTLY ONE `{ role: "user", content: ... }` per request. The graph restores prior messages from persistence.
+- The server is the source of truth for conversation context in `ChatRuntimeService` (`api/services/graph_service.py`).
+- API requests should contain at least one user/human message in `input.messages`.
 - `thread_id` is the conversation identifier.
-  - If omitted: server generates and uses a new `thread_id` (returned in non-stream JSON responses).
-  - The Next.js UI persists `thread_id` in `localStorage` and reuses it on subsequent turns.
-- Streaming contract is unchanged: same headers, SSE frames, and `data: [DONE]` terminator.
+  - Frontend persists `thread_id` in `localStorage` and reuses it on later turns.
+- Streaming contract uses `event: values` SSE frames.
 
-### Inspecting + deleting memory
+### Inspecting + deleting thread state
 
 - Inspect programmatically:
 
 ```bash
 uv run python - <<'PY'
+import asyncio
 from api.dependencies import build_chat_config
-from api.services.graph_service import GraphService
-snap = GraphService().get_state(build_chat_config(thread_id="t1"))
-vals = getattr(snap, "values", {}) or {}
-print(len(vals.get("messages") or []))
+from api.services.graph_service import ChatRuntimeService
+
+async def main() -> None:
+    run_config = build_chat_config(thread_id="t1")
+    snap = await ChatRuntimeService().get_state(run_config)
+    values = getattr(snap, "values", {}) or {}
+    print(len(values.get("messages") or []))
+
+asyncio.run(main())
 PY
 ```
 
 - Delete via API: `DELETE /api/threads/{thread_id}` (204 on success, 404 if missing)
-- Reset all memory: stop the server and remove the SQLite file (`.local-data/langgraph-checkpoints.sqlite` or `$LANGGRAPH_SQLITE_PATH`), then restart
+- Reset all state: restart the API process (current memory store is process-local)

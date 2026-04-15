@@ -1,7 +1,8 @@
-"""Expose the app's RAG workflow as MCP tools."""
+"""Expose the app's RAG runtime as MCP tools."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 import uuid
@@ -10,15 +11,14 @@ from typing import Annotated, Any, cast
 
 from fastmcp import FastMCP
 from fastmcp.experimental.transforms.code_mode import CodeMode
-from langchain_core.messages import HumanMessage
 from pydantic import Field
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from api.services.graph_service import ChatRuntimeService
 from api.settings import Settings, get_settings
-from src.rag_agent import State, create_workflow
 from src.rag_agent.infrastructure.mcp_settings import normalize_mcp_transport
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ mcp = FastMCP(
     "RAG as MCP server (LangChain workflow)",
     transforms=[CodeMode()],
 )
-_AGENT_GRAPH = create_workflow()
+_GRAPH_SERVICE = ChatRuntimeService()
 
 
 def _get_settings() -> Settings:
@@ -88,18 +88,26 @@ def rag_ask(
     if not question_text:
         return {"answer": "", "citations": [], "error": "Empty question."}
 
-    state: State = {
-        "user_request": question_text,
-        "messages": [HumanMessage(content=question_text)],
-        "error": None,
-    }
     run_config = _build_rag_config(
         collection_name=collection_name,
         enable_reranker=enable_reranker,
     )
 
     try:
-        final_state = _AGENT_GRAPH.invoke(state, config={"configurable": run_config})
+        final_state = asyncio.run(
+            _GRAPH_SERVICE.run_chat(
+                messages=[{"role": "user", "content": question_text}],
+                model_id=cast(str | None, run_config.get("model_id")),
+                thread_id=cast(str | None, run_config.get("thread_id")),
+                session_id=None,
+                collection_name=cast(str | None, run_config.get("collection_name")),
+                enable_reranker=cast(bool | None, run_config.get("enable_reranker")),
+                enable_tracing=None,
+                mode="rag",
+                mcp_server_keys=None,
+                stream=False,
+            )
+        )
     except Exception as exc:
         logger.exception("RAG invoke error in MCP")
         return {"answer": "", "citations": [], "error": str(exc)}

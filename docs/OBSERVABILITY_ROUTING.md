@@ -54,11 +54,6 @@ The main confusion point: **`OTEL_TRACES_ENDPOINT` is a single endpoint**. If yo
   - **True** → `run_api.sh` attempts `docker compose --profile observability up -d ...`
   - **False** → does not start docker stack
 
-- `OBSERVABILITY_STACK_SERVICES: list[str]`
-  - Controls which compose services `run_api.sh` starts when `ENABLE_OBSERVABILITY_STACK=True`.
-  - Example: disable Grafana UI but keep Loki/Tempo/collector:
-    - `["loki", "tempo", "otel-collector"]`
-
 ### OCI Logging Analytics (non-OTLP log shipper)
 
 - `ENABLE_OCI_LOGGING_ANALYTICS: bool`
@@ -238,4 +233,4 @@ For most contributors:
 
 ## Note on server-owned chat memory
 
-The `/api/chat` flow now persists `state["messages"]` via a checkpointer (SQLite by default). This does not change tracing/observability wiring, but you may see longer-lived conversation context reflected in LangChain/LangGraph spans and in Langfuse metadata (e.g., `mcp_used`, `mcp_tools_used`, `standalone_question`, and `context_usage`).
+The `/api/langgraph/threads/{thread_id}/runs` flow keeps thread-scoped memory in `ChatRuntimeService` for the current API process. This does not change tracing/observability wiring, but you may see prior-turn context reflected in LangChain spans and Langfuse metadata (for example `mcp_used`, `mcp_tools_used`, `standalone_question`, and `context_usage`).

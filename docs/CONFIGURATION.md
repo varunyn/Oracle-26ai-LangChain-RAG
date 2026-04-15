@@ -41,7 +41,7 @@ The project reads settings from (in order of precedence):
 
 The **frontend** also uses:
 
-- **`frontend/.env.local`** — For `FASTAPI_BACKEND_URL` and `NEXT_PUBLIC_DEFAULT_FLOW_MODE`. See `frontend/env.example`.
+- **`frontend/.env.local`** — For `NEXT_PUBLIC_API_BASE`, `FASTAPI_BACKEND_URL` (optional fallback), and `NEXT_PUBLIC_DEFAULT_FLOW_MODE`. See `frontend/env.example`.
 
 ---
 
@@ -128,8 +128,6 @@ Connect to Oracle 26AI for vector search (required for RAG).
 | `VECTOR_WALLET_PWD`      | —         | Wallet password.                           |
 | `CONNECT_ARGS`           | (derived) | Optional; derived from the above if unset. |
 | `DB_TCP_CONNECT_TIMEOUT` | `5`       | Connection timeout in seconds.             |
-| `DB_SEARCH_TIMEOUT_SEC`  | `15`      | Total search timeout (connect + query).    |
-| `DB_SEARCH_MAX_WORKERS`  | `4`       | Max concurrent worker threads used for vector search calls. |
 
 ---
 
@@ -137,16 +135,14 @@ Connect to Oracle 26AI for vector search (required for RAG).
 
 Control retrieval breadth and context shaping.
 
-| Variable              | Default              | Description                                        |
-| --------------------- | -------------------- | -------------------------------------------------- |
-| `TOP_K`               | `6`                  | Number of chunks to retrieve.                      |
-| `RAG_SEARCH_MODE`     | `vector`             | Retrieval mode for RAG: `vector`, `hybrid`, or `text`. |
-| `COLLECTION_LIST`     | `RAG_KNOWLEDGE_BASE` | Comma-separated or JSON array of collection names. |
-| `DEFAULT_COLLECTION`  | `RAG_KNOWLEDGE_BASE` | Default collection when not specified.             |
-| `CHUNK_SIZE`          | `4000`               | Chunk size for splitting.                          |
-| `CHUNK_OVERLAP`       | `100`                | Overlap between chunks.                            |
-| `MAX_MSGS_IN_HISTORY` | `6`                  | Max messages persisted in LangGraph thread history and reused for follow-up context. |
-| `ENABLE_RERANKER`     | `true`               | Enable reranking of retrieved chunks.              |
+| Variable             | Default              | Description                                        |
+| -------------------- | -------------------- | -------------------------------------------------- |
+| `RAG_SEARCH_MODE`    | `vector`             | Retrieval mode for RAG: `vector`, `hybrid`, or `text`. |
+| `COLLECTION_LIST`    | `RAG_KNOWLEDGE_BASE` | Comma-separated or JSON array of collection names. |
+| `DEFAULT_COLLECTION` | `RAG_KNOWLEDGE_BASE` | Default collection when not specified.             |
+| `CHUNK_SIZE`         | `4000`               | Chunk size for splitting.                          |
+| `CHUNK_OVERLAP`      | `100`                | Overlap between chunks.                            |
+| `ENABLE_RERANKER`    | `true`               | Enable reranking of retrieved chunks.              |
 
 ---
 
@@ -162,11 +158,12 @@ Backend options that affect the UI (e.g. dropdowns and features).
 
 ## Frontend (Next.js)
 
-The frontend gets most config from the backend via `GET /api/config`. These options are **frontend-only** and live in `frontend/.env.local` (see `frontend/env.example`). For most local setups, `FASTAPI_BACKEND_URL` is the only value you need to set explicitly.
+The frontend gets most config from the backend via `GET /api/config`. These options are **frontend-only** and live in `frontend/.env.local` (see `frontend/env.example`).
 
 | Variable                        | Default                 | Description                                                          |
 | ------------------------------- | ----------------------- | -------------------------------------------------------------------- |
-| `FASTAPI_BACKEND_URL`           | `http://localhost:3002` | Backend base URL used when proxying API calls.                       |
+| `NEXT_PUBLIC_API_BASE`          | `http://localhost:3002` | Browser-visible backend base URL for direct frontend API calls.      |
+| `FASTAPI_BACKEND_URL`           | `http://localhost:3002` | Optional server-side fallback for config/bootstrap fetches.          |
 | `NEXT_PUBLIC_DEFAULT_FLOW_MODE` | `rag`                   | Default flow when the app loads: `rag`, `mcp`, `mixed`, or `direct`. |
 
 ### Default model (browser)
@@ -177,19 +174,17 @@ The model the user selects in the UI is stored in **browser localStorage** under
 
 ## Conversation memory / threads
 
-Thread state and checkpointer behavior.
+Thread state behavior.
 
 | Variable                   | Default          | Description                                                       |
 | -------------------------- | ---------------- | ----------------------------------------------------------------- |
-| `ENABLE_PERSISTENT_MEMORY` | (see settings)   | Enable persistent checkpointer (e.g. SQLite).                     |
-| `LANGGRAPH_SQLITE_PATH`    | —                | Path to SQLite checkpoint file when persistent memory is enabled. |
 | `ALLOW_CLIENT_THREAD_ID`   | (when supported) | Allow client to send thread ID.                                   |
 | `THREAD_ID_STRATEGY`       | (when supported) | How thread IDs are generated.                                     |
 | `THREAD_ID_PREFIX`         | (when supported) | Optional prefix for thread IDs.                                   |
 
 ### Clear chat
 
-When the user clears the chat, the frontend calls **`DELETE /api/threads/{thread_id}`** to remove the thread’s checkpointer state on the backend, then clears local UI state and starts a new thread. A success toast is shown.
+When the user clears the chat, the frontend calls **`DELETE /api/threads/{thread_id}`** to remove the thread’s server-side runtime state, then clears local UI state and starts a new thread. A success toast is shown.
 
 ---
 
@@ -203,7 +198,6 @@ MCP (Model Context Protocol) client and server configuration.
 | `MCP_SERVER_KEYS`                   | (none)         | Comma-separated list of configured MCP server keys to load tools from (e.g. `default,context7`). This does not choose the default chat mode. |
 | `MCP_TOOL_SELECTION_MAX_TOOLS`      | `5`            | Max tools to select per turn.                                  |
 | `MCP_TOOL_SELECTION_ALWAYS_INCLUDE` | `[]`           | Tool names always included (JSON array).                       |
-| `MCP_TOOL_SELECTION_TEMPERATURE`    | `0.0`          | Temperature for tool selection.                                |
 | `MCP_SEARCH_MODE`                   | `vector`       | Default retrieval mode for semantic-search MCP tools: `vector`, `hybrid`, or `text`. |
 | `ENABLE_MCP_CLIENT_JWT`             | `false`        | Enable JWT auth for MCP client.                                |
 | `MCP_SERVERS_CONFIG`                | (see settings) | JSON object; see [MCP-USAGE.md](MCP-USAGE.md).                 |
@@ -212,7 +206,7 @@ MCP (Model Context Protocol) client and server configuration.
 
 | Variable    | Default           | Description                              |
 | ----------- | ----------------- | ---------------------------------------- |
-| `TRANSPORT` | `streamable-http` | Transport: `streamable-http` or `stdio`. Client configs may still accept legacy `http` or `streamable_http`, which are normalized internally to `streamable-http`. |
+| `TRANSPORT` | `streamable-http` | Transport: `streamable-http` or `stdio`. |
 | `HOST`      | `0.0.0.0`         | Bind host for MCP server.                |
 | `PORT`      | `9000`            | Bind port for MCP server.                |
 
@@ -229,7 +223,6 @@ Optional tracing, logging, and local Docker stacks.
 | `OTEL_TRACES_HEADERS`          | —                       | Headers for traces (e.g. auth).                         |
 | `OTEL_LOGS_ENDPOINT`           | —                       | OTLP logs endpoint.                                     |
 | `ENABLE_OBSERVABILITY_STACK`   | `false`                 | Start local observability stack (Grafana, Tempo, etc.). |
-| `OBSERVABILITY_STACK_SERVICES` | (see settings)          | JSON array of services.                                 |
 | `ENABLE_LANGFUSE_TRACING`      | `false`                 | Send traces to Langfuse.                                |
 | `LANGFUSE_HOST`                | `http://localhost:3300` | Langfuse server URL.                                    |
 | `LANGFUSE_PUBLIC_KEY`          | —                       | Langfuse public key.                                    |
@@ -309,11 +302,8 @@ VECTOR_DSN=your_dsn
 VECTOR_WALLET_DIR=/path/to/wallet
 VECTOR_WALLET_PWD=wallet_password
 DB_TCP_CONNECT_TIMEOUT=5
-DB_SEARCH_TIMEOUT_SEC=15
-DB_SEARCH_MAX_WORKERS=4
 
 # RAG
-TOP_K=6
 RAG_SEARCH_MODE=vector
 COLLECTION_LIST=RAG_KNOWLEDGE_BASE
 ENABLE_RERANKER=true

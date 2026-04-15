@@ -11,37 +11,24 @@
     },
     {
       "method": "POST",
-      "path": "/invoke",
-      "mode": "generated",
-      "name": "Invoke",
-      "bodyKind": "json",
-      "output": "bruno/CustomRAGAgent/Chat/invoke.bru",
-      "seq": 3
+      "path": "/api/langgraph/threads",
+      "mode": "curated",
+      "name": "Create Thread",
+      "output": "bruno/CustomRAGAgent/Chat/create-thread.bru"
     },
     {
       "method": "POST",
-      "path": "/api/chat",
+      "path": "/api/langgraph/threads/{thread_id}/runs",
       "mode": "curated",
       "name": "Chat",
       "output": "bruno/CustomRAGAgent/Chat/chat-json.bru"
     },
     {
-      "method": "GET",
-      "path": "/graph/mermaid",
-      "mode": "generated",
-      "name": "Graph Mermaid",
-      "bodyKind": "none",
-      "output": "bruno/CustomRAGAgent/Graph/mermaid.bru",
-      "seq": 1
-    },
-    {
       "method": "POST",
-      "path": "/api/mcp/chat",
-      "mode": "generated",
-      "name": "MCP Chat",
-      "bodyKind": "json",
-      "output": "bruno/CustomRAGAgent/MCP/mcp-chat.bru",
-      "seq": 1
+      "path": "/api/langgraph/threads/{thread_id}/runs/stream",
+      "mode": "curated",
+      "name": "Chat Stream",
+      "output": "bruno/CustomRAGAgent/Chat/chat-stream.bru"
     },
     {
       "method": "POST",

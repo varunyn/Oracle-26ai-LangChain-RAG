@@ -20,9 +20,15 @@ import {
   InlineCitationSource,
 } from "@/components/ai-elements/inline-citation";
 import { SourcesStrip } from "@/components/chat/SourcesStrip";
+import {
+  Tool,
+  ToolInput,
+  ToolOutput,
+  ToolStatusBadge,
+} from "@/components/ai-elements/tool";
 import { CITATION_RUN_REGEX } from "@/constants/chat";
 import { splitContentByCitations } from "@/lib/chat/citations";
-import type { MessageReferences } from "@/lib/types/chat";
+import type { MessageReferences, McpToolInvocation } from "@/lib/types/chat";
 import {
   Message,
   MessageAction,
@@ -35,20 +41,34 @@ import { useToast } from "@/components/toaster";
 const markdownComponents: Partial<Components> = {
   ul: (props) => {
     const { className, ...restProps } = props as ComponentPropsWithoutRef<"ul">;
-    return <ul className={["my-3 list-disc pl-6 space-y-1", className].filter(Boolean).join(" ")} {...restProps} />;
+    return (
+      <ul
+        className={["my-3 list-disc pl-6 space-y-1", className]
+          .filter(Boolean)
+          .join(" ")}
+        {...restProps}
+      />
+    );
   },
   ol: (props) => {
     const { className, ...restProps } = props as ComponentPropsWithoutRef<"ol">;
     return (
       <ol
-        className={["my-3 list-decimal pl-6 space-y-1", className].filter(Boolean).join(" ")}
+        className={["my-3 list-decimal pl-6 space-y-1", className]
+          .filter(Boolean)
+          .join(" ")}
         {...restProps}
       />
     );
   },
   li: (props) => {
     const { className, ...restProps } = props as ComponentPropsWithoutRef<"li">;
-    return <li className={["pl-1", className].filter(Boolean).join(" ")} {...restProps} />;
+    return (
+      <li
+        className={["pl-1", className].filter(Boolean).join(" ")}
+        {...restProps}
+      />
+    );
   },
 };
 
@@ -67,6 +87,8 @@ type ChatMessageItemProps = {
   messageReferences: MessageReferences | null;
   maxCitationsToShow: number;
   onRetry: () => void;
+  onRecoverDirect: () => void;
+  onRecoverRagOnly: () => void;
   onFeedback: (stars: number) => void;
   feedbackSubmitted: boolean;
   enableUserFeedback?: boolean;
@@ -82,11 +104,27 @@ function ChatMessageItemInner({
   messageReferences,
   maxCitationsToShow,
   onRetry,
+  onRecoverDirect,
+  onRecoverRagOnly,
   onFeedback,
   feedbackSubmitted,
   enableUserFeedback,
 }: ChatMessageItemProps): React.ReactElement {
   const { toast } = useToast();
+  const mcpToolsUsed = messageReferences?.mcp_tools_used ?? [];
+  const toolInvocations: McpToolInvocation[] = (
+    messageReferences?.mcp_tool_invocations ?? []
+  ).filter(
+    (inv) =>
+      typeof inv.tool_name === "string" && inv.tool_name.trim().length > 0,
+  );
+  const toolTimeline = [
+    ...(toolName ? [toolName] : []),
+    ...mcpToolsUsed.filter((tool) => tool !== toolName),
+  ];
+  const showToolCards =
+    toolInvocations.length > 0 ||
+    (!toolInvocations.length && toolTimeline.length > 0);
   const segments = splitContentByCitations(displayContent);
   const hasCitationMarkers = segments.some((s) => s.type === "citation");
   const hasRefs =
@@ -99,7 +137,11 @@ function ChatMessageItemInner({
     if (!displayContent) return null;
     if (isStreaming) {
       return (
-        <MessageResponse components={markdownComponents} isAnimating mode="streaming">
+        <MessageResponse
+          components={markdownComponents}
+          isAnimating
+          mode="streaming"
+        >
           {displayContent}
         </MessageResponse>
       );
@@ -109,7 +151,8 @@ function ChatMessageItemInner({
       const rerankerDocs = messageReferences.reranker_docs ?? [];
       const citationComponents: Partial<Components> = {
         p: (props) => {
-          const { children, ...pProps } = props as ComponentPropsWithoutRef<"p">;
+          const { children, ...pProps } =
+            props as ComponentPropsWithoutRef<"p">;
           const processedChildren = Children.map(children, (child) => {
             if (typeof child !== "string") return child;
             const parts: (string | ReactNode)[] = [];
@@ -257,7 +300,9 @@ function ChatMessageItemInner({
       data-message-role={message.role ?? "user"}
       data-streaming={isStreaming ? "true" : "false"}
     >
-      <Message from={(message.role ?? "user") as "user" | "assistant" | "system"}>
+      <Message
+        from={(message.role ?? "user") as "user" | "assistant" | "system"}
+      >
         <MessageContent
           className={
             message.role === "assistant"
@@ -265,22 +310,77 @@ function ChatMessageItemInner({
               : undefined
           }
         >
-          {toolName ? (
-            <div className="mb-2 inline-flex items-center px-2 py-1 rounded-md bg-primary/10 text-primary text-xs font-medium border border-primary/20">
-              <span className="mr-1" aria-hidden>
-                ⚡
-              </span>
-              {toolName}
-            </div>
-          ) : null}
-          {messageReferences?.mcp_used ? (
-            <div className="mb-2 inline-flex items-center rounded-md border border-warning/30 bg-warning/15 px-2 py-1 text-warning-foreground text-xs font-medium">
-              <span className="mr-1" aria-hidden>
-                🔌
-              </span>
-              {messageReferences.mcp_tools_used?.length
-                ? `MCP: ${messageReferences.mcp_tools_used.join(", ")}`
-                : "MCP tools used"}
+          {showToolCards ? (
+            <div className="mb-2 space-y-1.5">
+              {toolInvocations.length > 0
+                ? toolInvocations.map((inv, index) => (
+                    <Tool
+                      key={`${inv.tool_name}-${index}`}
+                      type={inv.tool_name}
+                      state="output-available"
+                      defaultOpen={index === toolInvocations.length - 1}
+                    >
+                      <div className="w-full min-w-0">
+                        <div className="flex min-w-0 items-start justify-between gap-2">
+                          <code className="min-w-0 flex-1 break-words rounded border border-border/60 bg-background/50 px-1.5 py-0.5 font-mono text-[10px] leading-snug text-foreground">
+                            <span className="text-muted-foreground">
+                              {index + 1}.{" "}
+                            </span>
+                            {inv.tool_name}
+                          </code>
+                          <ToolStatusBadge
+                            state="output-available"
+                            className="mt-0.5 shrink-0"
+                          />
+                        </div>
+                        <details className="group mt-2 w-full min-w-0 border-t border-border/50 pt-2">
+                          <summary className="cursor-pointer list-none text-[10px] font-medium text-muted-foreground marker:hidden hover:text-foreground">
+                            <span className="group-open:hidden">
+                              Input & output
+                            </span>
+                            <span className="hidden group-open:inline">
+                              Hide input & output
+                            </span>
+                          </summary>
+                          <div className="mt-2 space-y-2">
+                            <div>
+                              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Input
+                              </div>
+                              <ToolInput input={inv.args ?? {}} />
+                            </div>
+                            <div>
+                              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Output
+                              </div>
+                              <ToolOutput
+                                output={
+                                  inv.result ?? "(no tool output in response)"
+                                }
+                              />
+                            </div>
+                          </div>
+                        </details>
+                      </div>
+                    </Tool>
+                  ))
+                : toolTimeline.map((tool, index) => (
+                    <div
+                      key={`${tool}-${index}`}
+                      className="rounded-md border border-border/50 bg-muted/25 px-2 py-1.5 text-[10px] text-muted-foreground"
+                    >
+                      <span className="font-medium text-foreground/85">
+                        Tool:{" "}
+                      </span>
+                      <span className="font-mono text-foreground/80">
+                        {tool}
+                      </span>
+                      <span className="mt-1 block leading-snug">
+                        Per-call arguments and tool output are shown when the
+                        API includes them in the message metadata.
+                      </span>
+                    </div>
+                  ))}
             </div>
           ) : null}
           {messageReferences?.error ? (
@@ -319,15 +419,32 @@ function ChatMessageItemInner({
       ) : null}
       {isLastMessage &&
       message.role === "assistant" &&
-      displayContent.trim().startsWith("Error:") ? (
+      (displayContent.trim().startsWith("Error:") ||
+        Boolean(messageReferences?.error)) ? (
         <div className="mt-2">
-          <button
-            type="button"
-            onClick={onRetry}
-            className="px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-          >
-            Retry
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onRetry}
+              className="px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={onRecoverDirect}
+              className="px-3 py-1.5 text-sm font-medium rounded-md border border-border bg-background text-foreground hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              Try direct mode
+            </button>
+            <button
+              type="button"
+              onClick={onRecoverRagOnly}
+              className="px-3 py-1.5 text-sm font-medium rounded-md border border-border bg-background text-foreground hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              Try RAG mode
+            </button>
+          </div>
         </div>
       ) : null}
       {enableUserFeedback &&

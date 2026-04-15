@@ -22,7 +22,7 @@ def get_console_logger(name: str = "ConsoleLogger", level: str = "INFO") -> logg
     OTLP to the configured collector (and optionally to console) with request_id.
 
     Best practice: In FastAPI/application code, prefer logging.getLogger(__name__)
-    so logger names follow module hierarchy (e.g. api.rag_agent_api). Use this
+    so logger names follow module hierarchy (e.g. api.main). Use this
     helper for scripts or code that may run without the API (e.g. populate scripts).
     """
     logger = logging.getLogger(name)

@@ -9,7 +9,7 @@ A **README for agents**: a dedicated, predictable place for context and instruct
 
 | Area                                                  | Stack                                 | Entrypoints                                          |
 | ----------------------------------------------------- | ------------------------------------- | ---------------------------------------------------- |
-| `src`, `api`, `scripts`, `mcp_servers`, `tests`, `ui` | Python 3.11 (LangGraph, FastAPI, MCP) | `uv run python ...`, `uv run pytest`, `./run_api.sh` |
+| `src`, `api`, `scripts`, `mcp_servers`, `tests`, `ui` | Python 3.11 (LangChain, FastAPI, MCP) | `uv run python ...`, `uv run pytest`, `./run_api.sh` |
 | `frontend`                                            | Next.js 16 / React 19 / Tailwind CSS  | `PORT=4000 pnpm dev`, `pnpm build`, `pnpm lint`      |
 | Docker stacks                                         | OTEL/Observability, Langfuse          | `uv run python scripts/manage_stacks.py up           |
 
@@ -47,8 +47,8 @@ A **README for agents**: a dedicated, predictable place for context and instruct
 | Lint (Ruff)      | `uv run ruff check`                                                                           | Config: `pyproject.toml` (`line-length=100`, `select=[E,F,I,N,W,UP]`, `ignore=[E501]`)                     |
 | Format (Black)   | `uv run black .`                                                                              | `line-length=100`, target py311                                                                            |
 | Type Check       | `uv run mypy src api tests scripts`                                                           | `warn_return_any=true`, `warn_unused_configs=true`, `disallow_untyped_defs=false`                          |
-| Test Suite       | `uv run pytest`                                                                               | Pytest config lives in `pyproject.toml` (`testpaths=tests`, default markers, `addopts=--record-mode=once`) |
-| Single Test      | `uv run pytest tests/path/test_file.py::TestClass::test_case` or `uv run pytest -k "keyword"` | Integration tests are marked `@pytest.mark.integration`; skip via `-m "not integration"`                   |
+| Test Suite       | `uv run pytest`                                                                               | Pytest config lives in `pyproject.toml` (`testpaths=["tests/unit_tests", "tests/workflow_tests", "tests/integration_tests"]`, default markers, `addopts=--record-mode=once`) |
+| Single Test      | `uv run pytest tests/unit_tests/test_file.py::test_case`, `uv run pytest tests/workflow_tests/test_file.py -k "keyword"`, or `uv run pytest tests/integration_tests -m integration` | Integration tests are marked `@pytest.mark.integration`; workflow tests stay deterministic and do not hit real providers by default |
 | Manual MCP tools | `uv run python tests/run_mcp_semantic_search.py` etc.                                         | Use to validate MCP servers without pytest                                                                 |
 
 ### JavaScript / TypeScript
@@ -75,14 +75,14 @@ A **README for agents**: a dedicated, predictable place for context and instruct
 1. **Imports**: Standard library → third-party → local (`from __future__ import annotations` when needed). Group blocks with blank line separation and keep alphabetical order (Ruff `I` rules enforce this).
 2. **Typing**:
    - Use type hints everywhere (functions, class attrs, TypedDict fields).
-   - Leverage `typing.TypedDict`, `Literal`, `Annotated`, and `pydantic.BaseModel` for strict schemas.
+   - Use TypedDict, Literal, and pydantic.BaseModel for structured schemas. Use Annotated where metadata-driven validation or framework integration benefits from it.
    - Use `collections.abc` types (`Sequence`, `Mapping`) instead of `typing.List` in new code.
-3. **Functions & Classes**: snake_case for functions/vars, PascalCase for classes, UPPER_SNAKE for constants. Keep functions small; push complex logic into helper services (see `src/rag_agent/*.py`).
+3. **Functions & Classes**: snake_case for functions/vars, PascalCase for classes, UPPER_SNAKE for constants. Keep functions focused on one responsibility. Extract helper functions or services when branching, state mutation, or error handling starts to obscure the main flow; push complex logic into helper services (see `src/rag_agent/*.py`).
 4. **Error Handling**: Catch the most specific exception possible, log via module logger, and either rethrow with context (`raise CustomError(...) from exc`) or return typed error payloads (e.g., `search_error_response`). Never swallow exceptions silently.
-5. **Logging**: Always create module loggers via `logging.getLogger(__name__)`. Use structured log messages (`logger.info("Message %s", arg)`). Request IDs propagate via `api.main.RequestIdMiddleware`; respect this when logging cross-request data.
-6. **State & Data Flow**: LangGraph uses `State` (`TypedDict`) defined in `src/rag_agent/agent_state.py`. Update keys atomically and document new fields there before using them in nodes.
-7. **Security**: Follow `.cursor/rules/no-hardcode-tools.mdc` guidance plus config-driven secrets. Never check `.env` into git; use `.env.example` as reference. Use OCI wallet paths from settings/env, not hardcoded strings.
-8. **Testing**: Tests live under `tests/`. Respect `pytest` markers (`integration`, `vcr`, `langsmith`). Use VCR for HTTP recording (`--record-mode=once`).
+5. **Logging**: Always create module loggers via `logging.getLogger(__name__)`. Prefer logs that describe the operation, outcome, and identifiers; avoid logging secrets, full tokens, or large raw payloads.
+6. **State & Data Flow**: Chat runtime state is managed in `api/services/graph_service.py` and request config in `api/dependencies.py`. Keep response contracts stable (`final_answer`, `citations`, `reranker_docs`, `context_usage`, `mcp_*`) and centralize citation normalization in `src/rag_agent/core/citations.py`.
+7. **Security**: Never check `.env` into git; use `.env.example` as reference. Use OCI wallet paths from settings/env, not hardcoded strings.
+8. **Testing**: Tests live under `tests/` with categorized suites: `tests/unit_tests` for deterministic unit tests, `tests/workflow_tests` for deterministic orchestration tests with mocked boundaries, and `tests/integration_tests` for real external/provider/backend tests. Respect `pytest` markers (`integration`, `vcr`, `langsmith`). Use VCR for HTTP recording (`--record-mode=once`). Detailed LangChain testing guidance lives in `tests/AGENTS.md`.
 
 ## 8. Code Style — TypeScript / Next.js
 
@@ -98,7 +98,7 @@ A **README for agents**: a dedicated, predictable place for context and instruct
 ## 9. Error Handling & Observability
 
 1. **FastAPI**: Wrap router handlers with structured errors; return `JSONResponse` with `status_code` set explicitly. Use Pydantic response models from `api/schemas.py` to guarantee shape.
-2. **LangGraph Nodes**: Each node should validate prerequisites and write meaningful `state["error"]` entries so `search_error_response` can surface them to UI quickly. Keep nodes idempotent; they may rerun during retries.
+2. **Runtime Steps**: Each runtime path (`rag`, `mcp`, `mixed`, `direct`) should validate prerequisites and write meaningful `error` fields so API responses and streams surface failures clearly. Keep operations idempotent where possible.
 3. **Core boundary**: Prefer importing observability/config/logging wrappers from `src.rag_agent.core.*`.
    - Compatibility note: `src.rag_agent.utils.*` remains in place as intentional shims during migration.
 4. **Logging IDs**: Request ID header `X-Request-ID` is injected by middleware. Ensure downstream logs include this context.
@@ -123,7 +123,13 @@ A **README for agents**: a dedicated, predictable place for context and instruct
 
 ```bash
 # Single pytest by node id
-uv run pytest tests/test_llm_with_mcp.py::test_tool_selector_handles_multiple_servers
+uv run pytest tests/unit_tests/test_mcp_agent_executor.py::test_build_middleware_skips_llm_selector_for_oci_models
+
+# Workflow-focused pytest
+uv run pytest tests/workflow_tests/test_ai_sdk_stream.py -k "references"
+
+# Integration-only pytest
+uv run pytest tests/integration_tests -m integration
 
 # Ruff autofix import order only
 uv run ruff check --select I --fix

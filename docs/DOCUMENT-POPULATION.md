@@ -62,13 +62,13 @@ uv run python scripts/ingest_documents.py --dir ./documents
 ## How It Works
 
 1. **CLI wrapper**: `scripts/ingest_documents.py` parses command-line arguments and delegates to `src/rag_agent/ingestion.py`.
-2. **Load**: For each file, the appropriate LangChain loader is used by extension; the file is copied to `uploaded_files/` and metadata (`source_url`, `file_name`, plus compatibility fields) is set on each `Document`.
+2. **Load**: For each file, the appropriate LangChain loader is used by extension; the file is copied to `uploaded_files/` and metadata (`source_url`, `file_name`, and related fields) is set on each `Document`.
 3. **Split**: All documents are split with RecursiveCharacterTextSplitter (chunk_size=800, chunk_overlap=150).
 4. **Store**: A DB connection is opened, the embedding model is obtained via `get_embedding_model()` (same as the RAG app), and `OracleVS.from_documents()` is called with the split documents, writing to `RAG_KNOWLEDGE_BASE` with COSINE distance.
 
 ## Output
 
-- **Database**: Chunks in an OracleVS-compatible table with text, embeddings, and metadata (`source_url` first, plus `file_name` and compatibility keys as available).
+- **Database**: Chunks in an OracleVS table with text, embeddings, and metadata (`source_url` first, plus `file_name` and related keys as available).
 - **Files**: Processed files copied to `uploaded_files/` for citation links.
 - **Console**: Progress messages and a final count of stored chunks.
 

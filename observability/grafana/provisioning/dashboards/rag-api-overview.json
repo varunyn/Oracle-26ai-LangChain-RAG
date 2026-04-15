@@ -24,7 +24,9 @@
       "icon": "dashboard",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["rag-api"],
+      "tags": [
+        "rag-api"
+      ],
       "targetBlank": false,
       "title": "RAG API - Pipeline & answers",
       "tooltip": "LangGraph flow, RAG/MCP/Direct",
@@ -78,7 +80,9 @@
         "orientation": "auto",
         "percentChangeColorMode": "standard",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -147,7 +151,9 @@
         "orientation": "auto",
         "percentChangeColorMode": "standard",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -217,7 +223,9 @@
         "orientation": "auto",
         "percentChangeColorMode": "standard",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -289,7 +297,9 @@
         "orientation": "auto",
         "percentChangeColorMode": "standard",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -359,7 +369,9 @@
         "orientation": "auto",
         "percentChangeColorMode": "standard",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -375,12 +387,12 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({service_name=\"rag-api\"} |~ \"(Error in vector_store|error=Vector search|Search is temporarily unavailable)\" [$__range]))",
+          "expr": "sum(count_over_time({service_name=\"rag-api\"} |~ \"(Error in vector_store|error=Vector search|Search is temporarily unavailable|rag_retrieval_no_docs|Unhandled exception at /api/langgraph/threads)\" [$__range]))",
           "queryType": "instant",
           "refId": "A"
         }
       ],
-      "title": "Search/DB errors",
+      "title": "Runtime retrieval/errors",
       "type": "stat"
     },
     {
@@ -743,12 +755,12 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "{service_name=\"rag-api\"} |~ `(ERROR|Search is temporarily unavailable|Vector search timeout|DB_TCP_CONNECT_TIMEOUT|langgraph_node.*error!=(None))`",
+          "expr": "{service_name=\"rag-api\"} |~ `(ERROR|Unhandled exception at|Search is temporarily unavailable|Vector search timeout|DB_TCP_CONNECT_TIMEOUT|rag_retrieval_no_docs|HTTP/1.1\\\" 5\\\\d{2} .*?/api/langgraph/)`",
           "queryType": "range",
           "refId": "A"
         }
       ],
-      "title": "Recent application errors (Search / DB timeouts)",
+      "title": "Recent runtime errors (LangGraph/RAG/DB)",
       "type": "logs"
     },
     {
@@ -883,7 +895,11 @@
   "preload": false,
   "refresh": "30s",
   "schemaVersion": 42,
-  "tags": ["rag-api", "loki", "observability"],
+  "tags": [
+    "rag-api",
+    "loki",
+    "observability"
+  ],
   "templating": {
     "list": []
   },

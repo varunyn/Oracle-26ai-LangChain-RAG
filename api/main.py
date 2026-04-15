@@ -1,26 +1,21 @@
 """
 RAG Agent API – main FastAPI app.
 
-Expose the RAG agent as a REST API. Uses OpenAI-compatible Chat Completions format.
+Expose the RAG runtime and supporting API endpoints.
 Entrypoint for uvicorn: api.main:app
 """
 
-import os
 import sys
 from pathlib import Path
 
-_API_DIR = Path(__file__).resolve().parent
-_PROJECT_ROOT = _API_DIR.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
+from api.bootstrap import add_project_root_to_sys_path, configure_default_oci_config
 
-_oci_config = _PROJECT_ROOT / "local-config" / "oci" / "config"
-if not os.environ.get("OCI_CONFIG_FILE") and _oci_config.is_file():
-    os.environ["OCI_CONFIG_FILE"] = str(_oci_config)
+_PROJECT_ROOT = add_project_root_to_sys_path(__file__)
+configure_default_oci_config(_PROJECT_ROOT)
 
-# Set up OTel + LangSmith OTEL before importing routers (so LangGraph/LangChain are traced)
+# Set up OTel + LangSmith OTEL before importing routers (so LangChain runtime spans are traced)
 try:
-    from src.rag_agent.core.otel import setup_otel_tracing_early
+    from src.rag_agent.utils.otel_tracing import setup_otel_tracing_early
 
     _ = setup_otel_tracing_early()
 except Exception:  # noqa: BLE001
@@ -32,6 +27,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 
 from api.errors import (
     generic_exception_handler,
@@ -41,8 +37,9 @@ from api.errors import (
 from api.middleware.request_context import RequestIdMiddleware
 from api.resources import create_app_resources, shutdown_app_resources
 from api.routes import api
-from src.rag_agent.core.logging import setup_logging
+from api.settings import get_settings
 from src.rag_agent.infrastructure.db_utils import close_pool, get_pooled_connection
+from src.rag_agent.utils.logging_config import setup_logging
 
 
 def _warm_pool_sync() -> None:
@@ -63,7 +60,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize OpenTelemetry tracing if enabled (fail-open)
     try:
-        from src.rag_agent.core.otel import setup_otel_tracing
+        from src.rag_agent.utils.otel_tracing import setup_otel_tracing
 
         _ = setup_otel_tracing(app)
     except Exception as _e:  # noqa: BLE001
@@ -82,20 +79,9 @@ async def lifespan(app: FastAPI):
     _warm_thread = threading.Thread(target=_warm_pool_sync, daemon=True)
     _warm_thread.start()
 
-    # Initialize app-scoped resources (async checkpointer + graph)
+    # Initialize app-scoped resources (chat runtime + settings)
     try:
         app.state.resources = await create_app_resources()
-        # Wire legacy dependency singleton to lifespan resource for compatibility
-        try:
-            import api.dependencies as _deps
-
-            func = getattr(_deps, "set_graph_service_singleton", None)
-            if callable(func):
-                _ = func(app.state.resources.graph_service)
-            else:
-                _log.debug("No public setter for graph service singleton; skip wiring")
-        except Exception as _e:  # noqa: BLE001
-            _log.debug("Could not wire legacy dependency singleton: %s", _e)
     except Exception as e:  # noqa: BLE001
         _log.warning("App resources init failed (non-fatal): %s", e)
 
@@ -110,7 +96,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+_settings = get_settings()
 app.add_middleware(RequestIdMiddleware)
+if _settings.ENABLE_CORS:
+    # Keep CORS outermost so browser clients receive CORS headers even when
+    # downstream middleware or handlers return error responses.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_settings.CORS_ALLOW_ORIGINS,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # Centralized exception handlers
 app.add_exception_handler(RequestValidationError, request_validation_exception_handler)

@@ -1,29 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { getMessageContent } from "@/lib/chat/messages";
+import { toApiUrl } from "@/lib/api-base";
 
-type MessageLike = { id?: string; role?: string; parts?: { type?: string; text?: string }[] };
-
-type ChatBodyParams = {
-  model: string;
-  thread_id?: string;
-  session_id?: string;
-  collection_name?: string;
-  enable_reranker: boolean;
-  enable_tracing: boolean;
-  mode: string;
+type MessageLike = {
+  id?: string;
+  role?: string;
+  content?: unknown;
+  parts?: { type?: string; text?: string }[];
 };
 
 function fetchSuggestions(
   lastMessage: string,
+  lastUserMessage: string | null,
   selectedModel: string,
   onResult: (suggestions: string[]) => void,
   onDone: () => void,
 ): void {
-  fetch("/api/suggestions", {
+  fetch(toApiUrl("/api/suggestions"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      lastMessage: lastMessage.slice(-4000),
+      last_message: lastMessage.slice(-4000),
+      last_user_message: lastUserMessage?.slice(-2000) ?? undefined,
       model: selectedModel,
     }),
   })
@@ -42,14 +40,12 @@ export function useSuggestions({
   status,
   sendMessage,
   selectedModel,
-  bodyParams,
   setFeedbackSubmitted,
 }: {
   messages: MessageLike[];
   status: string;
-  sendMessage: (opts: { text: string }, opts2: { body: ChatBodyParams }) => void;
+  sendMessage: (text: string) => void;
   selectedModel: string;
-  bodyParams: ChatBodyParams;
   setFeedbackSubmitted: (v: boolean) => void;
 }) {
   const [dynamicSuggestions, setDynamicSuggestions] = useState<string[] | null>(null);
@@ -60,7 +56,7 @@ export function useSuggestions({
   const handleSuggestionClick = (suggestion: string) => {
     setFeedbackSubmitted(false);
     setPendingSuggestion(suggestion);
-    sendMessage({ text: suggestion }, { body: bodyParams });
+    sendMessage(suggestion);
   };
 
   useEffect(() => {
@@ -88,7 +84,13 @@ export function useSuggestions({
     if (!text?.trim()) return;
     lastSuggestionsMessageIdRef.current = last.id ?? null;
     queueMicrotask(() => setSuggestionsLoading(true));
-    fetchSuggestions(text, selectedModel, setDynamicSuggestions, () =>
+    const previousUser = [...messages]
+      .reverse()
+      .find((msg) => msg.role === "user");
+    const previousUserText = previousUser
+      ? getMessageContent(previousUser as Parameters<typeof getMessageContent>[0]).trim()
+      : "";
+    fetchSuggestions(text, previousUserText || null, selectedModel, setDynamicSuggestions, () =>
       setSuggestionsLoading(false),
     );
   }, [status, messages, selectedModel]);
@@ -105,11 +107,15 @@ export function useSuggestions({
         );
       })());
 
-  const fetchSuggestionsForText = (lastMessageText: string) => {
+  const fetchSuggestionsForText = (lastMessageText: string, lastUserMessage?: string) => {
     if (!lastMessageText?.trim() || !selectedModel) return;
     setSuggestionsLoading(true);
-    fetchSuggestions(lastMessageText, selectedModel, setDynamicSuggestions, () =>
-      setSuggestionsLoading(false),
+    fetchSuggestions(
+      lastMessageText,
+      (lastUserMessage || "").trim() || null,
+      selectedModel,
+      setDynamicSuggestions,
+      () => setSuggestionsLoading(false),
     );
   };
 

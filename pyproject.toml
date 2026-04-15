@@ -30,6 +30,7 @@ dependencies = [
     # MCP
     "fastmcp>=3.2.0",
     "mcp>=1.17.0,<2.0.0",
+    "langchain-mcp-adapters>=0.2.2",
 
     # Oracle / OCI
     "oci>=2.154.3",
@@ -60,7 +61,7 @@ dependencies = [
 
     # Observability
     "langfuse==4.0.0",
-    "langsmith[otel]==0.7.6",
+    "langsmith[otel]==0.7.30",
     # OpenTelemetry for FastAPI and LangChain/LangGraph via LangSmith OTEL; OCI APM supports OTLP
     "opentelemetry-api>=1.39.1",
     "opentelemetry-exporter-otlp>=1.39.1",
@@ -74,14 +75,11 @@ dependencies = [
     "rank-bm25>=0.2.2",
 
     # Serialization / configuration / utilities
-    "code-mode>=0.0.3",
     "orjson>=3.11.5",
     "python-dateutil>=2.9.0.post0",
     "python-dotenv>=1.1.1",
     "PyYAML>=6.0.2",
     "tiktoken>=0.12.0",
-    "utcp>=1.1.2",
-    "utcp-mcp>=1.0.2",
 ]
 
 [project.scripts]
@@ -113,7 +111,7 @@ markers = [
     "langsmith: log results to LangSmith when --langsmith-output is provided",
 ]
 addopts = "--record-mode=once"
-testpaths = ["tests"]
+testpaths = ["tests/unit_tests", "tests/workflow_tests", "tests/integration_tests"]
 filterwarnings = [
     'ignore:mcp_use\.config is deprecated\.:DeprecationWarning',
     'ignore:mcp_use\.connectors is deprecated\.:DeprecationWarning',
@@ -136,7 +134,6 @@ ignore = ["E501"]  # Line too long (handled by formatter)
 # E402: imports not at top are required for bootstrap/scripts (sys.path, env) before other imports
 [tool.ruff.lint.per-file-ignores]
 "api/main.py" = ["E402"]
-"api/rag_agent_api.py" = ["E402"]
 "mcp_servers/*.py" = ["E402"]
 "scripts/*.py" = ["E402"]
 "tests/run_*.py" = ["E402"]
@@ -155,4 +152,3 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["rank_bm25.*"]
 ignore_missing_imports = true
-

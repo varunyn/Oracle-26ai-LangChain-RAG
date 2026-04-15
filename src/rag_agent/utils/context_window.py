@@ -91,7 +91,7 @@ def estimate_tokens(text: str, model_id: str | None = None) -> int:
 def messages_to_text(messages: list[Any]) -> str:
     """
     Serialize LangChain-style messages to a single string for token estimation.
-    Each message: role + content (getattr for BaseMessage compatibility).
+    Each message contributes role and content fields.
     """
     parts: list[str] = []
     for m in messages:
@@ -108,7 +108,6 @@ def calculate_context_usage(
     context_text: str,
     model_id: str | None = None,
 ) -> dict[str, Any]:
-    tokens = estimate_tokens(context_text, model_id)
     """
     Compute context window usage (tokens, max, percent).
 
@@ -119,7 +118,7 @@ def calculate_context_usage(
     Returns:
         Dict with keys: tokens (int), max (int), percent (float), model_id (str).
     """
-    tokens = estimate_tokens(context_text)
+    tokens = estimate_tokens(context_text, model_id)
     max_tokens = MODEL_TOKEN_LIMITS.get(model_id or "", DEFAULT_MAX_TOKENS)
     percent = (tokens / max_tokens) * 100.0 if max_tokens > 0 else 0.0
     return {

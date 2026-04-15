@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { toApiUrl } from "@/lib/api-base";
 
 export type ProcessedSource = {
   source: string;
@@ -21,7 +22,9 @@ export function useProcessedSources(collectionName: string) {
         params.set("collection_name", collectionName);
       }
       const query = params.toString();
-      const response = await fetch(`/api/documents/sources${query ? `?${query}` : ""}`);
+      const response = await fetch(
+        `${toApiUrl("/api/documents/sources")}${query ? `?${query}` : ""}`,
+      );
       const data = (await response.json()) as {
         error?: string;
         sources?: ProcessedSource[];
@@ -55,7 +58,7 @@ export function useProcessedSources(collectionName: string) {
         if (collectionName) {
           params.set("collection_name", collectionName);
         }
-        const response = await fetch(`/api/documents/source?${params.toString()}`, {
+        const response = await fetch(`${toApiUrl("/api/documents/source")}?${params.toString()}`, {
           method: "DELETE",
         });
         const data = (await response.json()) as { error?: string };

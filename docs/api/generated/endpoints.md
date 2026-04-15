@@ -3,12 +3,6 @@
 This file is generated from FastAPI OpenAPI via `scripts/sync_api_docs.py`.
 Do not edit manually.
 
-## POST `/api/chat`
-
-- operationId: `chat_completions_api_chat_post`
-- tags: chat
-- summary: Chat Completions
-
 ## GET `/api/config`
 
 - operationId: `get_config_api_config_get`
@@ -39,38 +33,50 @@ Do not edit manually.
 - tags: feedback
 - summary: Post Feedback
 
-## POST `/api/mcp/chat`
+## POST `/api/langgraph/threads`
 
-- operationId: `api_mcp_chat_api_mcp_chat_post`
-- tags: mcp
-- summary: Api Mcp Chat
+- operationId: `create_thread_api_langgraph_threads_post`
+- tags: langgraph-runtime
+- summary: Create Thread
+
+## POST `/api/langgraph/threads/{thread_id}/history`
+
+- operationId: `get_thread_history_api_langgraph_threads__thread_id__history_post`
+- tags: langgraph-runtime
+- summary: Get Thread History
+
+## POST `/api/langgraph/threads/{thread_id}/runs`
+
+- operationId: `run_thread_api_langgraph_threads__thread_id__runs_post`
+- tags: langgraph-runtime
+- summary: Run Thread
+
+## POST `/api/langgraph/threads/{thread_id}/runs/stream`
+
+- operationId: `stream_thread_run_api_langgraph_threads__thread_id__runs_stream_post`
+- tags: langgraph-runtime
+- summary: Stream Thread Run
+
+## GET `/api/langgraph/threads/{thread_id}/state`
+
+- operationId: `get_thread_state_api_langgraph_threads__thread_id__state_get`
+- tags: langgraph-runtime
+- summary: Get Thread State
 
 ## POST `/api/suggestions`
 
 - operationId: `post_suggestions_api_suggestions_post`
-- tags: untagged
+- tags: suggestions
 - summary: Post Suggestions
 
 ## DELETE `/api/threads/{thread_id}`
 
 - operationId: `delete_thread_api_threads__thread_id__delete`
-- tags: chat
+- tags: langgraph-runtime
 - summary: Delete Thread
-
-## GET `/graph/mermaid`
-
-- operationId: `get_graph_mermaid_graph_mermaid_get`
-- tags: graph
-- summary: Get Graph Mermaid
 
 ## GET `/health`
 
 - operationId: `health_health_get`
 - tags: health
 - summary: Health
-
-## POST `/invoke`
-
-- operationId: `invoke_invoke_post`
-- tags: chat
-- summary: Invoke

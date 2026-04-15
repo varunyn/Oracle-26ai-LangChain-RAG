@@ -12,34 +12,6 @@ Do not edit manually.
 - `collection_name`: `complex`
 - `files`: `array`
 
-## `ChatCompletionsRequest`
-
-- type: `object`
-- required: `messages`
-
-### Properties
-
-- `collection_name`: `complex` Vector store collection/table name
-- `enable_reranker`: `complex` Enable reranker step
-- `enable_tracing`: `complex` Enable tracing
-- `mcp_server_keys`: `complex` MCP server keys from MCP_SERVERS_CONFIG to load tools
-- `messages`: `array` Conversation messages (OpenAI-compatible format)
-- `mode`: `complex` Flow mode: rag | mcp | mixed | direct; default rag for backward compat
-- `model`: `complex` Model ID
-- `session_id`: `complex` Browser/session ID for grouping traces (new per tab load or refresh)
-- `stream`: `boolean` If true, return SSE stream
-- `thread_id`: `complex` Conversation thread ID for checkpointer memory
-
-## `ChatMessage`
-
-- type: `object`
-- required: `role`, `content`
-
-### Properties
-
-- `content`: `string`
-- `role`: `string`
-
 ## `FeedbackRequest`
 
 - type: `object`
@@ -59,25 +31,21 @@ Do not edit manually.
 
 - `detail`: `array`
 
-## `InvokeRequest`
+## `RunInput`
 
 - type: `object`
-- required: `user_input`
 
 ### Properties
 
-- `user_input`: `string`
-
-## `McpChatRequest`
-
-- type: `object`
-- required: `messages`
-
-### Properties
-
-- `mcp_url`: `complex` MCP server URL (e.g. http://host:port/mcp/); uses default if not set)
-- `messages`: `array` Conversation messages (OpenAI format)
-- `stream`: `boolean` If true, return SSE stream
+- `collection_name`: `complex`
+- `enable_reranker`: `complex`
+- `enable_tracing`: `complex`
+- `mcp_server_keys`: `complex`
+- `message`: `complex`
+- `messages`: `complex`
+- `mode`: `complex`
+- `model`: `complex`
+- `session_id`: `complex`
 
 ## `SuggestionsRequest`
 
@@ -87,6 +55,7 @@ Do not edit manually.
 ### Properties
 
 - `last_message`: `string` Last assistant message text to base suggestions on
+- `last_user_message`: `complex` Latest user question to keep suggestions on-topic
 - `model`: `complex` Model ID; uses default if omitted
 
 ## `SuggestionsResponse`
@@ -96,6 +65,66 @@ Do not edit manually.
 ### Properties
 
 - `suggestions`: `array` Follow-up question strings
+
+## `ThreadCreateRequest`
+
+- type: `object`
+
+### Properties
+
+- `thread_id`: `complex`
+
+## `ThreadCreateResponse`
+
+- type: `object`
+- required: `thread_id`
+
+### Properties
+
+- `thread_id`: `string`
+
+## `ThreadHistoryRequest`
+
+- type: `object`
+
+### Properties
+
+- `before`: `complex`
+- `checkpoint`: `complex`
+- `limit`: `complex`
+- `metadata`: `complex`
+
+## `ThreadRunRequest`
+
+- type: `object`
+
+### Properties
+
+- `assistant_id`: `complex`
+- `collection_name`: `complex`
+- `configurable`: `complex`
+- `context`: `complex`
+- `enable_reranker`: `complex`
+- `enable_tracing`: `complex`
+- `input`: `complex`
+- `mcp_server_keys`: `complex`
+- `message`: `complex`
+- `messages`: `complex`
+- `metadata`: `complex`
+- `mode`: `complex`
+- `model`: `complex`
+- `session_id`: `complex`
+
+## `ThreadRunResponse`
+
+- type: `object`
+- required: `run_id`, `thread_id`, `output`
+
+### Properties
+
+- `output`: `object`
+- `run_id`: `string`
+- `thread_id`: `string`
 
 ## `ValidationError`
 

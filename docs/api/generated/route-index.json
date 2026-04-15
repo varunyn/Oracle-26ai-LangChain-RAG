@@ -1,15 +1,6 @@
 {
   "operations": [
     {
-      "method": "POST",
-      "operationId": "chat_completions_api_chat_post",
-      "path": "/api/chat",
-      "summary": "Chat Completions",
-      "tags": [
-        "chat"
-      ]
-    },
-    {
       "method": "GET",
       "operationId": "get_config_api_config_get",
       "path": "/api/config",
@@ -56,11 +47,47 @@
     },
     {
       "method": "POST",
-      "operationId": "api_mcp_chat_api_mcp_chat_post",
-      "path": "/api/mcp/chat",
-      "summary": "Api Mcp Chat",
+      "operationId": "create_thread_api_langgraph_threads_post",
+      "path": "/api/langgraph/threads",
+      "summary": "Create Thread",
       "tags": [
-        "mcp"
+        "langgraph-runtime"
+      ]
+    },
+    {
+      "method": "POST",
+      "operationId": "get_thread_history_api_langgraph_threads__thread_id__history_post",
+      "path": "/api/langgraph/threads/{thread_id}/history",
+      "summary": "Get Thread History",
+      "tags": [
+        "langgraph-runtime"
+      ]
+    },
+    {
+      "method": "POST",
+      "operationId": "run_thread_api_langgraph_threads__thread_id__runs_post",
+      "path": "/api/langgraph/threads/{thread_id}/runs",
+      "summary": "Run Thread",
+      "tags": [
+        "langgraph-runtime"
+      ]
+    },
+    {
+      "method": "POST",
+      "operationId": "stream_thread_run_api_langgraph_threads__thread_id__runs_stream_post",
+      "path": "/api/langgraph/threads/{thread_id}/runs/stream",
+      "summary": "Stream Thread Run",
+      "tags": [
+        "langgraph-runtime"
+      ]
+    },
+    {
+      "method": "GET",
+      "operationId": "get_thread_state_api_langgraph_threads__thread_id__state_get",
+      "path": "/api/langgraph/threads/{thread_id}/state",
+      "summary": "Get Thread State",
+      "tags": [
+        "langgraph-runtime"
       ]
     },
     {
@@ -68,7 +95,9 @@
       "operationId": "post_suggestions_api_suggestions_post",
       "path": "/api/suggestions",
       "summary": "Post Suggestions",
-      "tags": []
+      "tags": [
+        "suggestions"
+      ]
     },
     {
       "method": "DELETE",
@@ -76,16 +105,7 @@
       "path": "/api/threads/{thread_id}",
       "summary": "Delete Thread",
       "tags": [
-        "chat"
-      ]
-    },
-    {
-      "method": "GET",
-      "operationId": "get_graph_mermaid_graph_mermaid_get",
-      "path": "/graph/mermaid",
-      "summary": "Get Graph Mermaid",
-      "tags": [
-        "graph"
+        "langgraph-runtime"
       ]
     },
     {
@@ -95,15 +115,6 @@
       "summary": "Health",
       "tags": [
         "health"
-      ]
-    },
-    {
-      "method": "POST",
-      "operationId": "invoke_invoke_post",
-      "path": "/invoke",
-      "summary": "Invoke",
-      "tags": [
-        "chat"
       ]
     }
   ]

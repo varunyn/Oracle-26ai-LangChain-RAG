@@ -9,8 +9,10 @@ export type AppConfig = {
   enable_user_feedback?: boolean;
 };
 
-const FASTAPI_BACKEND_URL =
-  process.env.FASTAPI_BACKEND_URL || "http://localhost:3002";
+const API_BASE_URL =
+  process.env.FASTAPI_BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "http://localhost:3002";
 
 /**
  * Fetch app config from the FastAPI backend. Not cached so .env changes
@@ -18,7 +20,7 @@ const FASTAPI_BACKEND_URL =
  */
 export const getAppConfig = cache(async (): Promise<AppConfig | null> => {
   try {
-    const res = await fetch(`${FASTAPI_BACKEND_URL}/api/config`, {
+    const res = await fetch(`${API_BASE_URL}/api/config`, {
       cache: "no-store",
     });
     if (!res.ok) return null;

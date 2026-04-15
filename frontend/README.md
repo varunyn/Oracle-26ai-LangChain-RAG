@@ -15,9 +15,9 @@ Next.js frontend for the **OCI Custom RAG Agent**: a chat app powered by **Oracl
 
 ## Important details
 
-- **Backend required**: This UI talks to the repo’s FastAPI backend (LangGraph + MCP). Start the API first (e.g. `./run_api.sh` from the repo root; default port `3002`). See the root [AGENTS.md](../AGENTS.md) for full topology.
+- **Backend required**: This UI talks to the repo’s FastAPI backend (LangChain runtime + MCP). Start the API first (e.g. `./run_api.sh` from the repo root; default port `3002`). See the root [AGENTS.md](../AGENTS.md) for full topology.
 - **Package manager**: Use **pnpm** for install, dev, and build (see repo Cursor rule).
-- **Environment**: Copy `env.example` to `.env.local` and set `FASTAPI_BACKEND_URL` if the API is not at `http://localhost:3002` (e.g. `http://localhost:3001` if using a different setup).
+- **Environment**: Copy `env.example` to `.env.local` and set `NEXT_PUBLIC_API_BASE` for direct browser-to-backend calls (default `http://localhost:3002`).
 - **Config**: App config (region, model list, collections, feature flags) is loaded on the server in the root layout and provided via `ConfigProvider`; the chat page does not fetch config on the client.
 
 ## Getting started
@@ -26,7 +26,7 @@ From the **frontend** directory:
 
 ```bash
 pnpm install
-cp env.example .env.local   # edit FASTAPI_BACKEND_URL if needed
+cp env.example .env.local   # edit NEXT_PUBLIC_API_BASE if needed
 PORT=4000 pnpm dev
 ```
 

@@ -67,7 +67,7 @@ Beyond the required OracleVS columns, this app expects source metadata inside th
 
 - `source_url` — **primary source identity** for listing, deletion, and source management UI
 - `file_name` — short label for display when available
-- `source` — optional compatibility/display field
+- `source` — optional display field
 - `chunk_offset` and/or page metadata — helps citations show chunk/page location
 
 If you populate tables outside this app, keep the OracleVS columns above and make sure `metadata.source_url` is present.

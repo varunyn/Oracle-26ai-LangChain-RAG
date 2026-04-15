@@ -18,7 +18,12 @@ interface ContextUsageBadgeProps {
  */
 export function ContextUsageBadge({ contextUsage }: ContextUsageBadgeProps) {
   const [hover, setHover] = useState(false);
-  
+  const hasNumbers =
+    Number.isFinite(contextUsage.tokens) &&
+    Number.isFinite(contextUsage.max) &&
+    Number.isFinite(contextUsage.percent);
+  if (!hasNumbers) return null;
+
   return (
     <span
       className="shrink-0 text-xs text-muted-foreground px-2 py-1 rounded bg-muted/60 border border-border cursor-default"

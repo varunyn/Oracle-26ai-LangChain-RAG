@@ -1,6 +1,5 @@
 - [Home](/)
+- [Getting started](GETTING-STARTED.md)
 - [Configuration](CONFIGURATION.md)
-- [Chat streaming](CHAT_STREAMING_PROTOCOL.md)
 - [MCP usage](MCP-USAGE.md)
 - [Database setup](DATABASE-SETUP.md)
-- [Observability](OBSERVABILITY.md)

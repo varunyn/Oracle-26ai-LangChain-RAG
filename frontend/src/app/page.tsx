@@ -129,10 +129,11 @@ function ChatPageContent({ appConfig, threadId, sessionId, clearChat }: ChatPage
             <ChatMessageList
               messages={chat.messages}
               status={chat.status}
-              referencesByAssistantIndex={chat.referencesByAssistantIndex}
               maxCitationsToShow={chat.maxCitationsToShow}
               chatContainerRef={chat.chatContainerRef}
               onRetry={chat.handleRetry}
+              onRecoverDirect={chat.handleRecoverDirect}
+              onRecoverRagOnly={chat.handleRecoverRagOnly}
               onFeedback={chat.handleFeedback}
               feedbackSubmitted={chat.feedbackSubmitted}
               enableUserFeedback={appConfig?.enable_user_feedback}
@@ -144,6 +145,10 @@ function ChatPageContent({ appConfig, threadId, sessionId, clearChat }: ChatPage
               setInput={chat.setInput}
               onSubmit={chat.handleSubmit}
               status={chat.status}
+              canStopStream={chat.canStopStream}
+              canResumeTurn={chat.canResumeTurn}
+              onStopStream={chat.handleStopStream}
+              onResumeTurn={chat.handleResumeTurn}
               dynamicSuggestions={chat.dynamicSuggestions}
               suggestionsLoading={chat.suggestionsLoading}
               pendingSuggestion={chat.pendingSuggestion}

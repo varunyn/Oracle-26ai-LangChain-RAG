@@ -12,10 +12,6 @@ Run Loki, Tempo, the OTLP collector, and Grafana locally to inspect logs/traces 
 ```python
 ENABLE_OBSERVABILITY_STACK = True  # run_api.sh starts the stack before the API
 ENABLE_OTEL_TRACING = True         # send traces to the collector
-
-# Optional: choose which services to start (defaults to loki+tempo+otel-collector+grafana).
-# Example: keep logs/traces pipeline but disable the Grafana UI:
-OBSERVABILITY_STACK_SERVICES = ["loki", "tempo", "otel-collector"]
 ```
 
 Restart with `./run_api.sh`. When Docker isn’t available, set `ENABLE_OBSERVABILITY_STACK = False` and run the API only.
@@ -53,7 +49,7 @@ curl -s http://localhost:3051/api/health # Grafana
 ## 6. Dashboards
 
 - Grafana: <http://localhost:3051>
-- Provisioned dashboards: **RAG API Overview** (HTTP health) and **RAG API – Pipeline & answers** (LangGraph flow). Use Explore for ad-hoc Loki/Tempo queries.
+- Provisioned dashboards: **RAG API Overview** (HTTP health) and **RAG API – Pipeline & answers** (runtime flow). Use Explore for ad-hoc Loki/Tempo queries.
 
 ## 7. Troubleshooting
 

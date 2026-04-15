@@ -112,13 +112,10 @@ class Settings(BaseSettings):
 
     CONNECT_ARGS: dict[str, str | None] | None = None
     DB_TCP_CONNECT_TIMEOUT: int = 5
-    DB_SEARCH_TIMEOUT_SEC: int = 15
-    DB_SEARCH_MAX_WORKERS: int = 4
 
     # =============================================================================
     # RAG / SEARCH
     # =============================================================================
-    TOP_K: int = 6
     RAG_SEARCH_MODE: str = "vector"
     # Union so dotenv can pass string; validator normalizes to list[str]
     COLLECTION_LIST: str | list[str] = Field(default_factory=lambda: ["RAG_KNOWLEDGE_BASE"])
@@ -145,21 +142,45 @@ class Settings(BaseSettings):
     DEFAULT_COLLECTION: str = "RAG_KNOWLEDGE_BASE"
     CHUNK_SIZE: int = 4000
     CHUNK_OVERLAP: int = 100
-    MAX_MSGS_IN_HISTORY: int = 6
     ENABLE_RERANKER: bool = True
-    RERANKER_MIN_DOCS: int = 3
-    RERANKER_MAX_DOC_TOKENS: int = 1024
 
     # =============================================================================
     # UI
     # =============================================================================
     ENABLE_USER_FEEDBACK: bool = True
+    ENABLE_CORS: bool = True
+    CORS_ALLOW_ORIGINS: str | list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:4000",
+            "http://127.0.0.1:4000",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    )
+
+    @field_validator("CORS_ALLOW_ORIGINS", mode="before")
+    @classmethod
+    def _parse_cors_allow_origins(cls, v: object) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if str(x).strip()]
+        s = str(v).strip()
+        if not s:
+            return []
+        if s.startswith("["):
+            try:
+                out = json.loads(s)
+                if isinstance(out, list):
+                    return [str(x).strip() for x in out if str(x).strip()]
+            except Exception:
+                pass
+        return [k.strip() for k in s.split(",") if k.strip()]
 
     # =============================================================================
     # MCP (client)
     # =============================================================================
     ENABLE_MCP_TOOLS: bool = True
-    CODE_MODE_ENABLED: bool = False
     MCP_SERVER_KEYS: list[str] | None = None  # .env: comma-separated e.g. "default,context7"
 
     @field_validator("MCP_SERVER_KEYS", mode="before")
@@ -174,9 +195,22 @@ class Settings(BaseSettings):
             return None
         return [k.strip() for k in s.split(",") if k.strip()] or None
 
-    MCP_TOOL_SELECTION_MAX_TOOLS: int = 5
+    # 0 = bind every loaded MCP tool (slowest with many tools). Set e.g. 12 + ALWAYS_INCLUDE for faster turns.
+    MCP_TOOL_SELECTION_MAX_TOOLS: int = 0
     MCP_TOOL_SELECTION_ALWAYS_INCLUDE: list[str] = Field(default_factory=list)
-    MCP_TOOL_SELECTION_TEMPERATURE: float = 0.0
+
+    @field_validator("MCP_TOOL_SELECTION_ALWAYS_INCLUDE", mode="before")
+    @classmethod
+    def _parse_mcp_tool_selection_always_include(cls, v: object) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if str(x).strip()]
+        s = str(v).strip()
+        if not s:
+            return []
+        return [k.strip() for k in s.split(",") if k.strip()]
+
     MCP_SEARCH_MODE: str = "vector"
     ENABLE_MCP_CLIENT_JWT: bool = False
 
@@ -226,9 +260,6 @@ class Settings(BaseSettings):
     OTEL_TRACES_HEADERS: dict[str, str] | None = None
     OTEL_LOGS_ENDPOINT: str | None = None
     ENABLE_OBSERVABILITY_STACK: bool = False
-    OBSERVABILITY_STACK_SERVICES: list[str] = Field(
-        default_factory=lambda: ["loki", "tempo", "otel-collector", "grafana"]
-    )
 
     ENABLE_LANGFUSE_TRACING: bool = False
     LANGFUSE_HOST: str = "http://localhost:3300"
@@ -237,8 +268,6 @@ class Settings(BaseSettings):
     LANGFUSE_TRACING_ENVIRONMENT: str = "development"
     LANGFUSE_ENVIRONMENT: str | None = None
     LANGFUSE_RELEASE: str | None = None
-    LANGFUSE_TAGS: list[str] = Field(default_factory=lambda: ["rag-api"])
-    LANGFUSE_DEFAULT_USER_ID: str | None = None
 
     # =============================================================================
     # Local Docker stacks (optional helper)

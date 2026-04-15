@@ -127,6 +127,10 @@ class MCPSettings:
             os.getenv("ENABLE_MCP_CLIENT_JWT", "false").lower() == "true"
         )
         self.jwt_headers_supplier = None  # Optional; used only if enable_mcp_client_jwt is True
+        self.mcp_client_callbacks = None
+        self.mcp_tool_interceptors = None
+        self.mcp_client_callbacks_supplier = None
+        self.mcp_tool_interceptors_supplier = None
 
 
 def get_mcp_settings() -> MCPSettings:
