@@ -18,9 +18,9 @@ export const CITATION_RUN_REGEX = /\[\d+\](?:\s*\[\d+\])*/g;
 
 /** Suggested questions shown on welcome screen */
 export const SUGGESTIONS = [
-  "Summarize the skills and experience across the uploaded resumes.",
-  "Which documents mention Oracle Cloud Infrastructure setup or access?",
-  "List the main policies or procedures referenced in this collection.",
+  "Tell me about Oracle 26ai Database.",
+  "Solve this math problem: 125 * 48.",
+  "What can you help me find in my documents?",
 ];
 
 /** Default model configurations */

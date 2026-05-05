@@ -55,6 +55,23 @@ async function expectAssistantAnswer(page: Page) {
 }
 
 test.describe('chat streaming', () => {
+  test('shows generic suggestions on first load', async ({ page }) => {
+    await page.goto('/')
+
+    const suggestions = page.getByRole('navigation', { name: 'Suggested questions' })
+    await expect(suggestions).toBeVisible()
+    await expect(
+      suggestions.getByRole('button', { name: 'Tell me about Oracle 26ai Database.' }),
+    ).toBeVisible()
+    await expect(
+      suggestions.getByRole('button', { name: 'Solve this math problem: 125 * 48.' }),
+    ).toBeVisible()
+    await expect(
+      suggestions.getByRole('button', { name: 'What can you help me find in my documents?' }),
+    ).toBeVisible()
+    await expect(suggestions.getByRole('button', { name: /resume/i })).toHaveCount(0)
+  })
+
   test('streams responses and renders citations', async ({ page }) => {
     await page.goto('/')
     await selectCollection(page)
