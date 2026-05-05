@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import uuid
 from collections.abc import Mapping, Sequence
+from hashlib import sha256
 from pathlib import Path
 from typing import cast
 
@@ -134,6 +135,24 @@ def populate_from_dir(dir_path: str | Path, table_name: str = DEFAULT_TABLE_NAME
     _split_and_store(docs, table_name=table_name)
 
 
+def _ensure_document_ids(docs: Sequence[object]) -> None:
+    """Set stable source/content IDs so OracleVS can derive stable chunk IDs."""
+    for index, doc in enumerate(docs):
+        if getattr(doc, "id", None):
+            continue
+        metadata = getattr(doc, "metadata", {}) or {}
+        source = (
+            metadata.get("source")
+            or metadata.get("file_name")
+            or metadata.get("source_url")
+            or "document"
+        )
+        page = metadata.get("page") or metadata.get("page_number") or index
+        content = str(getattr(doc, "page_content", ""))
+        digest = sha256(content.encode("utf-8")).hexdigest()[:16]
+        setattr(doc, "id", f"{source}::{page}::{digest}")
+
+
 def _split_and_store(docs, table_name: str = DEFAULT_TABLE_NAME) -> int:
     settings = get_settings()
     splitter = RecursiveCharacterTextSplitter(
@@ -142,31 +161,30 @@ def _split_and_store(docs, table_name: str = DEFAULT_TABLE_NAME) -> int:
         length_function=len,
         separators=["\n\n", "\n", " ", ""],
     )
-    split_docs = splitter.split_documents(docs)
-    if not split_docs:
-        print("No chunks after splitting.")
-        return 0
-
-    for i, chunk in enumerate(split_docs):
-        chunk.metadata["chunk_offset"] = i
-
-    print(f"Split into {len(split_docs)} chunks.")
+    _ensure_document_ids(docs)
     connect_args = cast(Mapping[str, str | None], settings.CONNECT_ARGS)
     conn = oracledb.connect(**connect_args)
-    conn.autocommit = True
-    embed_model_type = getattr(settings, "EMBED_MODEL_TYPE", "OCI")
-    embeddings = get_embedding_model(embed_model_type)
-    print("Storing in OracleVS (embedding and inserting)...")
-    OracleVS.from_documents(
-        split_docs,
-        embedding=embeddings,
-        client=conn,
-        table_name=table_name,
-        distance_strategy=DistanceStrategy.COSINE,
-    )
-    conn.close()
-    print(f"Successfully populated {table_name} with {len(split_docs)} chunks.")
-    return len(split_docs)
+    try:
+        conn.autocommit = True
+        embed_model_type = getattr(settings, "EMBED_MODEL_TYPE", "OCI")
+        embeddings = get_embedding_model(embed_model_type)
+        print("Storing in OracleVS (chunking, embedding, and inserting)...")
+        vector_store = OracleVS(
+            client=conn,
+            embedding_function=embeddings,
+            table_name=table_name,
+            distance_strategy=DistanceStrategy.COSINE,
+        )
+        inserted_ids = vector_store.add_documents(docs, text_splitter=splitter)
+    finally:
+        conn.close()
+
+    chunk_count = len(inserted_ids)
+    if chunk_count == 0:
+        print("No chunks inserted.")
+        return 0
+    print(f"Successfully populated {table_name} with {chunk_count} chunks.")
+    return chunk_count
 
 
 def process_file_paths(

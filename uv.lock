@@ -1477,7 +1477,7 @@ wheels = [
 
 [[package]]
 name = "langchain-oracledb"
-version = "1.2.0"
+version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-community" },
@@ -1486,9 +1486,9 @@ dependencies = [
     { name = "oracledb" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/03/4a/84821467ca50f840723bb8db55d12a7ebc31396cdbda3ff91ad9141cd195/langchain_oracledb-1.2.0.tar.gz", hash = "sha256:f6f08a67ae9bfadc5729bef125295948128230420745a693a86d10ac123811f5", size = 39398, upload-time = "2026-01-12T21:53:22.387Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/51/dd/1b98e498ef33a0cb636e15bed03ac980ee19d19e7f66b6bd1cddd5a03a29/langchain_oracledb-1.3.0.tar.gz", hash = "sha256:ec23e1819b0e6aada947b7e0c37112f09a806ecfd58e36e4659a1ec78f3d51a8", size = 40627, upload-time = "2026-05-01T18:21:35.008Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/33/72/57881644623119ec2876759ac512726118fbc6bb59ec2798e964fa1075cb/langchain_oracledb-1.2.0-py3-none-any.whl", hash = "sha256:bf17efec0047b81642390a653166ad82e41c57430d6ac2d7768da68cbe4b332b", size = 44519, upload-time = "2026-01-12T21:53:21.37Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/68/57a5737234f0c0b1f90fdfd9b090765b41872086538c91a9c949e2d05a85/langchain_oracledb-1.3.0-py3-none-any.whl", hash = "sha256:671fe30791445a2c550abe1e9e83d98fb8eb4603b2d048694cdad9c54dcec740", size = 45550, upload-time = "2026-05-01T18:21:33.938Z" },
 ]
 
 [[package]]
@@ -2484,7 +2484,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = ">=0.2.2" },
     { name = "langchain-oci", specifier = ">=0.2.5" },
     { name = "langchain-openai", specifier = ">=1.0.0" },
-    { name = "langchain-oracledb", specifier = ">=1.1.0" },
+    { name = "langchain-oracledb", specifier = ">=1.3.0" },
     { name = "langchain-text-splitters", specifier = ">=1.1.0" },
     { name = "langchain-unstructured", specifier = ">=1.0.0" },
     { name = "langfuse", specifier = "==4.0.0" },

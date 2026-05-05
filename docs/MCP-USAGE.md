@@ -117,7 +117,6 @@ The RAG backend and UIs **consume** MCP: they connect to MCP server(s) and attac
 
 - **Servers**: `MCP_SERVER_KEYS` (optional) limits which keys from `MCP_SERVERS_CONFIG` are connected when loading tools. The request may also pass `mcp_server_keys` (same idea). This does not choose `mode`; it only filters which MCP endpoints are used.
 - **Tools**: Tools come from `langchain_mcp_adapters.MultiServerMCPClient.get_tools()` (see `src/rag_agent/infrastructure/mcp_adapter_runtime.py`). Server names are prefixed on tool names when `tool_name_prefix=True` (e.g. `default.semantic_search`).
-- **Large tool lists**: Optional cap via `MCP_TOOL_SELECTION_MAX_TOOLS` and `MCP_TOOL_SELECTION_ALWAYS_INCLUDE`; applied in `get_mcp_answer` / `_apply_mcp_tool_budget` in `mcp_agent.py` after tools load.
 
 - Set which configured servers to load via `MCP_SERVER_KEYS` (optional; if unset, defaults follow `mcp_adapter_runtime._select_server_keys`, typically `"default"` when present).
 

@@ -89,7 +89,11 @@ def _text_search_docs(
 
 def _doc_key(doc: Document) -> str:
     source = str(doc.metadata.get("source", ""))
-    chunk_offset = str(doc.metadata.get("chunk_offset", ""))
+    chunk_offset = doc.metadata.get("chunk_offset")
+    if chunk_offset is None:
+        source_doc_index = doc.metadata.get("source_doc_index", "")
+        chunk_index = doc.metadata.get("chunk_index", "")
+        chunk_offset = f"{source_doc_index}:{chunk_index}"
     return f"{source}::{chunk_offset}::{doc.page_content[:180]}"
 
 

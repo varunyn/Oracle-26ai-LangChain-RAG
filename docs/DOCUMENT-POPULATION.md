@@ -4,14 +4,14 @@ This guide explains how to populate the vector database with documents using the
 
 ## Overview
 
-The shared ingestion module in `src/rag_agent/ingestion.py` uses **LangChain document loaders** (PyPDFLoader / UnstructuredFileLoader / TextLoader) to load files, **RecursiveCharacterTextSplitter** to chunk them, and **OracleVS** (langchain-oracledb) to embed and store chunks in the `RAG_KNOWLEDGE_BASE` table. The same table and embedding model are used at query time by the RAG app. The script entrypoint is now just a thin CLI wrapper over that module.
+The shared ingestion module in `src/rag_agent/ingestion.py` uses **LangChain document loaders** (PyPDFLoader / UnstructuredFileLoader / TextLoader) to load files, then delegates chunking and insertion to **OracleVS** (langchain-oracledb) with the app's `RecursiveCharacterTextSplitter`. The same table and embedding model are used at query time by the RAG app. The script entrypoint is now just a thin CLI wrapper over that module.
 
 ## What It Does
 
 1. **Load**: LangChain loaders (PyPDFLoader, UnstructuredFileLoader, TextLoader) load files into LangChain `Document` objects.
 2. **File archival**: Copies each processed file to `uploaded_files/` and sets `source_url` as the primary source identity plus `file_name` for display in document metadata.
-3. **Chunk**: RecursiveCharacterTextSplitter splits documents into smaller chunks (default 800 characters, 150 overlap).
-4. **Store**: OracleVS embeds chunks using the app’s embedding model (OCI) and inserts them into `RAG_KNOWLEDGE_BASE`.
+3. **Assign IDs**: Each loaded document gets a stable source/content ID when the loader did not provide one.
+4. **Chunk and store**: OracleVS splits documents with RecursiveCharacterTextSplitter, derives chunk IDs from the document ID, embeds chunks using the app's embedding model (OCI), and inserts them into `RAG_KNOWLEDGE_BASE`.
 
 ## Supported File Formats
 
@@ -63,12 +63,12 @@ uv run python scripts/ingest_documents.py --dir ./documents
 
 1. **CLI wrapper**: `scripts/ingest_documents.py` parses command-line arguments and delegates to `src/rag_agent/ingestion.py`.
 2. **Load**: For each file, the appropriate LangChain loader is used by extension; the file is copied to `uploaded_files/` and metadata (`source_url`, `file_name`, and related fields) is set on each `Document`.
-3. **Split**: All documents are split with RecursiveCharacterTextSplitter (chunk_size=800, chunk_overlap=150).
-4. **Store**: A DB connection is opened, the embedding model is obtained via `get_embedding_model()` (same as the RAG app), and `OracleVS.from_documents()` is called with the split documents, writing to `RAG_KNOWLEDGE_BASE` with COSINE distance.
+3. **Prepare chunking**: The app creates RecursiveCharacterTextSplitter (chunk_size=800, chunk_overlap=150) and passes it to OracleVS.
+4. **Store**: A DB connection is opened, the embedding model is obtained via `get_embedding_model()` (same as the RAG app), and `OracleVS.add_documents(..., text_splitter=...)` handles chunking, embedding, and insertion into `RAG_KNOWLEDGE_BASE` with COSINE distance.
 
 ## Output
 
-- **Database**: Chunks in an OracleVS table with text, embeddings, and metadata (`source_url` first, plus `file_name` and related keys as available).
+- **Database**: Chunks in an OracleVS table with text, embeddings, and metadata (`source_url` first, plus `file_name`, `source_doc_index`, `chunk_index`, and related keys as available).
 - **Files**: Processed files copied to `uploaded_files/` for citation links.
 - **Console**: Progress messages and a final count of stored chunks.
 

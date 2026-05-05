@@ -195,22 +195,6 @@ class Settings(BaseSettings):
             return None
         return [k.strip() for k in s.split(",") if k.strip()] or None
 
-    # 0 = bind every loaded MCP tool (slowest with many tools). Set e.g. 12 + ALWAYS_INCLUDE for faster turns.
-    MCP_TOOL_SELECTION_MAX_TOOLS: int = 0
-    MCP_TOOL_SELECTION_ALWAYS_INCLUDE: list[str] = Field(default_factory=list)
-
-    @field_validator("MCP_TOOL_SELECTION_ALWAYS_INCLUDE", mode="before")
-    @classmethod
-    def _parse_mcp_tool_selection_always_include(cls, v: object) -> list[str]:
-        if v is None:
-            return []
-        if isinstance(v, list):
-            return [str(x).strip() for x in v if str(x).strip()]
-        s = str(v).strip()
-        if not s:
-            return []
-        return [k.strip() for k in s.split(",") if k.strip()]
-
     MCP_SEARCH_MODE: str = "vector"
     ENABLE_MCP_CLIENT_JWT: bool = False
 

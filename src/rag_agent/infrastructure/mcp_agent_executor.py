@@ -12,7 +12,6 @@ from typing import Any, cast
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
-    LLMToolSelectorMiddleware,
     ModelRetryMiddleware,
     ToolCallLimitMiddleware,
     ToolRetryMiddleware,
@@ -115,28 +114,8 @@ def _build_messages(chat_history: Sequence[object] | None, question: str) -> lis
 
 
 def _build_middleware(settings: object, llm_model: object) -> list[object]:
+    _ = llm_model
     middleware: list[object] = []
-
-    max_tools = int(getattr(settings, "MCP_TOOL_SELECTION_MAX_TOOLS", 0) or 0)
-    always_raw = getattr(settings, "MCP_TOOL_SELECTION_ALWAYS_INCLUDE", None) or []
-    always_include = [str(v).strip() for v in always_raw if str(v).strip()]
-    llm_module = str(getattr(type(llm_model), "__module__", "") or "")
-    # OCI chat models currently fail inside LLMToolSelector structured-output path.
-    # Keep runtime stable by skipping selector middleware for OCI providers.
-    supports_llm_selector = not llm_module.startswith("langchain_oci.")
-    if max_tools > 0 and supports_llm_selector:
-        middleware.append(
-            LLMToolSelectorMiddleware(
-                model=cast(Any, llm_model),
-                max_tools=max_tools,
-                always_include=always_include or None,
-            )
-        )
-    elif max_tools > 0 and not supports_llm_selector:
-        logger.info(
-            "MCP: skipping LLMToolSelectorMiddleware for model module %s (provider limitation)",
-            llm_module,
-        )
 
     middleware.append(ModelRetryMiddleware(max_retries=1))
     middleware.append(ToolRetryMiddleware(max_retries=1))

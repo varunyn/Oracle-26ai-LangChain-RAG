@@ -196,8 +196,6 @@ MCP (Model Context Protocol) client and server configuration.
 | ----------------------------------- | -------------- | -------------------------------------------------------------- |
 | `ENABLE_MCP_TOOLS`                  | `true`         | Enable MCP tool use.                                           |
 | `MCP_SERVER_KEYS`                   | (none)         | Comma-separated list of configured MCP server keys to load tools from (e.g. `default,context7`). This does not choose the default chat mode. |
-| `MCP_TOOL_SELECTION_MAX_TOOLS`      | `5`            | Max tools to select per turn.                                  |
-| `MCP_TOOL_SELECTION_ALWAYS_INCLUDE` | `[]`           | Tool names always included (JSON array).                       |
 | `MCP_SEARCH_MODE`                   | `vector`       | Default retrieval mode for semantic-search MCP tools: `vector`, `hybrid`, or `text`. |
 | `ENABLE_MCP_CLIENT_JWT`             | `false`        | Enable JWT auth for MCP client.                                |
 | `MCP_SERVERS_CONFIG`                | (see settings) | JSON object; see [MCP-USAGE.md](MCP-USAGE.md).                 |

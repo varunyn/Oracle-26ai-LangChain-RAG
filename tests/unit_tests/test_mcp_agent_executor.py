@@ -84,18 +84,26 @@ def test_langchain_executor_enforces_require_tool_call(monkeypatch) -> None:
     assert invocations == []
 
 
-def test_build_middleware_skips_llm_selector_for_oci_models() -> None:
+def test_build_middleware_uses_retry_and_tool_limit_controls_for_oci_models() -> None:
     class FakeOCIModel:
         __module__ = "langchain_oci.chat_models.oci_generative_ai"
 
-    settings = SimpleNamespace(
-        MCP_TOOL_SELECTION_MAX_TOOLS=5,
-        MCP_TOOL_SELECTION_ALWAYS_INCLUDE=[],
-        MCP_MAX_ROUNDS=2,
-    )
+    settings = SimpleNamespace(MCP_MAX_ROUNDS=2)
     middleware = mod._build_middleware(settings, FakeOCIModel())
     names = [type(m).__name__ for m in middleware]
     assert "LLMToolSelectorMiddleware" not in names
+    assert names == ["ModelRetryMiddleware", "ToolRetryMiddleware", "ToolCallLimitMiddleware"]
+
+
+def test_build_middleware_does_not_add_llm_tool_selector() -> None:
+    class FakeNonOCIModel:
+        __module__ = "langchain_openai.chat_models.base"
+
+    settings = SimpleNamespace(MCP_MAX_ROUNDS=2)
+    middleware = mod._build_middleware(settings, FakeNonOCIModel())
+    names = [type(m).__name__ for m in middleware]
+    assert "LLMToolSelectorMiddleware" not in names
+    assert names == ["ModelRetryMiddleware", "ToolRetryMiddleware", "ToolCallLimitMiddleware"]
 
 
 def test_build_system_prompt_uses_mixed_prompt_when_oracle_retrieval_tool_present() -> None:
