@@ -197,6 +197,15 @@ class Settings(BaseSettings):
 
     MCP_SEARCH_MODE: str = "vector"
     ENABLE_MCP_CLIENT_JWT: bool = False
+    ENABLE_MCP_OAUTH: bool = False
+    MCP_OAUTH_CLIENT_ID: str | None = None
+    MCP_OAUTH_CLIENT_SECRET: str | None = None
+    MCP_OAUTH_TOKEN_URL: str | None = None
+    MCP_OAUTH_SCOPE: str | None = None
+    MCP_OAUTH_GRANT_TYPE: str = "client_credentials"
+    MCP_OAUTH_AUDIENCE: str | None = None
+    MCP_OAUTH_REFRESH_SKEW_SECONDS: int = 30
+    MCP_WORKFLOW_POLICY: str | dict[str, object] = Field(default_factory=dict)
 
     @field_validator("RAG_SEARCH_MODE", "MCP_SEARCH_MODE", mode="before")
     @classmethod
@@ -228,6 +237,25 @@ class Settings(BaseSettings):
                 out = json.loads(s)
                 if isinstance(out, dict):
                     return {str(k): dict(val) for k, val in out.items() if isinstance(val, dict)}
+            except Exception:
+                pass
+        return {}
+
+    @field_validator("MCP_WORKFLOW_POLICY", mode="before")
+    @classmethod
+    def _parse_mcp_workflow_policy(cls, v: object) -> dict[str, object]:
+        if v is None:
+            return {}
+        if isinstance(v, dict):
+            return {str(k): val for k, val in v.items()}
+        s = str(v).strip()
+        if not s:
+            return {}
+        if s.startswith("{"):
+            try:
+                out = json.loads(s)
+                if isinstance(out, dict):
+                    return {str(k): val for k, val in out.items()}
             except Exception:
                 pass
         return {}

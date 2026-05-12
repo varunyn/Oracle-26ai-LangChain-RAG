@@ -15,6 +15,8 @@ import os
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
+from .mcp_oauth import build_oauth_headers_supplier
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +39,16 @@ def _default_enable_mcp_tools() -> bool:
     except Exception as e:
         logger.debug("MCP: settings unavailable, defaulting enable_mcp_tools=True: %s", e)
         return True
+
+
+def _get_app_settings() -> Any | None:
+    try:
+        from api.settings import get_settings
+
+        return get_settings()
+    except Exception as e:
+        logger.debug("MCP: app settings unavailable: %s", e)
+        return None
 
 
 def get_mcp_servers_config() -> dict[str, dict[str, Any]]:
@@ -110,6 +122,7 @@ class MCPSettings:
     """MCP **client** settings: when this app consumes MCP tools (no auth by default)."""
 
     def __init__(self) -> None:
+        app_settings = _get_app_settings()
         env_val = os.getenv("ENABLE_MCP_TOOLS", "").strip().lower()
         if env_val in ("true", "false"):
             self.enable_mcp_tools = env_val == "true"
@@ -127,6 +140,19 @@ class MCPSettings:
             os.getenv("ENABLE_MCP_CLIENT_JWT", "false").lower() == "true"
         )
         self.jwt_headers_supplier = None  # Optional; used only if enable_mcp_client_jwt is True
+        enable_mcp_oauth = bool(getattr(app_settings, "ENABLE_MCP_OAUTH", False))
+        if self.enable_mcp_client_jwt and enable_mcp_oauth:
+            self.jwt_headers_supplier = build_oauth_headers_supplier(
+                token_url=getattr(app_settings, "MCP_OAUTH_TOKEN_URL", None),
+                client_id=getattr(app_settings, "MCP_OAUTH_CLIENT_ID", None),
+                client_secret=getattr(app_settings, "MCP_OAUTH_CLIENT_SECRET", None),
+                scope=getattr(app_settings, "MCP_OAUTH_SCOPE", None),
+                audience=getattr(app_settings, "MCP_OAUTH_AUDIENCE", None),
+                grant_type=getattr(app_settings, "MCP_OAUTH_GRANT_TYPE", "client_credentials"),
+                refresh_skew_seconds=int(
+                    getattr(app_settings, "MCP_OAUTH_REFRESH_SKEW_SECONDS", 30)
+                ),
+            )
         self.mcp_client_callbacks = None
         self.mcp_tool_interceptors = None
         self.mcp_client_callbacks_supplier = None

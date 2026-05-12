@@ -1,9 +1,11 @@
 import json
 from types import SimpleNamespace
 
+import pytest
 from mcp.types import CallToolResult, TextContent
 
 from src.rag_agent.infrastructure import mcp_adapter_runtime as mod
+from src.rag_agent.infrastructure.mcp_settings import get_mcp_settings
 
 
 def test_select_server_keys_defaults_to_all_configured_when_no_filters() -> None:
@@ -51,6 +53,113 @@ def test_build_adapter_server_configs_applies_jwt_headers_when_enabled(monkeypat
         "x-existing": "1",
         "Authorization": "Bearer test-token",
     }
+
+
+def test_get_mcp_settings_enables_oauth_supplier(monkeypatch) -> None:
+    monkeypatch.setenv("ENABLE_MCP_TOOLS", "true")
+    monkeypatch.setenv("ENABLE_MCP_CLIENT_JWT", "true")
+    monkeypatch.setenv("ENABLE_MCP_OAUTH", "true")
+    monkeypatch.setenv("MCP_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setenv("MCP_OAUTH_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("MCP_OAUTH_TOKEN_URL", "https://auth.example.com/oauth/token")
+    monkeypatch.setenv("MCP_OAUTH_SCOPE", "read:mcp")
+
+    fake_settings = SimpleNamespace(
+        ENABLE_MCP_OAUTH=True,
+        MCP_OAUTH_CLIENT_ID="client-id",
+        MCP_OAUTH_CLIENT_SECRET="client-secret",
+        MCP_OAUTH_TOKEN_URL="https://auth.example.com/oauth/token",
+        MCP_OAUTH_SCOPE="read:mcp",
+        MCP_OAUTH_AUDIENCE=None,
+        MCP_OAUTH_GRANT_TYPE="client_credentials",
+        MCP_OAUTH_REFRESH_SKEW_SECONDS=30,
+    )
+    monkeypatch.setattr("src.rag_agent.infrastructure.mcp_settings._get_app_settings", lambda: fake_settings)
+
+    settings = get_mcp_settings()
+
+    assert callable(settings.jwt_headers_supplier)
+
+
+def test_get_mcp_settings_uses_app_settings_for_oauth_supplier(monkeypatch) -> None:
+    monkeypatch.delenv("ENABLE_MCP_OAUTH", raising=False)
+    monkeypatch.delenv("MCP_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("MCP_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("MCP_OAUTH_TOKEN_URL", raising=False)
+    monkeypatch.delenv("MCP_OAUTH_SCOPE", raising=False)
+
+    fake_settings = SimpleNamespace(
+        ENABLE_MCP_OAUTH=True,
+        MCP_OAUTH_CLIENT_ID="client-id",
+        MCP_OAUTH_CLIENT_SECRET="client-secret",
+        MCP_OAUTH_TOKEN_URL="https://auth.example.com/oauth/token",
+        MCP_OAUTH_SCOPE="read:mcp",
+        MCP_OAUTH_AUDIENCE=None,
+        MCP_OAUTH_GRANT_TYPE="client_credentials",
+        MCP_OAUTH_REFRESH_SKEW_SECONDS=30,
+    )
+    monkeypatch.setattr("src.rag_agent.infrastructure.mcp_settings._get_app_settings", lambda: fake_settings)
+    monkeypatch.setenv("ENABLE_MCP_TOOLS", "true")
+    monkeypatch.setenv("ENABLE_MCP_CLIENT_JWT", "true")
+
+    settings = get_mcp_settings()
+
+    assert callable(settings.jwt_headers_supplier)
+
+
+def test_build_adapter_server_configs_raises_when_supplier_fails(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_settings",
+        lambda: SimpleNamespace(
+            enable_mcp_tools=True,
+            enable_mcp_client_jwt=True,
+            jwt_headers_supplier=lambda: (_ for _ in ()).throw(RuntimeError("token fetch failed")),
+        ),
+    )
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_servers_config",
+        lambda: {
+            "default": {
+                "transport": "streamable-http",
+                "url": "http://localhost:9000/mcp",
+            }
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="token fetch failed"):
+        mod.build_adapter_server_configs(server_keys=None, run_config=None)
+
+
+def test_create_client_raises_when_callbacks_supplier_fails() -> None:
+    settings = SimpleNamespace(
+        mcp_client_callbacks=None,
+        mcp_tool_interceptors=None,
+        mcp_client_callbacks_supplier=lambda: (_ for _ in ()).throw(RuntimeError("callbacks failed")),
+        mcp_tool_interceptors_supplier=None,
+    )
+
+    with pytest.raises(RuntimeError, match="callbacks failed"):
+        mod._create_client(
+            {"default": {"transport": "streamable-http", "url": "http://localhost:9000/mcp"}},
+            settings=settings,
+        )
+
+
+def test_create_client_raises_when_interceptors_supplier_fails() -> None:
+    settings = SimpleNamespace(
+        mcp_client_callbacks=None,
+        mcp_tool_interceptors=None,
+        mcp_client_callbacks_supplier=None,
+        mcp_tool_interceptors_supplier=lambda: (_ for _ in ()).throw(RuntimeError("interceptors failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="interceptors failed"):
+        mod._create_client(
+            {"default": {"transport": "streamable-http", "url": "http://localhost:9000/mcp"}},
+            settings=settings,
+        )
 
 
 def test_normalize_connection_config_passes_through_supported_optional_fields() -> None:
@@ -151,6 +260,7 @@ def test_normalize_call_tool_result_moves_error_in_structured_and_text_payload()
     assert "error" not in structured
     assert structured.get("warnings") == ["warning text"]
 
+    assert isinstance(normalized.content[0], TextContent)
     text_payload = normalized.content[0].text
     assert isinstance(text_payload, str)
     parsed_text_payload = json.loads(text_payload)

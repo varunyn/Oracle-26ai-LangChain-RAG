@@ -135,6 +135,23 @@ You can point this app at any HTTP MCP server (different repo or machine).
 - **Next.js**: The backend uses `MCP_SERVERS_CONFIG["default"]`; set it to your external URL and keep `ENABLE_MCP_TOOLS = True`. The frontend does not send MCP URL.
 - **Cursor IDE**: To use an external MCP from Cursor, add it in Cursor Settings → MCP (HTTP URL or stdio command). That is independent of this app’s config.
 
+### OAuth-protected MCP servers
+
+If your MCP server uses OAuth client credentials, configure:
+
+```env
+ENABLE_MCP_TOOLS=true
+ENABLE_MCP_CLIENT_JWT=true
+ENABLE_MCP_OAUTH=true
+MCP_OAUTH_CLIENT_ID=your-client-id
+MCP_OAUTH_CLIENT_SECRET=your-client-secret
+MCP_OAUTH_TOKEN_URL=https://auth.example.com/oauth/token
+MCP_OAUTH_SCOPE=read:mcp
+MCP_SERVERS_CONFIG={"default":{"transport":"streamable-http","url":"https://your-mcp-host/mcp"}}
+```
+
+The backend fetches and refreshes the bearer token automatically and injects it into MCP requests.
+
 ---
 
 ## Configuration (.env / environment)

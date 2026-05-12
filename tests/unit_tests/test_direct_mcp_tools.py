@@ -121,3 +121,149 @@ def test_get_mcp_tool_metadata_async_normalizes_adapter_tools(monkeypatch: pytes
             },
         }
     ]
+
+
+def test_get_mcp_tools_async_sanitizes_openapi_extensions_from_tool_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_schema: dict[str, object] = {
+        "type": "object",
+        "properties": {
+            "invoice": {
+                "type": "object",
+                "x-visible": True,
+                "x-in": "body",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "const": "approved",
+                        "x-visible": False,
+                    },
+                    "lines": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "amount": {"type": "number", "x-visible": True}
+                            },
+                        },
+                    },
+                },
+            }
+        },
+    }
+
+    async def fake_load_adapter_tools(**_: object) -> list[BaseTool]:
+        return [
+            _FakeAdapterTool(
+                name="oic.process_invoice",
+                description="Process invoice",
+                args_schema=raw_schema,
+            )
+        ]
+
+    monkeypatch.setattr(direct_mcp_tools, "load_adapter_tools", fake_load_adapter_tools)
+
+    tools = asyncio.run(direct_mcp_tools.get_mcp_tools_async())
+
+    sanitized_schema = tools[0].args_schema
+    assert sanitized_schema == {
+        "type": "object",
+        "properties": {
+            "invoice": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["approved"],
+                    },
+                    "lines": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "amount": {"type": "number"},
+                            },
+                        },
+                    },
+                },
+            }
+        },
+    }
+    assert raw_schema["properties"]["invoice"]["x-visible"] is True  # type: ignore[index]
+
+
+def test_get_mcp_tools_async_drops_boolean_const_for_string_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_schema: dict[str, object] = {
+        "type": "object",
+        "properties": {
+            "includeDetails": {
+                "type": "string",
+                "const": True,
+                "x-visible": True,
+            }
+        },
+    }
+
+    async def fake_load_adapter_tools(**_: object) -> list[BaseTool]:
+        return [
+            _FakeAdapterTool(
+                name="oic.list_tools",
+                description="List tools",
+                args_schema=raw_schema,
+            )
+        ]
+
+    monkeypatch.setattr(direct_mcp_tools, "load_adapter_tools", fake_load_adapter_tools)
+
+    tools = asyncio.run(direct_mcp_tools.get_mcp_tools_async())
+    sanitized_schema = tools[0].args_schema
+
+    assert sanitized_schema == {
+        "type": "object",
+        "properties": {
+            "includeDetails": {
+                "type": "string",
+            }
+        },
+    }
+
+
+def test_get_mcp_tools_async_drops_non_string_const_for_non_string_types(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_schema: dict[str, object] = {
+        "type": "object",
+        "properties": {
+            "enabled": {
+                "type": "boolean",
+                "const": True,
+                "x-in": "query",
+            }
+        },
+    }
+
+    async def fake_load_adapter_tools(**_: object) -> list[BaseTool]:
+        return [
+            _FakeAdapterTool(
+                name="oic.list_tools",
+                description="List tools",
+                args_schema=raw_schema,
+            )
+        ]
+
+    monkeypatch.setattr(direct_mcp_tools, "load_adapter_tools", fake_load_adapter_tools)
+
+    tools = asyncio.run(direct_mcp_tools.get_mcp_tools_async())
+    sanitized_schema = tools[0].args_schema
+
+    assert sanitized_schema == {
+        "type": "object",
+        "properties": {
+            "enabled": {
+                "type": "boolean",
+            }
+        },
+    }

@@ -119,11 +119,7 @@ def _resolve_jwt_headers(settings: object) -> dict[str, str]:
     supplier = getattr(settings, "jwt_headers_supplier", None)
     if not callable(supplier):
         return {}
-    try:
-        supplied = supplier()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("MCP: jwt header supplier failed: %s", exc)
-        return {}
+    supplied = supplier()
     return _coerce_headers(supplied)
 
 
@@ -169,7 +165,7 @@ def _normalize_connection_config(server_config: Mapping[str, Any]) -> AdapterCon
     )
     for key in passthrough_keys:
         if key in server_config and server_config[key] is not None:
-            connection[key] = cast(Any, server_config[key])
+            cast(dict[str, Any], connection)[key] = server_config[key]
 
     return connection
 
@@ -177,11 +173,7 @@ def _normalize_connection_config(server_config: Mapping[str, Any]) -> AdapterCon
 def _resolve_client_callbacks(settings: object) -> Any | None:
     supplier = getattr(settings, "mcp_client_callbacks_supplier", None)
     if callable(supplier):
-        try:
-            return supplier()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("MCP: callbacks supplier failed: %s", exc)
-            return None
+        return supplier()
     return getattr(settings, "mcp_client_callbacks", None)
 
 
@@ -189,11 +181,7 @@ def _resolve_tool_interceptors(settings: object) -> list[Any] | None:
     interceptors: list[Any] = [_successful_tool_result_warning_interceptor]
     supplier = getattr(settings, "mcp_tool_interceptors_supplier", None)
     if callable(supplier):
-        try:
-            supplied = supplier()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("MCP: tool interceptors supplier failed: %s", exc)
-            return interceptors
+        supplied = supplier()
         if isinstance(supplied, Sequence) and not isinstance(supplied, (str, bytes)):
             interceptors.extend([item for item in supplied])
         return interceptors
@@ -268,12 +256,12 @@ def _normalize_call_tool_result(result: MCPToolCallResult) -> MCPToolCallResult:
                     normalized_content.append(block)
                 continue
         if isinstance(text, str):
-            normalized_text, did_change = _normalize_json_payload_text(text)
+            normalized_text_value, did_change = _normalize_json_payload_text(text)
             if did_change:
                 content_changed = True
                 model_copy = getattr(block, "model_copy", None)
                 if callable(model_copy):
-                    normalized_content.append(model_copy(update={"text": normalized_text}))
+                    normalized_content.append(model_copy(update={"text": normalized_text_value}))
                 else:
                     normalized_content.append(block)
                 continue
