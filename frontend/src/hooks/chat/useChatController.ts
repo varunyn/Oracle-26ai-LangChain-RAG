@@ -1,12 +1,12 @@
 import { AIMessage, HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
 import { useStream } from "@langchain/react";
-import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSuggestions } from "@/hooks/useSuggestions";
 import { useChatBodyParams, type FlowMode } from "@/hooks/useChatBodyParams";
 import { useScrollToBottom } from "@/hooks/useScrollToBottom";
 import { getClientApiBase, toApiUrl } from "@/lib/api-base";
 import { getMessageContent } from "@/lib/chat/messages";
-import type { McpToolInvocation } from "@/lib/types/chat";
+import type { McpProgressEvent, McpToolInvocation } from "@/lib/types/chat";
 
 type ContextUsage = {
   tokens: number;
@@ -31,6 +31,7 @@ type ReferencePayload = {
   mcp_used?: boolean;
   mcp_tools_used?: string[];
   mcp_tool_invocations?: McpToolInvocation[];
+  mcp_progress_events?: McpProgressEvent[];
   error?: string;
 };
 
@@ -88,6 +89,15 @@ function normalizeContextUsage(raw: unknown): ContextUsage | undefined {
   };
 }
 
+function isSameContextUsage(a: ContextUsage | null, b: ContextUsage): boolean {
+  return (
+    a?.tokens === b.tokens &&
+    a.max === b.max &&
+    a.percent === b.percent &&
+    a.model_id === b.model_id
+  );
+}
+
 function resolveLanggraphApiUrl(): string {
   const base = getClientApiBase();
   return `${base}/api/langgraph`;
@@ -129,6 +139,7 @@ function toReferences(message: BaseMessageWithKwargs): ReferencePayload | null {
       Array.isArray(raw.reranker_docs) ||
       Array.isArray(raw.mcp_tools_used) ||
       Array.isArray(raw.mcp_tool_invocations) ||
+      Array.isArray(raw.mcp_progress_events) ||
       typeof raw.standalone_question === "string" ||
       typeof raw.error === "string" ||
       raw.mcp_used === true;
@@ -149,6 +160,9 @@ function toReferences(message: BaseMessageWithKwargs): ReferencePayload | null {
         : undefined,
       mcp_tool_invocations: Array.isArray(raw.mcp_tool_invocations)
         ? (raw.mcp_tool_invocations as McpToolInvocation[])
+        : undefined,
+      mcp_progress_events: Array.isArray(raw.mcp_progress_events)
+        ? (raw.mcp_progress_events as McpProgressEvent[])
         : undefined,
       error: typeof raw.error === "string" ? raw.error : undefined,
     };
@@ -173,6 +187,7 @@ function toReferencesFromRawMessage(rawMessage: unknown): ReferencePayload | nul
       Array.isArray(raw.reranker_docs) ||
       Array.isArray(raw.mcp_tools_used) ||
       Array.isArray(raw.mcp_tool_invocations) ||
+      Array.isArray(raw.mcp_progress_events) ||
       typeof raw.standalone_question === "string" ||
       typeof raw.error === "string" ||
       raw.mcp_used === true;
@@ -193,6 +208,9 @@ function toReferencesFromRawMessage(rawMessage: unknown): ReferencePayload | nul
         : undefined,
       mcp_tool_invocations: Array.isArray(raw.mcp_tool_invocations)
         ? (raw.mcp_tool_invocations as McpToolInvocation[])
+        : undefined,
+      mcp_progress_events: Array.isArray(raw.mcp_progress_events)
+        ? (raw.mcp_progress_events as McpProgressEvent[])
         : undefined,
       error: typeof raw.error === "string" ? raw.error : undefined,
     };
@@ -236,6 +254,7 @@ export function useChatController({
   const [maxCitationsToShow, setMaxCitationsToShow] = useState(10);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
+  const lastErrorToastKeyRef = useRef<string | null>(null);
 
   const bodyParams = useChatBodyParams({
     selectedModel,
@@ -271,18 +290,20 @@ export function useChatController({
   const sendUserMessage = useCallback(
     (text: string, overrides?: SendOverrides) => {
       const effectiveMode = overrides?.mode ?? bodyParams.mode;
-      stream.submit({
-        messages: [{ type: "human", content: text }],
-        model: bodyParams.model,
-        session_id: bodyParams.session_id,
-        collection_name: bodyParams.collection_name,
-        enable_reranker: bodyParams.enable_reranker,
-        enable_tracing: bodyParams.enable_tracing,
-        mode: effectiveMode,
-        context: { ...bodyParams, mode: effectiveMode },
-        metadata: { ...bodyParams, mode: effectiveMode },
-        configurable: { ...bodyParams, mode: effectiveMode },
-      });
+      void Promise.resolve(
+        stream.submit({
+          messages: [{ type: "human", content: text }],
+          model: bodyParams.model,
+          session_id: bodyParams.session_id,
+          collection_name: bodyParams.collection_name,
+          enable_reranker: bodyParams.enable_reranker,
+          enable_tracing: bodyParams.enable_tracing,
+          mode: effectiveMode,
+          context: { ...bodyParams, mode: effectiveMode },
+          metadata: { ...bodyParams, mode: effectiveMode },
+          configurable: { ...bodyParams, mode: effectiveMode },
+        }),
+      ).catch(() => undefined);
     },
     [bodyParams, stream],
   );
@@ -351,10 +372,15 @@ export function useChatController({
     const contextUsagePayload = refs.context_usage;
     if (contextUsagePayload) {
       startTransition(() => {
-        setContextUsage(contextUsagePayload);
+        setContextUsage((previous) =>
+          isSameContextUsage(previous, contextUsagePayload) ? previous : contextUsagePayload,
+        );
       });
     }
     if (typeof refs.error === "string" && refs.error.length > 0) {
+      const errorToastKey = `${lastAssistant.id ?? "assistant"}:${refs.error}`;
+      if (lastErrorToastKeyRef.current === errorToastKey) return;
+      lastErrorToastKeyRef.current = errorToastKey;
       toast.error(refs.error, "Search unavailable");
     }
   }, [messages, toast]);

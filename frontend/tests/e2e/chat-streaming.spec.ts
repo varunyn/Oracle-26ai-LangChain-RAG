@@ -72,6 +72,50 @@ test.describe('chat streaming', () => {
     await expect(suggestions.getByRole('button', { name: /resume/i })).toHaveCount(0)
   })
 
+  test('expands the chat input for long multi-line prompts', async ({ page }) => {
+    await page.goto('/')
+
+    const input = page.getByRole('textbox', { name: 'Message' })
+    await expect(input).toBeVisible()
+    await expect(input).toHaveJSProperty('tagName', 'TEXTAREA')
+
+    const compactHeight = await input.evaluate((node) => node.getBoundingClientRect().height)
+    const longPrompt = Array.from(
+      { length: 24 },
+      (_, index) => `"InvoiceLine${index + 1}": { "Description": "Product ${index + 1}" }`,
+    ).join('\n')
+
+    await input.fill(longPrompt)
+
+    const expandedMetrics = await input.evaluate((node) => ({
+      clientHeight: node.clientHeight,
+      height: node.getBoundingClientRect().height,
+      scrollHeight: node.scrollHeight,
+    }))
+
+    expect(expandedMetrics.height).toBeGreaterThan(compactHeight)
+    expect(expandedMetrics.height).toBeLessThanOrEqual(240)
+    expect(expandedMetrics.scrollHeight).toBeGreaterThan(expandedMetrics.clientHeight)
+  })
+
+  test('keeps API connection failures out of the browser error overlay', async ({ page }) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => {
+      pageErrors.push(error.message)
+    })
+
+    await page.goto('/')
+    await page.route('**/api/langgraph/**/runs/stream', (route) => route.abort())
+
+    await page.getByRole('textbox', { name: 'Message' }).fill('Will this fail gracefully?')
+    await page.getByRole('button', { name: 'Ask' }).click()
+
+    await expect(page.getByTestId('chat-root')).toHaveAttribute('data-chat-status', 'error', {
+      timeout: 15_000,
+    })
+    expect(pageErrors).toEqual([])
+  })
+
   test('streams responses and renders citations', async ({ page }) => {
     await page.goto('/')
     await selectCollection(page)

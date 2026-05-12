@@ -28,7 +28,11 @@ import {
 } from "@/components/ai-elements/tool";
 import { CITATION_RUN_REGEX } from "@/constants/chat";
 import { splitContentByCitations } from "@/lib/chat/citations";
-import type { MessageReferences, McpToolInvocation } from "@/lib/types/chat";
+import type {
+  McpProgressEvent,
+  MessageReferences,
+  McpToolInvocation,
+} from "@/lib/types/chat";
 import {
   Message,
   MessageAction,
@@ -118,11 +122,20 @@ function ChatMessageItemInner({
     (inv) =>
       typeof inv.tool_name === "string" && inv.tool_name.trim().length > 0,
   );
+  const progressEvents: McpProgressEvent[] = (
+    messageReferences?.mcp_progress_events ?? []
+  ).filter(
+    (evt) =>
+      typeof evt.tool_name === "string" &&
+      evt.tool_name.trim().length > 0 &&
+      (evt.phase === "start" || evt.phase === "end" || evt.phase === "error"),
+  );
   const toolTimeline = [
     ...(toolName ? [toolName] : []),
     ...mcpToolsUsed.filter((tool) => tool !== toolName),
   ];
   const showToolCards =
+    progressEvents.length > 0 ||
     toolInvocations.length > 0 ||
     (!toolInvocations.length && toolTimeline.length > 0);
   const segments = splitContentByCitations(displayContent);
@@ -364,6 +377,70 @@ function ChatMessageItemInner({
                       </div>
                     </Tool>
                   ))
+                : progressEvents.length > 0
+                  ? progressEvents.map((evt, index) => {
+                      const toolState =
+                        evt.phase === "error"
+                          ? "output-error"
+                          : evt.phase === "end"
+                            ? "output-available"
+                            : "input-available";
+                      return (
+                        <Tool
+                          key={`${evt.tool_run_id ?? evt.tool_name}-${evt.phase}-${index}`}
+                          type={evt.tool_name}
+                          state={toolState}
+                          defaultOpen={index === progressEvents.length - 1}
+                        >
+                          <div className="w-full min-w-0">
+                            <div className="flex min-w-0 items-start justify-between gap-2">
+                              <code className="min-w-0 flex-1 break-words rounded border border-border/60 bg-background/50 px-1.5 py-0.5 font-mono text-[10px] leading-snug text-foreground">
+                                <span className="text-muted-foreground">
+                                  {index + 1}.{" "}
+                                </span>
+                                {evt.tool_name}
+                              </code>
+                              <ToolStatusBadge
+                                state={toolState}
+                                className="mt-0.5 shrink-0"
+                              />
+                            </div>
+                            <details className="group mt-2 w-full min-w-0 border-t border-border/50 pt-2">
+                              <summary className="cursor-pointer list-none text-[10px] font-medium text-muted-foreground marker:hidden hover:text-foreground">
+                                <span className="group-open:hidden">
+                                  Input & status
+                                </span>
+                                <span className="hidden group-open:inline">
+                                  Hide input & status
+                                </span>
+                              </summary>
+                              <div className="mt-2 space-y-2">
+                                <div>
+                                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                    Input
+                                  </div>
+                                  <ToolInput input={evt.args ?? {}} />
+                                </div>
+                                <div>
+                                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                    Status
+                                  </div>
+                                  <ToolOutput
+                                    output={
+                                      evt.phase === "start"
+                                        ? "Waiting for tool result..."
+                                        : evt.phase === "error"
+                                          ? evt.error ?? "Tool execution failed."
+                                          : evt.result ?? "Completed."
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            </details>
+                          </div>
+                        </Tool>
+                      );
+                    })
                 : toolTimeline.map((tool, index) => (
                     <div
                       key={`${tool}-${index}`}

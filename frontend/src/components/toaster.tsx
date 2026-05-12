@@ -90,7 +90,9 @@ export function ToasterProvider({ children }: { children: React.ReactNode }) {
         <ToastViewport />
         <ToastRoot
           open={state.open}
-          onOpenChange={(open) => setState((prev) => ({ ...prev, open }))}
+          onOpenChange={(open) =>
+            setState((prev) => (prev.open === open ? prev : { ...prev, open }))
+          }
           duration={TOAST_DURATION}
           className={toastVariants[state.variant]}
           type="foreground"

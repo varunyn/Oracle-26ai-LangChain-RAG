@@ -96,11 +96,6 @@ export function ChatMessageList({
           : extractToolHeader(textContent);
         const toolName = parsedHeader.toolName;
         const displayContent = parsedHeader.displayContent;
-
-        if (!displayContent && !toolName) return null;
-
-        const showActions =
-          message.role === "assistant" && !!displayContent && !isStreaming;
         const refPart =
           message.role === "assistant" &&
           Array.isArray(
@@ -181,6 +176,14 @@ export function ChatMessageList({
                   }
                 : null))
             : null;
+        const hasLiveProgress =
+          Array.isArray(messageReferences?.mcp_progress_events) &&
+          messageReferences.mcp_progress_events.length > 0;
+
+        if (!displayContent && !toolName && !hasLiveProgress) return null;
+
+        const showActions =
+          message.role === "assistant" && !!displayContent && !isStreaming;
 
         return (
           <ChatMessageItem

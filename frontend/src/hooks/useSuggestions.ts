@@ -79,10 +79,11 @@ export function useSuggestions({
     if (status !== "ready" || messages.length === 0 || !selectedModel) return;
     const last = messages[messages.length - 1];
     if (last?.role !== "assistant") return;
-    if (lastSuggestionsMessageIdRef.current === last.id) return;
     const text = getMessageContent(last as Parameters<typeof getMessageContent>[0]);
     if (!text?.trim()) return;
-    lastSuggestionsMessageIdRef.current = last.id ?? null;
+    const messageKey = last.id ?? `${messages.length}:${text}`;
+    if (lastSuggestionsMessageIdRef.current === messageKey) return;
+    lastSuggestionsMessageIdRef.current = messageKey;
     queueMicrotask(() => setSuggestionsLoading(true));
     const previousUser = [...messages]
       .reverse()

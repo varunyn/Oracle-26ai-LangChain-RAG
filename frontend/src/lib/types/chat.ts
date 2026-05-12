@@ -15,6 +15,16 @@ export type McpToolInvocation = {
   result?: string | null;
 };
 
+/** Streaming MCP tool lifecycle event emitted while a run is in progress */
+export type McpProgressEvent = {
+  phase: "start" | "end" | "error";
+  tool_name: string;
+  tool_run_id?: string;
+  args?: unknown;
+  result?: string | null;
+  error?: string | null;
+};
+
 /** References attached to an assistant message (citations, reranker docs, MCP, errors) */
 export type MessageReferences = {
   standalone_question?: string;
@@ -27,5 +37,7 @@ export type MessageReferences = {
   mcp_tools_used?: string[];
   /** Populated when the runtime returns per-call args/results from the agent */
   mcp_tool_invocations?: McpToolInvocation[];
+  /** Streaming MCP tool progress while the run is still in-flight */
+  mcp_progress_events?: McpProgressEvent[];
   error?: string;
 };
