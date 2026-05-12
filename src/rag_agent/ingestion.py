@@ -3,23 +3,23 @@ from __future__ import annotations
 import shutil
 import uuid
 from collections.abc import Mapping, Sequence
+from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import oracledb
-from langchain_community.document_loaders import (
-    PyPDFLoader,
-    TextLoader,
-    UnstructuredFileLoader,
-)
 from langchain_community.vectorstores.utils import DistanceStrategy
+from langchain_core.documents import Document
 from langchain_oracledb import OracleVS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from api.settings import get_settings
 from src.rag_agent.infrastructure.oci_models import get_embedding_model
 from src.rag_agent.utils.utils import get_console_logger
+
+if TYPE_CHECKING:
+    from docling.document_converter import DocumentConverter
 
 logger = get_console_logger(__name__, level="INFO")
 
@@ -57,7 +57,34 @@ def copy_file_to_uploaded(file_path: str | Path) -> str:
         return f"file://{file_path}"
 
 
-def load_document_with_langchain(file_path: str | Path):
+@lru_cache(maxsize=1)
+def _build_docling_converter() -> DocumentConverter:
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+
+    pdf_options = PdfPipelineOptions()
+    pdf_options.do_ocr = True
+    pdf_options.do_table_structure = False
+    pdf_options.document_timeout = 90
+    pdf_options.ocr_options = RapidOcrOptions(
+        lang=["english"],
+        force_full_page_ocr=True,
+    )
+
+    return DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options),
+        }
+    )
+
+
+def _convert_file_with_docling(file_path: str | Path) -> str:
+    result = _build_docling_converter().convert(Path(file_path))
+    return result.document.export_to_markdown()
+
+
+def load_document_with_docling(file_path: str | Path) -> list[Document]:
     path = Path(file_path)
     if not path.exists():
         print(f"File not found: {path}")
@@ -77,30 +104,28 @@ def load_document_with_langchain(file_path: str | Path):
         "source_type": "file",
     }
 
-    docs = []
     try:
-        if ext == "pdf":
-            docs = PyPDFLoader(str(path)).load()
-        elif ext in ("html", "htm"):
-            docs = UnstructuredFileLoader(str(path)).load()
-        elif ext in ("txt", "md", "markdown"):
-            docs = TextLoader(str(path), encoding="utf-8").load()
-        else:
-            return []
+        markdown = _convert_file_with_docling(path)
     except Exception as e:
         print(f"Error loading {path}: {e}")
         return []
 
-    for doc in docs:
-        doc.metadata.update(base_metadata)
-    return docs
+    content = markdown.strip()
+    if not content:
+        return []
+
+    return [Document(page_content=content, metadata=base_metadata)]
+
+
+def load_document_with_langchain(file_path: str | Path) -> list[Document]:
+    return load_document_with_docling(file_path)
 
 
 def load_documents_from_files(files: Sequence[str | Path]):
     all_docs = []
     for file_path in files:
         print(f"Loading: {file_path}")
-        docs = load_document_with_langchain(file_path)
+        docs = load_document_with_docling(file_path)
         all_docs.extend(docs)
     return all_docs
 
@@ -153,6 +178,10 @@ def _ensure_document_ids(docs: Sequence[object]) -> None:
         setattr(doc, "id", f"{source}::{page}::{digest}")
 
 
+def _has_extractable_text(docs: Sequence[object]) -> bool:
+    return any(str(getattr(doc, "page_content", "")).strip() for doc in docs)
+
+
 def _split_and_store(docs, table_name: str = DEFAULT_TABLE_NAME) -> int:
     settings = get_settings()
     splitter = RecursiveCharacterTextSplitter(
@@ -194,8 +223,12 @@ def process_file_paths(
         docs = load_documents_from_files(file_paths)
         if not docs:
             return False, 0, "No documents loaded (unsupported type or empty)."
+        if not _has_extractable_text(docs):
+            return False, 0, "No text content could be extracted from the uploaded documents."
         tbl = table_name or DEFAULT_TABLE_NAME
         num_chunks = _split_and_store(docs, table_name=tbl)
+        if num_chunks == 0:
+            return False, 0, "No chunks were inserted into the vector store."
         return True, num_chunks, None
     except Exception as e:
         logger.error("process_file_paths error: %s", e)

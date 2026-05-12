@@ -35,6 +35,13 @@ FROM python:3.11-slim-bookworm AS runner
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libgl1 \
+        libglib2.0-0 \
+        libxcb1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user (match typical uid/gid for volume mounts)
 RUN groupadd --gid 1001 appgroup \
     && useradd --uid 1001 --gid appgroup --shell /bin/false --create-home appuser
@@ -46,7 +53,8 @@ COPY --from=builder --chown=appuser:appgroup /app/src /app/src
 COPY --from=builder --chown=appuser:appgroup /app/scripts /app/scripts
 COPY --from=builder --chown=appuser:appgroup /app/mcp_servers /app/mcp_servers
 
-RUN mkdir /app/logs && chown appuser:appgroup /app/logs
+RUN mkdir /app/logs /app/uploaded_files \
+    && chown appuser:appgroup /app/logs /app/uploaded_files
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

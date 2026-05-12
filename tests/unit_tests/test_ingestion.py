@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 from src.rag_agent import ingestion
@@ -51,7 +52,9 @@ def test_process_file_paths_returns_error_when_no_documents(monkeypatch) -> None
 
 def test_process_file_paths_uses_default_table_when_missing(monkeypatch) -> None:
     monkeypatch.setattr(
-        ingestion, "load_documents_from_files", lambda files: [SimpleNamespace(metadata={})]
+        ingestion,
+        "load_documents_from_files",
+        lambda files: [SimpleNamespace(page_content="hello", metadata={})],
     )
     monkeypatch.setattr(ingestion, "_split_and_store", lambda docs, table_name: 5)
 
@@ -60,6 +63,38 @@ def test_process_file_paths_uses_default_table_when_missing(monkeypatch) -> None
     assert success is True
     assert num_chunks == 5
     assert error is None
+
+
+def test_process_file_paths_returns_error_when_documents_have_no_text(monkeypatch) -> None:
+    monkeypatch.setattr(
+        ingestion,
+        "load_documents_from_files",
+        lambda files: [
+            SimpleNamespace(page_content="   ", metadata={"source": "scan.pdf"}),
+            SimpleNamespace(page_content="", metadata={"source": "scan.pdf"}),
+        ],
+    )
+
+    success, num_chunks, error = ingestion.process_file_paths(["scan.pdf"])
+
+    assert success is False
+    assert num_chunks == 0
+    assert error == "No text content could be extracted from the uploaded documents."
+
+
+def test_process_file_paths_returns_error_when_no_chunks_inserted(monkeypatch) -> None:
+    monkeypatch.setattr(
+        ingestion,
+        "load_documents_from_files",
+        lambda files: [SimpleNamespace(page_content="hello", metadata={"source": "doc.txt"})],
+    )
+    monkeypatch.setattr(ingestion, "_split_and_store", lambda docs, table_name: 0)
+
+    success, num_chunks, error = ingestion.process_file_paths(["doc.txt"])
+
+    assert success is False
+    assert num_chunks == 0
+    assert error == "No chunks were inserted into the vector store."
 
 
 def test_split_and_store_delegates_chunking_and_ids_to_oraclevs(monkeypatch) -> None:
@@ -111,28 +146,56 @@ def test_split_and_store_delegates_chunking_and_ids_to_oraclevs(monkeypatch) -> 
     assert FakeOracleVS.last_add_documents["kwargs"]["text_splitter"].__class__ is FakeSplitter
 
 
-def test_load_document_with_langchain_sets_metadata(monkeypatch, tmp_path) -> None:
+def test_convert_file_with_docling_exports_markdown(monkeypatch, tmp_path) -> None:
     source_file = tmp_path / "doc.txt"
     source_file.write_text("hello")
-    loaded_doc = SimpleNamespace(metadata={})
+    captured: dict[str, object] = {}
 
-    class FakeLoader:
-        def __init__(self, path: str, encoding: str | None = None) -> None:
-            self.path = path
-            self.encoding = encoding
+    class FakeDoclingDocument:
+        def export_to_markdown(self) -> str:
+            return "# Converted\n\nBody text"
 
-        def load(self):
-            return [loaded_doc]
+    class FakeConverter:
+        def convert(self, path: Path):
+            captured["path"] = path
+            return SimpleNamespace(document=FakeDoclingDocument())
 
-    monkeypatch.setattr(ingestion, "TextLoader", FakeLoader)
+    monkeypatch.setattr(ingestion, "_build_docling_converter", lambda: FakeConverter())
+
+    markdown = ingestion._convert_file_with_docling(source_file)
+
+    assert markdown == "# Converted\n\nBody text"
+    assert captured["path"] == source_file
+
+
+def test_load_document_with_docling_sets_metadata(monkeypatch, tmp_path) -> None:
+    source_file = tmp_path / "doc.txt"
+    source_file.write_text("hello")
+
+    monkeypatch.setattr(ingestion, "_convert_file_with_docling", lambda path: "# Title\n\nBody")
     monkeypatch.setattr(
         ingestion, "copy_file_to_uploaded", lambda path: "uploaded_files/doc_123.txt"
     )
 
-    docs = ingestion.load_document_with_langchain(source_file)
+    docs = ingestion.load_document_with_docling(source_file)
 
-    assert docs == [loaded_doc]
-    assert loaded_doc.metadata["source"] == "doc.txt"
-    assert loaded_doc.metadata["file_name"] == "doc.txt"
-    assert loaded_doc.metadata["source_url"] == "uploaded_files/doc_123.txt"
-    assert loaded_doc.metadata["source_type"] == "file"
+    assert len(docs) == 1
+    assert docs[0].page_content == "# Title\n\nBody"
+    assert docs[0].metadata["source"] == "doc.txt"
+    assert docs[0].metadata["file_name"] == "doc.txt"
+    assert docs[0].metadata["source_url"] == "uploaded_files/doc_123.txt"
+    assert docs[0].metadata["source_type"] == "file"
+
+
+def test_load_document_with_docling_returns_empty_when_markdown_is_blank(
+    monkeypatch, tmp_path
+) -> None:
+    source_file = tmp_path / "doc.pdf"
+    source_file.write_bytes(b"%PDF")
+
+    monkeypatch.setattr(ingestion, "_convert_file_with_docling", lambda path: "   \n")
+    monkeypatch.setattr(
+        ingestion, "copy_file_to_uploaded", lambda path: "uploaded_files/doc_123.pdf"
+    )
+
+    assert ingestion.load_document_with_docling(source_file) == []

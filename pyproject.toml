@@ -19,46 +19,32 @@ dependencies = [
     "langgraph-checkpoint-sqlite==3.0.3",
     "langchain-text-splitters>=1.1.0",
     "typing-extensions>=4.15.0",
-
     # FastAPI / server runtime
     "fastapi==0.135.3",
     "pydantic>=2.11.7",
     "pydantic-settings>=2.8.1",
     "starlette>=0.40.0",
     "uvicorn>=0.35.0",
-
     # MCP
     "fastmcp>=3.2.0",
     "mcp>=1.17.0,<2.0.0",
     "langchain-mcp-adapters>=0.2.2",
-
     # Oracle / OCI
     "oci>=2.154.3",
     "oracledb>=3.0.0",
     # Official Oracle LangChain integrations (replaces langchain-community for OCI/Oracle)
     "langchain-oci>=0.2.5",
-    "langchain-oracledb>=1.3.0",
-
+    "langchain-oracledb>=1.4.0",
     # OpenAI integration
     "langchain-openai>=1.0.0",
-
-    # Document ingestion / text extraction
-    "langchain-unstructured>=1.0.0",
-    "pdfminer.six>=20231228",
-    "pi_heif>=0.17.0",
-    "unstructured>=0.18.2",
-    "unstructured-client>=0.37.2",
-
     # HTTP / networking
     "httpcore>=1.0.7",
     "httpx>=0.28.1",
     "httpx-sse>=0.4.0",
     "requests>=2.32.3",
-
     # Authentication / security
     "cryptography>=44.0.2",
     "PyJWT>=2.10.1",
-
     # Observability
     "langfuse==4.0.0",
     "langsmith[otel]==0.7.30",
@@ -69,17 +55,18 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.45b0",
     "opentelemetry-instrumentation-requests>=0.45b0",
     "opentelemetry-sdk>=1.39.1",
-
     # Data processing / search
     "numpy>=2.2.3",
     "rank-bm25>=0.2.2",
-
     # Serialization / configuration / utilities
     "orjson>=3.11.5",
     "python-dateutil>=2.9.0.post0",
     "python-dotenv>=1.1.1",
     "PyYAML>=6.0.2",
     "tiktoken>=0.12.0",
+    "docling[rapidocr]>=2.93.0",
+    "torch>=2.11.0",
+    "torchvision>=0.26.0",
 ]
 
 [project.scripts]
@@ -103,6 +90,15 @@ dev = [
 
 [tool.uv]
 package = false  # This is an application, not a package to be installed
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.pytest.ini_options]
 markers = [
