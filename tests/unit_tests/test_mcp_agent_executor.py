@@ -19,6 +19,19 @@ class _FakeAgent:
         return self.output
 
 
+class _FakeSequencedAgent:
+    def __init__(self, outputs: list[dict[str, object]]) -> None:
+        self.outputs = outputs
+        self.calls: list[dict[str, Any]] = []
+        self._idx = 0
+
+    async def ainvoke(self, inp: dict[str, object], *, config: object | None = None) -> dict[str, object]:
+        self.calls.append({"input": inp, "config": config})
+        idx = min(self._idx, len(self.outputs) - 1)
+        self._idx += 1
+        return self.outputs[idx]
+
+
 def test_langchain_executor_returns_final_answer_and_tools(monkeypatch) -> None:
     fake_agent = _FakeAgent(
         {
@@ -255,3 +268,59 @@ def test_extract_tool_invocations_pairs_ai_tool_calls_with_tool_messages() -> No
             "result": "log line one\nlog line two",
         },
     ]
+
+
+def test_executor_retries_when_literal_tool_call_text_is_emitted(monkeypatch) -> None:
+    fake_agent = _FakeSequencedAgent(
+        [
+            {
+                "messages": [
+                    AIMessage(content='Now I will verify via oracle_retrieval(query="Summit payment terms").')
+                ]
+            },
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "oracle_retrieval",
+                                "args": {"query": "Summit payment terms"},
+                                "id": "call_1",
+                            }
+                        ],
+                    ),
+                    ToolMessage(content="Found net 30", tool_call_id="call_1", name="oracle_retrieval"),
+                    AIMessage(content="Verified payment terms and completed processing."),
+                ]
+            },
+        ]
+    )
+
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=4))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
+    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
+
+    import asyncio
+
+    answer, tools_used, invocations = asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="process invoices and verify payment terms",
+            chat_history=None,
+            model_id=None,
+            tools=[SimpleNamespace(name="oracle_retrieval", description="retrieve")],
+            run_config=None,
+            require_tool_call=False,
+        )
+    )
+
+    assert answer == "Verified payment terms and completed processing."
+    assert tools_used == ["oracle_retrieval"]
+    assert invocations == [
+        {
+            "tool_name": "oracle_retrieval",
+            "args": {"query": "Summit payment terms"},
+            "result": "Found net 30",
+        }
+    ]
+    assert len(fake_agent.calls) == 2

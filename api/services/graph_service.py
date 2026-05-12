@@ -6,7 +6,7 @@ import asyncio
 import logging
 import re
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -14,14 +14,19 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.runnables.config import RunnableConfig
-from langchain_core.tools import StructuredTool, create_retriever_tool
+from langchain_core.tools import BaseTool, StructuredTool, create_retriever_tool
 
+from api.settings import get_settings
 from src.rag_agent.core.citations import citations_from_documents
 from src.rag_agent.infrastructure.db_utils import get_pooled_connection
 from src.rag_agent.infrastructure.direct_mcp_tools import get_mcp_tools_async
 from src.rag_agent.infrastructure.mcp_agent import get_mcp_answer_async
 from src.rag_agent.infrastructure.mcp_settings import get_mcp_servers_config
-from src.rag_agent.infrastructure.oci_models import get_embedding_model, get_llm, get_oracle_vs
+from src.rag_agent.infrastructure.oci_models import (
+    get_embedding_model,
+    get_llm,
+    get_oracle_vs,
+)
 from src.rag_agent.infrastructure.retrieval import search_documents
 from src.rag_agent.prompts.runtime_agents import RAG_ANSWER_PROMPT_TEMPLATE
 from src.rag_agent.utils.langfuse_tracing import add_langfuse_callbacks
@@ -86,7 +91,7 @@ def _prepare_run_config(
 
 def _invoke_llm_with_optional_config(
     llm: object,
-    messages: list[object],
+    messages: Sequence[object],
     run_config: RunnableConfig | None,
 ) -> object:
     invoke = getattr(llm, "invoke")
@@ -223,6 +228,18 @@ def _emit_usage_observability(
         return None, None
 
     cost_usd, pricing_basis = _estimate_cost_usd(model_id, usage)
+    attributes = {
+        "event_type": "llm_usage",
+        "mode": mode,
+        "model_id": model_id or "unknown",
+        "session_id": session_id or "unknown",
+        "thread_id": thread_id or "unknown",
+        "input_tokens": usage.get("input", 0),
+        "output_tokens": usage.get("output", 0),
+        "total_tokens": usage.get("total", 0),
+        "cost_usd": cost_usd or 0.0,
+        "pricing_basis": pricing_basis,
+    }
     logger.info(
         "llm_usage mode=%s model_id=%s session_id=%s thread_id=%s input_tokens=%d output_tokens=%d "
         "total_tokens=%d cost_usd=%.8f pricing_basis=%s",
@@ -235,6 +252,7 @@ def _emit_usage_observability(
         usage.get("total", 0),
         cost_usd or 0.0,
         pricing_basis,
+        extra={"otel_attributes": attributes},
     )
     return usage, cost_usd
 
@@ -243,15 +261,149 @@ def _resolve_effective_mode(mode: str | None) -> str:
     explicit = str(mode or "").strip().lower()
     if explicit in {"direct", "rag", "mcp", "mixed"}:
         return explicit
-    # Keep FastAPI/runtime behavior aligned with build_chat_config defaulting logic.
-    from api.settings import get_settings
-
     settings = get_settings()
     enable_mcp_tools = bool(getattr(settings, "ENABLE_MCP_TOOLS", True))
     mcp_config = get_mcp_servers_config()
     if enable_mcp_tools and bool(mcp_config):
         return "mixed"
     return "rag"
+
+
+def _question_explicitly_references_mcp_tools(
+    question: str,
+    mcp_tools: list[BaseTool],
+) -> bool:
+    lower_question = question.strip().lower()
+    if not lower_question:
+        return False
+    for tool in mcp_tools:
+        tool_name = str(getattr(tool, "name", "") or "").strip().lower()
+        if not tool_name:
+            continue
+        if tool_name in lower_question:
+            return True
+        humanized = tool_name.replace("_", " ")
+        if humanized in lower_question:
+            return True
+    return False
+
+
+def _has_called_mcp_tool(
+    tools_used: list[str],
+    mcp_tools: list[BaseTool],
+) -> bool:
+    used = {str(name).strip() for name in tools_used if str(name).strip()}
+    mcp_tool_names = {
+        str(getattr(tool, "name", "") or "").strip()
+        for tool in mcp_tools
+        if str(getattr(tool, "name", "") or "").strip()
+    }
+    return any(name in used for name in mcp_tool_names)
+
+
+def _to_string_list(raw: object) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [str(item).strip() for item in raw if str(item).strip()]
+
+
+def _workflow_policy_for_request(*, mode: str, question: str) -> dict[str, object] | None:
+    policy_raw = getattr(get_settings(), "MCP_WORKFLOW_POLICY", {})
+    if not isinstance(policy_raw, dict) or not policy_raw:
+        return None
+    enabled = bool(policy_raw.get("enabled", True))
+    if not enabled:
+        return None
+    apply_modes = _to_string_list(policy_raw.get("apply_modes")) or ["mixed"]
+    if mode not in {m.lower() for m in apply_modes}:
+        return None
+    activation_terms = [term.lower() for term in _to_string_list(policy_raw.get("activation_terms"))]
+    lower_question = question.strip().lower()
+    if activation_terms and not any(term in lower_question for term in activation_terms):
+        return None
+    required_capabilities = _to_string_list(policy_raw.get("required_capabilities"))
+    tool_capability_map_raw = policy_raw.get("tool_capability_map")
+    if not required_capabilities or not isinstance(tool_capability_map_raw, dict):
+        return None
+    tool_capability_map: dict[str, list[str]] = {}
+    for tool_name, capabilities in tool_capability_map_raw.items():
+        normalized_tool_name = str(tool_name).strip().lower()
+        if not normalized_tool_name:
+            continue
+        caps = _to_string_list(capabilities)
+        if caps:
+            tool_capability_map[normalized_tool_name] = [cap.lower() for cap in caps]
+    if not tool_capability_map:
+        return None
+    return {
+        "required_capabilities": [cap.lower() for cap in required_capabilities],
+        "tool_capability_map": tool_capability_map,
+        "failure_message": str(policy_raw.get("failure_message") or "").strip(),
+    }
+
+
+def _enforce_workflow_policy(
+    *,
+    policy: dict[str, object] | None,
+    tools_used: list[str],
+    tool_invocations: list[dict[str, object]],
+) -> tuple[bool, list[str], str | None]:
+    if policy is None:
+        return False, [], None
+    required_capabilities = _to_string_list(policy.get("required_capabilities"))
+    tool_capability_map = cast(dict[str, list[str]], policy.get("tool_capability_map") or {})
+    if not required_capabilities or not tool_capability_map:
+        return False, [], None
+    called_tool_names = {
+        str(name).strip().lower()
+        for name in tools_used
+        if str(name).strip()
+    }
+    called_tool_names.update(
+        str(inv.get("tool_name") or "").strip().lower()
+        for inv in tool_invocations
+        if isinstance(inv, dict)
+    )
+    called_capabilities: set[str] = set()
+    for tool_name in called_tool_names:
+        for capability in tool_capability_map.get(tool_name, []):
+            called_capabilities.add(capability.lower())
+    missing = [cap for cap in required_capabilities if cap.lower() not in called_capabilities]
+    if not missing:
+        return True, [], None
+    default_message = (
+        "Workflow validation failed. Missing required steps: "
+        + ", ".join(missing)
+        + ". Please continue with the required workflow tools."
+    )
+    failure_message = str(policy.get("failure_message") or "").strip() or default_message
+    return True, missing, failure_message
+
+
+def _is_trivial_answer(answer: str) -> bool:
+    stripped = answer.strip()
+    if not stripped:
+        return True
+    return not any(ch.isalnum() for ch in stripped)
+
+
+def _tool_failure_summary(tool_invocations: list[dict[str, object]]) -> str | None:
+    failed_tools: list[str] = []
+    for invocation in tool_invocations:
+        if not isinstance(invocation, dict):
+            continue
+        tool_name = str(invocation.get("tool_name") or "").strip()
+        result_text = str(invocation.get("result") or "").strip()
+        if not result_text:
+            continue
+        lowered = result_text.lower()
+        if "failed after" in lowered or "toolexception" in lowered or "error" in lowered:
+            if tool_name and tool_name not in failed_tools:
+                failed_tools.append(tool_name)
+    if not failed_tools:
+        return None
+    joined = ", ".join(failed_tools)
+    return f"Workflow failed because tool execution failed: {joined}. See tool output for details."
 
 
 class ChatRuntimeService:
@@ -274,6 +426,7 @@ class ChatRuntimeService:
         mode: str | None,
         mcp_server_keys: list[str] | None,
         stream: bool,
+        tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> dict[str, object]:
         _ = (
             session_id,
@@ -319,7 +472,41 @@ class ChatRuntimeService:
                 model_id=resolved_model_id,
                 tools=[retrieval_tool, *mcp_tools],
                 run_config=run_cfg,
+                tool_progress_callback=tool_progress_callback,
             )
+            explicit_mcp_required = _question_explicitly_references_mcp_tools(
+                latest_user_message,
+                mcp_tools,
+            )
+            workflow_policy = _workflow_policy_for_request(
+                mode=normalized_mode,
+                question=latest_user_message,
+            )
+            if (
+                explicit_mcp_required
+                and latest_user_message
+                and not _has_called_mcp_tool(tools_used, mcp_tools)
+            ):
+                final_answer, tools_used, tool_invocations = await get_mcp_answer_async(
+                    latest_user_message,
+                    model_id=resolved_model_id,
+                    tools=[retrieval_tool, *mcp_tools],
+                    run_config=run_cfg,
+                    require_tool_call=True,
+                    tool_progress_callback=tool_progress_callback,
+                )
+            policy_applied, missing_capabilities, policy_failure_message = _enforce_workflow_policy(
+                policy=workflow_policy,
+                tools_used=tools_used,
+                tool_invocations=cast(list[dict[str, object]], tool_invocations),
+            )
+            policy_error = policy_failure_message if policy_applied and missing_capabilities else None
+            if policy_error:
+                final_answer = policy_error
+            tool_failure_error = _tool_failure_summary(cast(list[dict[str, object]], tool_invocations))
+            if not policy_error and _is_trivial_answer(final_answer) and tool_failure_error:
+                final_answer = tool_failure_error
+                policy_error = tool_failure_error
             retrieval_state = getattr(retrieval_tool, "_retrieval_state", None)
             retrieval_docs = (
                 cast(list[Document], retrieval_state.get("docs", []))
@@ -335,7 +522,12 @@ class ChatRuntimeService:
             # Guardrail: if no MCP tools were used at all, fall back to direct
             # RAG retrieval+synthesis so doc-grounded questions don't bypass DB.
             # Do not override successful non-retrieval MCP tool answers (e.g. calculator).
-            if latest_user_message and not tools_used:
+            if (
+                latest_user_message
+                and not tools_used
+                and not explicit_mcp_required
+                and not policy_applied
+            ):
                 retrieval_docs = self._retrieve_oracle_docs(
                     query=latest_user_message,
                     collection_name=collection_name,
@@ -357,7 +549,7 @@ class ChatRuntimeService:
                     final_answer = rag_answer
             mixed_result: dict[str, object] = {
                 "final_answer": final_answer,
-                "error": None,
+                "error": policy_error,
                 "standalone_question": latest_user_message or None,
                 "citations": self._citations_from_docs(retrieval_docs),
                 "reranker_docs": self._serialize_docs(retrieval_docs),
@@ -408,6 +600,7 @@ class ChatRuntimeService:
                     model_id=resolved_model_id,
                     tools=mcp_tools,
                     run_config=run_cfg,
+                    tool_progress_callback=tool_progress_callback,
                 )
                 mcp_result: dict[str, object] = {
                     "final_answer": answer,
@@ -420,6 +613,10 @@ class ChatRuntimeService:
                     "mcp_tools_used": tools_used,
                     "mcp_tool_invocations": tool_invocations,
                 }
+                tool_failure_error = _tool_failure_summary(cast(list[dict[str, object]], tool_invocations))
+                if _is_trivial_answer(str(mcp_result.get("final_answer") or "")) and tool_failure_error:
+                    mcp_result["final_answer"] = tool_failure_error
+                    mcp_result["error"] = tool_failure_error
                 mcp_result["model_id"] = resolved_model_id
                 self._store_thread_state(thread_id, messages, mcp_result)
                 return mcp_result
@@ -536,18 +733,51 @@ class ChatRuntimeService:
         mode: str | None,
         mcp_server_keys: list[str] | None,
     ) -> AsyncIterator[dict[str, object]]:
-        result = await self.run_chat(
-            messages=messages,
-            model_id=model_id,
-            thread_id=thread_id,
-            session_id=session_id,
-            collection_name=collection_name,
-            enable_reranker=enable_reranker,
-            enable_tracing=enable_tracing,
-            mode=mode,
-            mcp_server_keys=mcp_server_keys,
-            stream=True,
-        )
+        result: dict[str, object] = {}
+        error: BaseException | None = None
+        progress_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        run_done = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def _emit_tool_progress(payload: dict[str, object]) -> None:
+            loop.call_soon_threadsafe(
+                lambda: progress_queue.put_nowait({"type": "tool_event", "data": payload}),
+            )
+
+        async def _run() -> None:
+            nonlocal result, error
+            try:
+                result = await self.run_chat(
+                    messages=messages,
+                    model_id=model_id,
+                    thread_id=thread_id,
+                    session_id=session_id,
+                    collection_name=collection_name,
+                    enable_reranker=enable_reranker,
+                    enable_tracing=enable_tracing,
+                    mode=mode,
+                    mcp_server_keys=mcp_server_keys,
+                    stream=True,
+                    tool_progress_callback=_emit_tool_progress,
+                )
+            except BaseException as exc:  # noqa: BLE001
+                error = exc
+            finally:
+                run_done.set()
+
+        run_task = asyncio.create_task(_run())
+        while True:
+            if run_done.is_set() and progress_queue.empty():
+                break
+            try:
+                progress = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
+                yield progress
+            except TimeoutError:
+                continue
+
+        await run_task
+        if error is not None:
+            raise error
         answer = str(result.get("final_answer") or "")
         if answer:
             yield {"type": "text", "delta": answer}
@@ -662,9 +892,8 @@ class ChatRuntimeService:
         run_config: RunnableConfig | None = None,
     ) -> tuple[str, dict[str, int] | None, str]:
         context = self._format_retrieved_docs(docs)
-        answer_messages = [
-            HumanMessage(content=RAG_ANSWER_PROMPT_TEMPLATE.format(question=question, context=context))
-        ]
+        prompt = RAG_ANSWER_PROMPT_TEMPLATE.format(question=question, context=context)
+        answer_messages = [HumanMessage(content=prompt)]
         llm = get_llm(model_id=model_id)
         final_message = await asyncio.to_thread(
             _invoke_llm_with_optional_config,

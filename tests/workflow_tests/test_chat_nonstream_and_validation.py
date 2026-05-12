@@ -81,6 +81,54 @@ def test_langgraph_nonstream_json_includes_expected_fields(monkeypatch: MonkeyPa
     asyncio.run(run())
 
 
+def test_langgraph_nonstream_logs_conversation_out(monkeypatch: MonkeyPatch):
+    async def _stub_invoke(self: object, **_kwargs: object) -> dict[str, object]:
+        return {
+            "final_answer": "Deterministic answer",
+            "error": None,
+            "standalone_question": "Standalone Q?",
+            "citations": [],
+            "reranker_docs": [],
+            "context_usage": None,
+            "mcp_used": True,
+            "mcp_tools_used": ["search_docs"],
+        }
+
+    captured: list[dict[str, object]] = []
+
+    def fake_log_conversation_out(**kwargs: object) -> None:
+        captured.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.agent.RuntimeAgent.invoke", _stub_invoke, raising=True
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.langgraph_server.log_conversation_out",
+        fake_log_conversation_out,
+        raising=True,
+    )
+
+    async def run():
+        payload = _run_payload([{"type": "human", "content": "Hello"}])
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            resp = await client.post("/api/langgraph/threads/thread-log/runs", json=payload)
+            assert resp.status_code == 200
+
+    asyncio.run(run())
+
+    assert captured == [
+        {
+            "final_answer": "Deterministic answer",
+            "error": None,
+            "mcp_used": True,
+            "mcp_tools_used": ["search_docs"],
+            "standalone_question": "Standalone Q?",
+        }
+    ]
+
+
 def test_langgraph_thread_create_returns_requested_id():
     async def run():
         async with httpx.AsyncClient(

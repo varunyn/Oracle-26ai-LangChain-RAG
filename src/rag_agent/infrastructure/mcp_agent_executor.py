@@ -6,9 +6,10 @@ import logging
 import re
 import uuid
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from fractions import Fraction
 from typing import Any, cast
+from uuid import UUID
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
@@ -16,6 +17,7 @@ from langchain.agents.middleware import (
     ToolCallLimitMiddleware,
     ToolRetryMiddleware,
 )
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import BaseTool
@@ -30,6 +32,12 @@ _PSEUDO_TOOL_BLOCK = re.compile(
     re.DOTALL,
 )
 _CALC_EXPR_ARG = re.compile(r'expression\s*=\s*["\']([^"\']+)["\']')
+_LITERAL_TOOL_CALL_RETRY_INSTRUCTION = (
+    "You output literal tool-call text instead of an actual tool invocation. "
+    "Continue from prior tool results and call tools directly (do not print "
+    "tool_name(...)). Complete the task before giving the final answer."
+)
+ToolProgressCallback = Callable[[dict[str, object]], None]
 
 
 def _normalize_message_content(content: object) -> str:
@@ -155,16 +163,18 @@ def _extract_answer_and_tools(agent_state: Mapping[str, object]) -> tuple[str, l
     for msg in cast(Sequence[object], messages_raw):
         if isinstance(msg, AIMessage):
             answer = _normalize_message_content(msg.content)
+            additional_kwargs = getattr(msg, "additional_kwargs", None)
+            response_metadata = getattr(msg, "response_metadata", None)
             ai_candidates: list[object] = [
                 getattr(msg, "tool_calls", None),
                 (
-                    getattr(msg, "additional_kwargs", None).get("tool_calls")
-                    if isinstance(getattr(msg, "additional_kwargs", None), Mapping)
+                    additional_kwargs.get("tool_calls")
+                    if isinstance(additional_kwargs, Mapping)
                     else None
                 ),
                 (
-                    getattr(msg, "response_metadata", None).get("tool_calls")
-                    if isinstance(getattr(msg, "response_metadata", None), Mapping)
+                    response_metadata.get("tool_calls")
+                    if isinstance(response_metadata, Mapping)
                     else None
                 ),
             ]
@@ -278,6 +288,118 @@ def _parse_one_tool_call(tc: Mapping[str, object]) -> tuple[str, str, object]:
     if args is None:
         args = {}
     return name, tc_id, _normalize_tool_args(args)
+
+
+def _serialize_tool_output(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return _truncate_tool_text(value)
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            dumped = json.dumps(_jsonable_tool_value(value), ensure_ascii=True, default=str)
+            return _truncate_tool_text(dumped)
+        except Exception:  # noqa: BLE001
+            return _truncate_tool_text(str(value))
+    return _truncate_tool_text(str(value))
+
+
+def _normalize_tool_start_args(input_str: object, inputs: object) -> object:
+    if isinstance(inputs, Mapping):
+        return _normalize_tool_args(dict(inputs))
+    if isinstance(input_str, str) and input_str.strip():
+        stripped = input_str.strip()
+        if stripped.startswith("{") or stripped.startswith("["):
+            return _normalize_tool_args(stripped)
+        return stripped
+    return None
+
+
+class _ToolProgressCallback(BaseCallbackHandler):
+    _on_event: ToolProgressCallback
+    _run_context: dict[str, dict[str, object]]
+
+    def __init__(self, on_event: ToolProgressCallback) -> None:
+        super().__init__()
+        self._on_event = on_event
+        self._run_context = {}
+
+    def _emit(self, payload: dict[str, object]) -> None:
+        try:
+            self._on_event(payload)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("tool progress callback failed: %s", exc)
+
+    def on_tool_start(
+        self,
+        serialized: dict[str, object],
+        input_str: str,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        inputs: dict[str, object] | None = None,
+        **kwargs: object,
+    ) -> None:
+        _ = parent_run_id, kwargs
+        tool_name = str(serialized.get("name") or serialized.get("id") or "").strip()
+        if not tool_name:
+            tool_name = "unknown_tool"
+        args = _normalize_tool_start_args(input_str, inputs)
+        run_key = str(run_id)
+        self._run_context[run_key] = {
+            "tool_name": tool_name,
+            "args": args,
+        }
+        self._emit(
+            {
+                "phase": "start",
+                "tool_name": tool_name,
+                "args": args,
+                "tool_run_id": run_key,
+            }
+        )
+
+    def on_tool_end(
+        self,
+        output: object,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: object,
+    ) -> None:
+        _ = parent_run_id, kwargs
+        run_key = str(run_id)
+        context = self._run_context.pop(run_key, {})
+        self._emit(
+            {
+                "phase": "end",
+                "tool_name": str(context.get("tool_name") or "unknown_tool"),
+                "args": context.get("args"),
+                "result": _serialize_tool_output(output),
+                "tool_run_id": run_key,
+            }
+        )
+
+    def on_tool_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: object,
+    ) -> None:
+        _ = parent_run_id, kwargs
+        run_key = str(run_id)
+        context = self._run_context.pop(run_key, {})
+        self._emit(
+            {
+                "phase": "error",
+                "tool_name": str(context.get("tool_name") or "unknown_tool"),
+                "args": context.get("args"),
+                "error": _truncate_tool_text(str(error)),
+                "tool_run_id": run_key,
+            }
+        )
 
 
 def _extract_tool_invocations(agent_state: Mapping[str, object]) -> list[dict[str, object]]:
@@ -421,6 +543,38 @@ def _clean_leaked_tool_syntax(answer: str, tools_used: Sequence[str]) -> str:
     return cleaned or raw
 
 
+def _extract_literal_tool_call_names(answer: str, tool_names: Sequence[str]) -> set[str]:
+    if not answer.strip() or not tool_names:
+        return set()
+    found: set[str] = set()
+    for tool_name in tool_names:
+        escaped = re.escape(tool_name)
+        if re.search(rf"\b{escaped}\s*\(", answer):
+            found.add(tool_name)
+    return found
+
+
+def _should_retry_for_literal_tool_text(
+    *,
+    answer: str,
+    tools_used: Sequence[str],
+    tools: Sequence[BaseTool],
+) -> bool:
+    if not answer.strip():
+        return False
+    tool_names = [str(getattr(tool, "name", "") or "").strip() for tool in tools]
+    tool_names = [name for name in tool_names if name]
+    if not tool_names:
+        return False
+
+    mentioned_tools = _extract_literal_tool_call_names(answer, tool_names)
+    if not mentioned_tools:
+        return False
+
+    used = {name.strip() for name in tools_used if name.strip()}
+    return any(name not in used for name in mentioned_tools)
+
+
 def _normalize_ai_tool_call_ids(agent_state: Mapping[str, object]) -> None:
     messages_raw = agent_state.get("messages")
     if not isinstance(messages_raw, Sequence) or isinstance(messages_raw, (str, bytes)):
@@ -473,6 +627,7 @@ async def get_mcp_answer_with_langchain_agent_async(
     tools: Sequence[BaseTool],
     run_config: RunnableConfig | None,
     require_tool_call: bool,
+    tool_progress_callback: ToolProgressCallback | None = None,
 ) -> tuple[str, list[str], list[dict[str, object]]]:
     if not tools:
         return "MCP tools are currently unavailable. Please try again.", [], []
@@ -489,17 +644,42 @@ async def get_mcp_answer_with_langchain_agent_async(
         middleware=cast(Any, _build_middleware(settings, llm_model)),
         name="mcp_agent_executor",
     )
-    response_state = cast(
-        Mapping[str, object],
-        await agent.ainvoke(
-            {"messages": _build_messages(chat_history, question)},
-            config=run_config,
-        ),
-    )
-    _normalize_ai_tool_call_ids(response_state)
-    answer, tools_used = _extract_answer_and_tools(response_state)
-    tool_invocations = _extract_tool_invocations(response_state)
-    answer = _clean_leaked_tool_syntax(answer, tools_used)
+    current_messages: list[object] = cast(list[object], _build_messages(chat_history, question))
+    response_state: Mapping[str, object] | None = None
+    answer = ""
+    tools_used: list[str] = []
+    tool_invocations: list[dict[str, object]] = []
+
+    invoke_config_map: dict[str, object] = dict(run_config or {})
+    raw_callbacks = invoke_config_map.get("callbacks")
+    callbacks = list(raw_callbacks) if isinstance(raw_callbacks, list) else []
+    if tool_progress_callback is not None:
+        callbacks.append(_ToolProgressCallback(tool_progress_callback))
+    if callbacks:
+        invoke_config_map["callbacks"] = callbacks
+    invoke_config = cast(RunnableConfig, invoke_config_map)
+    for retry_idx in range(2):
+        response_state = cast(
+            Mapping[str, object],
+            await agent.ainvoke(
+                cast(Any, {"messages": current_messages}),
+                config=invoke_config,
+            ),
+        )
+        _normalize_ai_tool_call_ids(response_state)
+        answer, tools_used = _extract_answer_and_tools(response_state)
+        tool_invocations = _extract_tool_invocations(response_state)
+        answer = _clean_leaked_tool_syntax(answer, tools_used)
+        if retry_idx >= 1:
+            break
+        if not _should_retry_for_literal_tool_text(answer=answer, tools_used=tools_used, tools=tools):
+            break
+
+        state_messages = response_state.get("messages")
+        if not isinstance(state_messages, Sequence) or isinstance(state_messages, (str, bytes)):
+            break
+        current_messages = [*cast(list[object], list(state_messages)), HumanMessage(_LITERAL_TOOL_CALL_RETRY_INSTRUCTION)]
+
     if require_tool_call and not tools_used:
         return "MCP tool call required but none was produced after retry. Please try again.", [], []
     return answer, tools_used, tool_invocations

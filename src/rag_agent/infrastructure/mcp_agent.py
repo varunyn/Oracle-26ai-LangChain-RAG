@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from typing import Any, cast
 
 from langchain_core.runnables.config import RunnableConfig
@@ -49,6 +49,7 @@ async def _get_mcp_answer_impl(
     tools: list[BaseTool] | None = None,
     require_tool_call: bool = False,
     run_config: RunnableConfig | None = None,
+    tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> tuple[str, list[str], list[dict[str, Any]]]:
     if get_mcp_settings().enable_mcp_tools is False:
         return "", [], []
@@ -67,6 +68,7 @@ async def _get_mcp_answer_impl(
         tools=resolved_tools,
         run_config=run_config,
         require_tool_call=require_tool_call,
+        tool_progress_callback=tool_progress_callback,
     )
 
 
@@ -78,6 +80,7 @@ def get_mcp_answer(
     tools: list[BaseTool] | None = None,
     require_tool_call: bool = False,
     run_config: RunnableConfig | None = None,
+    tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> tuple[str, list[str], list[dict[str, Any]]]:
     try:
         _ = asyncio.get_running_loop()
@@ -91,6 +94,7 @@ def get_mcp_answer(
                 tools=tools,
                 require_tool_call=require_tool_call,
                 run_config=run_config,
+                tool_progress_callback=tool_progress_callback,
             )
         )
 
@@ -105,6 +109,7 @@ def get_mcp_answer(
                 tools=tools,
                 require_tool_call=require_tool_call,
                 run_config=run_config,
+                tool_progress_callback=tool_progress_callback,
             )
         ),
     )
@@ -118,6 +123,7 @@ async def get_mcp_answer_async(
     tools: list[BaseTool] | None = None,
     require_tool_call: bool = False,
     run_config: RunnableConfig | None = None,
+    tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> tuple[str, list[str], list[dict[str, Any]]]:
     return await _get_mcp_answer_impl(
         question,
@@ -127,4 +133,5 @@ async def get_mcp_answer_async(
         tools=tools,
         require_tool_call=require_tool_call,
         run_config=run_config,
+        tool_progress_callback=tool_progress_callback,
     )

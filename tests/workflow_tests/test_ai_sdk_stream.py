@@ -97,6 +97,30 @@ class StubRuntimeStreamServiceWithDecimal:
         }
 
 
+class StubRuntimeStreamServiceWithToolProgress:
+    async def stream_chat(self, **kwargs: object) -> AsyncIterator[dict[str, object]]:
+        _ = kwargs
+        yield {
+            "type": "tool_event",
+            "data": {
+                "phase": "start",
+                "tool_name": "oic_LIST_DOCUMENTS",
+                "args": {"folderName": "invoices"},
+            },
+        }
+        yield {"type": "text", "delta": "Processing complete."}
+        yield {
+            "type": "references",
+            "data": {
+                "standalone_question": "Review invoices",
+                "citations": [],
+                "reranker_docs": [],
+                "mcp_used": True,
+                "mcp_tools_used": ["oic_LIST_DOCUMENTS"],
+            },
+        }
+
+
 def test_values_stream_happy_path() -> None:
     from api.dependencies import get_graph_service
 
@@ -168,6 +192,53 @@ def test_values_stream_prefers_service_level_stream_chat() -> None:
         app.dependency_overrides.clear()
 
 
+def test_values_stream_logs_conversation_out(monkeypatch) -> None:
+    from api.dependencies import get_graph_service
+
+    captured: list[dict[str, object]] = []
+
+    def fake_log_conversation_out(**kwargs: object) -> None:
+        captured.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.langgraph_server.log_conversation_out",
+        fake_log_conversation_out,
+        raising=False,
+    )
+    app.dependency_overrides[get_graph_service] = lambda: StubRuntimeStreamService()
+
+    async def run() -> None:
+        headers = {"Content-Type": "application/json"}
+        payload = _stream_payload([{"type": "human", "content": "Hello"}])
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            async with client.stream(
+                "POST",
+                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+                headers=headers,
+                json=payload,
+            ) as response:
+                assert response.status_code == 200
+                async for _ in response.aiter_bytes():
+                    pass
+
+        assert captured == [
+            {
+                "final_answer": "Hello from new runtime stream.",
+                "error": None,
+                "mcp_used": None,
+                "mcp_tools_used": None,
+                "standalone_question": "Hello?",
+            }
+        ]
+
+    try:
+        asyncio.run(run())
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_values_stream_sanitizes_decimal_in_references() -> None:
     from api.dependencies import get_graph_service
 
@@ -196,6 +267,42 @@ def test_values_stream_sanitizes_decimal_in_references() -> None:
         assert cast(dict[str, object], refs.get("context_usage") or {}).get("tokens") == 99.0
         citation = cast(list[dict[str, object]], refs.get("citations") or [])[0]
         assert citation.get("score") == 0.75
+
+    try:
+        asyncio.run(run())
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_values_stream_includes_tool_progress_events() -> None:
+    from api.dependencies import get_graph_service
+
+    app.dependency_overrides[get_graph_service] = lambda: StubRuntimeStreamServiceWithToolProgress()
+
+    async def run() -> None:
+        headers = {"Content-Type": "application/json"}
+        payload = _stream_payload([{"type": "human", "content": "Hello"}])
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            async with client.stream(
+                "POST",
+                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+                headers=headers,
+                json=payload,
+            ) as response:
+                assert response.status_code == 200
+                chunks: list[bytes] = []
+                async for chunk in response.aiter_bytes():
+                    chunks.append(chunk)
+
+        events = _parse_values_events(chunks)
+        assistant = _last_assistant(events)
+        refs = cast(dict[str, object], assistant.get("response_metadata") or {})
+        progress = cast(list[dict[str, object]], refs.get("mcp_progress_events") or [])
+        assert progress
+        assert progress[0].get("phase") == "start"
+        assert progress[0].get("tool_name") == "oic_LIST_DOCUMENTS"
 
     try:
         asyncio.run(run())

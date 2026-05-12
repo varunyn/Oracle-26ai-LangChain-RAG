@@ -6,6 +6,7 @@ and delegates runtime execution to ``RuntimeAgent``.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any, cast
 
@@ -14,7 +15,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, model_validator
 
-from api.dependencies import generate_request_id, get_graph_service
+from api.dependencies import generate_request_id, get_graph_service, log_conversation_out
 from api.serialization import make_metadata_safe
 from src.rag_agent.core.citations import normalize_citations
 from src.rag_agent.runtime.agent import RuntimeAgent
@@ -22,6 +23,7 @@ from src.rag_agent.runtime.middleware import merge_runtime_context
 from src.rag_agent.runtime.responses import chat_completion_response_json
 
 router = APIRouter(tags=["langgraph-runtime"])
+logger = logging.getLogger(__name__)
 
 
 class ThreadCreateRequest(BaseModel):
@@ -183,6 +185,10 @@ def _serialize_state_messages(raw_messages: object) -> list[dict[str, Any]]:
     return serialized
 
 
+def _stream_error_message(exc: Exception) -> str:
+    return "Internal server error"
+
+
 def _effective_run_input(payload: ThreadRunRequest) -> RunInput:
     if payload.input is not None:
         return payload.input
@@ -228,6 +234,7 @@ async def stream_thread_run(
         assistant_message_id = f"{thread_id}:assistant:{turn_id}"
         assistant_text = ""
         references: dict[str, object] = {}
+        progress_events: list[dict[str, object]] = []
         base_messages: list[dict[str, object]] = []
 
         try:
@@ -310,11 +317,31 @@ async def stream_thread_run(
                         cast(list[dict[str, object]], safe_references.get("citations") or [])
                     )
                     safe_references["citations"] = citations
+                    if progress_events:
+                        safe_references["mcp_progress_events"] = list(progress_events)
                     references = cast(dict[str, object], safe_references)
                     yield _emit_values()
-        except Exception:
+                elif event.get("type") == "tool_event":
+                    safe_event = make_metadata_safe(cast(dict[str, object], event.get("data") or {}))
+                    progress_events.append(cast(dict[str, object], safe_event))
+                    if len(progress_events) > 100:
+                        progress_events = progress_events[-100:]
+                    references["mcp_progress_events"] = list(progress_events)
+                    yield _emit_values()
+            log_conversation_out(
+                final_answer=assistant_text,
+                error=cast(str | None, references.get("error")),
+                mcp_used=cast(bool | None, references.get("mcp_used")),
+                mcp_tools_used=cast(
+                    list[Any] | None,
+                    references.get("mcp_tools_used"),
+                ),
+                standalone_question=cast(str | None, references.get("standalone_question")),
+            )
+        except Exception as exc:
+            logger.exception("langgraph_stream_run_failed thread_id=%s", thread_id)
             error_references = dict(references)
-            error_references["error"] = "Internal server error"
+            error_references["error"] = _stream_error_message(exc)
             references = error_references
             yield _emit_values()
 
@@ -419,6 +446,15 @@ async def run_thread(
     context_usage = cast(dict[str, object] | None, result.get("context_usage"))
     usage = cast(dict[str, object] | None, result.get("usage"))
     resolved_model_id = cast(str | None, result.get("model_id")) or run_input.model
+    mcp_tools_used = cast(list[Any] | None, result.get("mcp_tools_used"))
+
+    log_conversation_out(
+        final_answer=answer,
+        error=err,
+        mcp_used=cast(bool | None, result.get("mcp_used")),
+        mcp_tools_used=mcp_tools_used,
+        standalone_question=standalone,
+    )
 
     if err:
         return JSONResponse(

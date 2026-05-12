@@ -182,20 +182,19 @@ def test_graph_service_run_chat_mcp_mode_uses_mcp_answer_async(monkeypatch) -> N
 def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> None:
     service = ChatRuntimeService(graph=object())
 
-    class FakeVectorStore:
-        def similarity_search(self, query: str, k: int) -> list[Document]:
-            assert query == "What is Oracle 23AI?"
-            assert k == 5
-            return [
-                Document(
-                    page_content="Oracle Database 23ai introduces AI Vector Search.",
-                    metadata={"source": "Doc1", "page": "1"},
-                )
-            ]
-
     @contextmanager
     def fake_get_pooled_connection():
         yield object()
+
+    def fake_search_documents(**kwargs: object) -> list[Document]:
+        assert kwargs["query"] == "What is Oracle 23AI?"
+        assert kwargs["top_k"] == 5
+        return [
+            Document(
+                page_content="Oracle Database 23ai introduces AI Vector Search.",
+                metadata={"source": "Doc1", "page": "1"},
+            )
+        ]
 
     class FakeLLM:
         def invoke(self, messages: list[object]) -> AIMessage:
@@ -204,10 +203,7 @@ def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> N
 
     monkeypatch.setattr("api.services.graph_service.get_pooled_connection", fake_get_pooled_connection)
     monkeypatch.setattr("api.services.graph_service.get_embedding_model", lambda: object())
-    monkeypatch.setattr(
-        "api.services.graph_service.get_oracle_vs",
-        lambda conn, collection_name, embed_model: FakeVectorStore(),
-    )
+    monkeypatch.setattr("api.services.graph_service.search_documents", fake_search_documents)
     monkeypatch.setattr("api.services.graph_service.get_llm", lambda model_id=None: FakeLLM())
 
     result = asyncio.run(
@@ -614,6 +610,303 @@ def test_graph_service_mixed_mode_keeps_non_retrieval_mcp_answer_without_rag_ove
     assert result["citations"] == []
     assert result["reranker_docs"] == []
     assert result["context_usage"] is None
+
+
+def test_graph_service_mixed_mode_retries_with_required_tool_call_when_mcp_tools_explicitly_referenced(
+    monkeypatch,
+) -> None:
+    service = ChatRuntimeService(graph=object())
+    call_kwargs: list[dict[str, object]] = []
+
+    @tool
+    def retrieval_tool(question: str) -> str:
+        """Retrieve Oracle documentation context for a question."""
+        return f"retrieved: {question}"
+
+    @tool("oic_LIST_DOCUMENTS")
+    def oic_list_documents(folder_name: str) -> str:
+        """List invoice documents."""
+        return folder_name
+
+    async def fake_get_mcp_answer_async(
+        *args: object, **kwargs: object
+    ) -> tuple[str, list[str], list[object]]:
+        _ = args
+        call_kwargs.append(cast(dict[str, object], kwargs))
+        require_tool_call = bool(kwargs.get("require_tool_call"))
+        if not require_tool_call:
+            return ("I don't know.", [], [])
+        return ("MCP tool call required but none was produced after retry. Please try again.", [], [])
+
+    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+        _ = server_keys, run_config
+        return [oic_list_documents]
+
+    def fail_if_rag_fallback_called(self, **kwargs):
+        _ = self, kwargs
+        raise AssertionError("RAG fallback must not run when explicit MCP tool reference is present")
+
+    monkeypatch.setattr(
+        "api.services.graph_service.get_mcp_tools_async",
+        fake_get_mcp_tools_async,
+    )
+    monkeypatch.setattr(
+        "api.services.graph_service.get_mcp_answer_async",
+        fake_get_mcp_answer_async,
+    )
+    monkeypatch.setattr(
+        ChatRuntimeService,
+        "_build_oracle_retrieval_tool",
+        lambda self, collection_name=None: retrieval_tool,
+    )
+    monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", fail_if_rag_fallback_called)
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Use oic_LIST_DOCUMENTS and process invoices end to end.",
+                }
+            ],
+            model_id="google.gemini-2.5-pro",
+            thread_id="thread-explicit-mcp",
+            session_id=None,
+            collection_name="RAG_KNOWLEDGE_BASE",
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="mixed",
+            mcp_server_keys=None,
+            stream=False,
+        )
+    )
+
+    assert len(call_kwargs) == 2
+    assert call_kwargs[0].get("require_tool_call") is None
+    assert call_kwargs[1].get("require_tool_call") is True
+    assert result["final_answer"] == "MCP tool call required but none was produced after retry. Please try again."
+    assert result["mcp_tools_used"] == []
+
+
+def test_graph_service_mixed_mode_enforces_generic_workflow_policy_when_activated(monkeypatch) -> None:
+    service = ChatRuntimeService(graph=object())
+
+    class _Settings:
+        MCP_WORKFLOW_POLICY = {
+            "enabled": True,
+            "apply_modes": ["mixed"],
+            "activation_terms": ["invoice"],
+            "required_capabilities": ["classify", "extract", "create"],
+            "tool_capability_map": {
+                "oic_CLASSIFY_DOCUMENT": ["classify"],
+                "oic_EXTRACT_INVOICE_DATA": ["extract"],
+                "oic_CREATE_INVOICE": ["create"],
+            },
+        }
+
+    @tool
+    def retrieval_tool(question: str) -> str:
+        """Retrieve Oracle documentation context for a question."""
+        return f"retrieved: {question}"
+
+    @tool("oic_CLASSIFY_DOCUMENT")
+    def oic_classify_document(file_name: str, file_path: str) -> str:
+        """Classify document."""
+        return f"{file_name}@{file_path}"
+
+    @tool("oic_EXTRACT_INVOICE_DATA")
+    def oic_extract_invoice_data(file_name: str, file_path: str) -> str:
+        """Extract invoice fields."""
+        return f"{file_name}@{file_path}"
+
+    async def fake_get_mcp_answer_async(
+        *args: object, **kwargs: object
+    ) -> tuple[str, list[str], list[dict[str, object]]]:
+        _ = args, kwargs
+        return (
+            "partial summary",
+            ["oic_CLASSIFY_DOCUMENT", "oic_EXTRACT_INVOICE_DATA"],
+            [
+                {"tool_name": "oic_CLASSIFY_DOCUMENT", "args": {}, "result": "ok"},
+                {"tool_name": "oic_EXTRACT_INVOICE_DATA", "args": {}, "result": "ok"},
+            ],
+        )
+
+    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+        _ = server_keys, run_config
+        return [oic_classify_document, oic_extract_invoice_data]
+
+    monkeypatch.setattr("api.services.graph_service.get_settings", lambda: _Settings())
+    monkeypatch.setattr(
+        "api.services.graph_service.get_mcp_tools_async",
+        fake_get_mcp_tools_async,
+    )
+    monkeypatch.setattr(
+        "api.services.graph_service.get_mcp_answer_async",
+        fake_get_mcp_answer_async,
+    )
+    monkeypatch.setattr(
+        ChatRuntimeService,
+        "_build_oracle_retrieval_tool",
+        lambda self, collection_name=None: retrieval_tool,
+    )
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "Process this invoice workflow end-to-end."}],
+            model_id="google.gemini-2.5-pro",
+            thread_id="thread-workflow-policy",
+            session_id=None,
+            collection_name="RAG_KNOWLEDGE_BASE",
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="mixed",
+            mcp_server_keys=None,
+            stream=False,
+        )
+    )
+
+    assert isinstance(result["error"], str)
+    assert "missing required steps: create" in str(result["error"]).lower()
+    assert result["final_answer"] == result["error"]
+
+
+def test_graph_service_mixed_mode_workflow_policy_does_not_apply_when_not_activated(
+    monkeypatch,
+) -> None:
+    service = ChatRuntimeService(graph=object())
+
+    class _Settings:
+        MCP_WORKFLOW_POLICY = {
+            "enabled": True,
+            "apply_modes": ["mixed"],
+            "activation_terms": ["invoice"],
+            "required_capabilities": ["classify", "extract"],
+            "tool_capability_map": {
+                "calculator_tool": ["calculate"],
+            },
+        }
+
+    @tool
+    def retrieval_tool(question: str) -> str:
+        """Retrieve Oracle documentation context for a question."""
+        return f"retrieved: {question}"
+
+    @tool
+    def calculator_tool(expression: str) -> str:
+        """Calculate expression."""
+        return expression
+
+    async def fake_get_mcp_answer_async(
+        *args: object, **kwargs: object
+    ) -> tuple[str, list[str], list[dict[str, object]]]:
+        _ = args, kwargs
+        return ("x = 6", ["calculator_tool"], [{"tool_name": "calculator_tool", "args": {}, "result": "x=6"}])
+
+    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+        _ = server_keys, run_config
+        return [calculator_tool]
+
+    monkeypatch.setattr("api.services.graph_service.get_settings", lambda: _Settings())
+    monkeypatch.setattr(
+        "api.services.graph_service.get_mcp_tools_async",
+        fake_get_mcp_tools_async,
+    )
+    monkeypatch.setattr(
+        "api.services.graph_service.get_mcp_answer_async",
+        fake_get_mcp_answer_async,
+    )
+    monkeypatch.setattr(
+        ChatRuntimeService,
+        "_build_oracle_retrieval_tool",
+        lambda self, collection_name=None: retrieval_tool,
+    )
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "Solve: 5(x-2)=20"}],
+            model_id="google.gemini-2.5-pro",
+            thread_id="thread-workflow-policy-inactive",
+            session_id=None,
+            collection_name="RAG_KNOWLEDGE_BASE",
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="mixed",
+            mcp_server_keys=None,
+            stream=False,
+        )
+    )
+
+    assert result["final_answer"] == "x = 6"
+    assert result["error"] is None
+
+
+def test_graph_service_mixed_mode_replaces_trivial_answer_with_tool_failure_summary(monkeypatch) -> None:
+    service = ChatRuntimeService(graph=object())
+
+    @tool
+    def retrieval_tool(question: str) -> str:
+        """Retrieve Oracle documentation context for a question."""
+        return f"retrieved: {question}"
+
+    @tool("oic_CREATE_INVOICE")
+    def oic_create_invoice(payload: str) -> str:
+        """Create invoice."""
+        return payload
+
+    async def fake_get_mcp_answer_async(
+        *args: object, **kwargs: object
+    ) -> tuple[str, list[str], list[dict[str, object]]]:
+        _ = args, kwargs
+        return (
+            ".",
+            ["oic_CREATE_INVOICE"],
+            [
+                {
+                    "tool_name": "oic_CREATE_INVOICE",
+                    "args": {"InvoiceData": {}},
+                    "result": "Tool 'oic_CREATE_INVOICE' failed after 2 attempts with ToolException: validation error",
+                }
+            ],
+        )
+
+    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+        _ = server_keys, run_config
+        return [oic_create_invoice]
+
+    monkeypatch.setattr(
+        "api.services.graph_service.get_mcp_tools_async",
+        fake_get_mcp_tools_async,
+    )
+    monkeypatch.setattr(
+        "api.services.graph_service.get_mcp_answer_async",
+        fake_get_mcp_answer_async,
+    )
+    monkeypatch.setattr(
+        ChatRuntimeService,
+        "_build_oracle_retrieval_tool",
+        lambda self, collection_name=None: retrieval_tool,
+    )
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "Process invoice in mixed mode."}],
+            model_id="google.gemini-2.5-pro",
+            thread_id="thread-trivial-dot-answer",
+            session_id=None,
+            collection_name="RAG_KNOWLEDGE_BASE",
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="mixed",
+            mcp_server_keys=None,
+            stream=False,
+        )
+    )
+
+    assert isinstance(result["final_answer"], str)
+    assert "tool execution failed" in str(result["final_answer"]).lower()
+    assert "oic_CREATE_INVOICE" in str(result["final_answer"])
+    assert result["error"] == result["final_answer"]
 
 
 def test_graph_service_run_chat_does_not_apply_custom_transform_prepass(monkeypatch) -> None:
