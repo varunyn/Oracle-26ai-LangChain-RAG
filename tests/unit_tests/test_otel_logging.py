@@ -1,4 +1,5 @@
 import logging
+from types import SimpleNamespace
 
 import pytest
 
@@ -88,3 +89,122 @@ def test_uvicorn_loggers_propagate_to_root(uv_name: str):
     assert uv_logger.propagate is True
     # We clear handlers so they bubble to root
     assert len(uv_logger.handlers) == 0
+
+
+def test_logging_analytics_query_event_filter_handles_otlp_log_data_wrappers():
+    wrapped = SimpleNamespace(
+        log_record=SimpleNamespace(
+            body="chat_out answer_len=12 error=None",
+            severity_number=9,
+        )
+    )
+
+    assert lc._is_query_event_record(wrapped) is True  # type: ignore[arg-type]
+    assert lc._severity_number_from_record(wrapped) == 9  # type: ignore[arg-type]
+
+
+def test_request_id_filter_flattens_otel_attributes_for_logging_handler():
+    record = logging.LogRecord(
+        name="api.test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="chat_out answer_len=12",
+        args=(),
+        exc_info=None,
+    )
+    record.otel_attributes = {  # type: ignore[attr-defined]
+        "event_type": "chat_out",
+        "answer_len": 12,
+        "mcp_used": False,
+        "ignored_complex": {"nested": True},
+    }
+
+    assert lc.RequestIdFilter().filter(record) is True
+    assert record.event_type == "chat_out"  # type: ignore[attr-defined]
+    assert record.answer_len == 12  # type: ignore[attr-defined]
+    assert record.mcp_used is False  # type: ignore[attr-defined]
+    assert not hasattr(record, "ignored_complex")
+    assert not hasattr(record, "attributes")
+    assert not hasattr(record, "otel_attributes")
+
+
+def test_normalize_otlp_json_flattens_nested_attribute_lists_from_log_records():
+    payload = {
+        "resourceLogs": [
+            {
+                "scopeLogs": [
+                    {
+                        "logRecords": [
+                            {
+                                "severityNumber": "SEVERITY_NUMBER_INFO",
+                                "attributes": [
+                                    {
+                                        "key": "attributes",
+                                        "value": {
+                                            "stringValue": (
+                                                "[{key=event_type, value={stringValue=chat_out}}, "
+                                                "{key=answer_len, value={intValue=285}}, "
+                                                "{key=mcp_used, value={boolValue=false}}, "
+                                                "{key=mcp_tool_names, value={stringValue=}}]"
+                                            )
+                                        },
+                                    },
+                                    {
+                                        "key": "otel_attributes",
+                                        "value": {
+                                            "stringValue": (
+                                                "[{key=event_type, value={stringValue=chat_out}}, "
+                                                "{key=answer_len, value={intValue=285}}]"
+                                            )
+                                        },
+                                    },
+                                    {"key": "request_id", "value": {"stringValue": "req-1"}},
+                                ],
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+
+    lc._normalize_otlp_json_for_oci(payload)
+
+    attrs = payload["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]["attributes"]
+    by_key = {attr["key"]: attr["value"] for attr in attrs}
+    assert "attributes" not in by_key
+    assert "otel_attributes" not in by_key
+    assert by_key["event_type"] == {"stringValue": "chat_out"}
+    assert by_key["answer_len"] == {"intValue": "285"}
+    assert by_key["mcp_used"] == {"boolValue": False}
+    assert by_key["mcp_tool_names"] == {"stringValue": ""}
+    assert by_key["request_id"] == {"stringValue": "req-1"}
+
+
+def test_normalize_otlp_json_drops_attributes_without_values():
+    payload = {
+        "resourceLogs": [
+            {
+                "scopeLogs": [
+                    {
+                        "logRecords": [
+                            {
+                                "attributes": [
+                                    {"key": "event_type", "value": {"stringValue": "chat_out"}},
+                                    {"key": "error"},
+                                    {"key": "code.function.name"},
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+
+    lc._normalize_otlp_json_for_oci(payload)
+
+    attrs = payload["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]["attributes"]
+    by_key = {attr["key"]: attr["value"] for attr in attrs}
+    assert by_key == {"event_type": {"stringValue": "chat_out"}}

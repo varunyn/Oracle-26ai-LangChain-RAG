@@ -24,6 +24,7 @@ import configparser
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from collections.abc import Sequence
@@ -71,7 +72,18 @@ LOGGING_ANALYTICS_MODE_ALL = "all"
 _EXPORT_CONFIRMATION_PREFIX = "OCI Logging Analytics exported batch"
 
 # Log message prefixes we treat as "user query" events (one per request: route, mode, success/error).
-_QUERY_EVENT_PREFIXES = ("flow_trace ", "flow_trace\t", "chat_out ", "chat_out\t")
+_QUERY_EVENT_PREFIXES = (
+    "flow_trace ",
+    "flow_trace\t",
+    "chat_out ",
+    "chat_out\t",
+    "llm_usage ",
+    "llm_usage\t",
+)
+_NESTED_OTLP_ATTRIBUTE_KEYS = {"attributes", "otel_attributes"}
+_OTLP_ATTRIBUTE_RE = re.compile(
+    r"\{key=(?P<key>[^,}]+)(?:,\s*value=\{(?P<type>\w+)=(?P<value>[^}]*)\})?\}"
+)
 
 
 def _get_logging_analytics_mode() -> str:
@@ -95,8 +107,18 @@ def _get_logging_analytics_mode() -> str:
 _SEVERITY_WARN = SeverityNumber.SEVERITY_NUMBER_WARN  # 13
 
 
+def _unwrap_log_record(record: ReadableLogRecord) -> ReadableLogRecord:
+    """Return the underlying OTel log record when exporters receive LogData wrappers."""
+    if isinstance(record, dict):
+        wrapped = record.get("log_record") or record.get("logRecord")
+        return wrapped if wrapped is not None else record
+    wrapped = getattr(record, "log_record", None) or getattr(record, "logRecord", None)
+    return wrapped if wrapped is not None else record
+
+
 def _get_record_body_str(record: ReadableLogRecord) -> str:
     """Return the log record body as a string for pattern matching."""
+    record = _unwrap_log_record(record)
     body = record.get("body") if isinstance(record, dict) else getattr(record, "body", None)
     if body is None:
         return ""
@@ -115,6 +137,7 @@ def _is_query_event_record(record: ReadableLogRecord) -> bool:
 
 def _severity_number_from_record(record: ReadableLogRecord) -> int:
     """Return OTel severity_number (int) for the record, or INFO (9) if unknown."""
+    record = _unwrap_log_record(record)
     sn = (
         record.get("severity_number")
         if isinstance(record, dict)
@@ -141,6 +164,82 @@ def _severity_number_from_record(record: ReadableLogRecord) -> int:
 def _is_export_confirmation_record(record: ReadableLogRecord) -> bool:
     """True if this log record is our own export confirmation (avoid sending it to OCI)."""
     return _EXPORT_CONFIRMATION_PREFIX in _get_record_body_str(record)
+
+
+def _parsed_otlp_value(value_type: str | None, value: str | None) -> dict[str, object] | None:
+    """Return an OTLP JSON value object from a compact Java-ish attribute string."""
+    if value_type is None:
+        return None
+    raw_value = "" if value is None else value
+    if value_type == "boolValue":
+        return {value_type: raw_value.strip().lower() == "true"}
+    if value_type == "intValue":
+        return {value_type: raw_value}
+    if value_type == "doubleValue":
+        try:
+            return {value_type: float(raw_value)}
+        except ValueError:
+            return None
+    if value_type == "stringValue":
+        return {value_type: raw_value}
+    return None
+
+
+def _flatten_nested_otlp_attributes(attributes: list[object]) -> list[object]:
+    """Flatten nested OTel attribute-list strings into real OTLP log attributes.
+
+    Older OTel/logging paths can serialize the user-provided attribute map as a
+    string under keys named "attributes" or "otel_attributes". OCI ingests those
+    but cannot map/query the fields cleanly, so normalize them before upload.
+    """
+    flattened: list[object] = []
+    existing_keys: set[str] = set()
+    pending: list[dict[str, object]] = []
+
+    for attr in attributes:
+        if not isinstance(attr, dict):
+            flattened.append(attr)
+            continue
+        key = attr.get("key")
+        value = attr.get("value")
+        if (
+            isinstance(key, str)
+            and key in _NESTED_OTLP_ATTRIBUTE_KEYS
+            and isinstance(value, dict)
+            and isinstance(value.get("stringValue"), str)
+        ):
+            for match in _OTLP_ATTRIBUTE_RE.finditer(value["stringValue"]):
+                parsed_key = match.group("key").strip()
+                if not parsed_key or parsed_key in _NESTED_OTLP_ATTRIBUTE_KEYS:
+                    continue
+                parsed_value = _parsed_otlp_value(match.group("type"), match.group("value"))
+                if parsed_value is not None:
+                    pending.append({"key": parsed_key, "value": parsed_value})
+            continue
+        if isinstance(key, str):
+            existing_keys.add(key)
+        flattened.append(attr)
+
+    for attr in pending:
+        key = attr["key"]
+        if isinstance(key, str) and key not in existing_keys:
+            flattened.append(attr)
+            existing_keys.add(key)
+    return flattened
+
+
+def _drop_valueless_otlp_attributes(attributes: list[object]) -> list[object]:
+    """Remove OTLP attributes that have a key but no value object."""
+    normalized: list[object] = []
+    for attr in attributes:
+        if not isinstance(attr, dict):
+            normalized.append(attr)
+            continue
+        value = attr.get("value")
+        if not isinstance(value, dict) or not value:
+            continue
+        normalized.append(attr)
+    return normalized
 
 
 def _normalize_otlp_json_for_oci(obj: dict[str, object]) -> None:
@@ -182,6 +281,9 @@ def _normalize_otlp_json_for_oci(obj: dict[str, object]) -> None:
                 attributes = record.get("attributes")
                 if not isinstance(attributes, list):
                     continue
+                attributes = _flatten_nested_otlp_attributes(attributes)
+                attributes = _drop_valueless_otlp_attributes(attributes)
+                record["attributes"] = attributes
                 for attr in attributes:
                     if not isinstance(attr, dict):
                         continue
@@ -383,6 +485,12 @@ class LoggingAnalyticsExporter(LogRecordExporter):
                     upload_otlp_logs_details=json_bytes,
                     **kwargs,
                 )
+            logger.info(
+                "%s count=%d namespace=%s",
+                _EXPORT_CONFIRMATION_PREFIX,
+                len(batch),
+                self._settings.namespace,
+            )
             return LogRecordExportResult.SUCCESS
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -401,11 +509,41 @@ class LoggingAnalyticsExporter(LogRecordExporter):
 class RequestIdFilter(logging.Filter):
     """Inject request_id and optional OpenTelemetry attributes into records."""
 
+    _RESERVED_ATTR_NAMES = {
+        "args",
+        "asctime",
+        "created",
+        "exc_info",
+        "exc_text",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "message",
+        "module",
+        "msecs",
+        "msg",
+        "name",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "thread",
+        "threadName",
+    }
+
     def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
         record.request_id = REQUEST_ID_CTX.get()  # type: ignore[attr-defined]
         otel_attrs = getattr(record, "otel_attributes", None)
         if isinstance(otel_attrs, dict):
-            record.attributes = otel_attrs  # type: ignore[attr-defined]
+            for key, value in otel_attrs.items():
+                if not isinstance(key, str) or key in self._RESERVED_ATTR_NAMES:
+                    continue
+                if isinstance(value, (str, int, float, bool)):
+                    setattr(record, key, value)
+            delattr(record, "otel_attributes")
         return True
 
 
@@ -462,6 +600,19 @@ def setup_logging(console: bool = True) -> None:
         {"attributeName": "route", "laFieldName": "Route"},
         {"attributeName": "answer_source", "laFieldName": "Answer Source"},
         {"attributeName": "answer_len", "laFieldName": "Answer Length"},
+        {"attributeName": "standalone_len", "laFieldName": "Standalone Length"},
+        {"attributeName": "mcp_used", "laFieldName": "MCP Used"},
+        {"attributeName": "mcp_tool_count", "laFieldName": "MCP Tool Count"},
+        {"attributeName": "mcp_tool_names", "laFieldName": "MCP Tool Names"},
+        {"attributeName": "mode", "laFieldName": "Mode"},
+        {"attributeName": "model_id", "laFieldName": "Model ID"},
+        {"attributeName": "session_id", "laFieldName": "Session ID"},
+        {"attributeName": "thread_id", "laFieldName": "Thread ID"},
+        {"attributeName": "input_tokens", "laFieldName": "Input Tokens"},
+        {"attributeName": "output_tokens", "laFieldName": "Output Tokens"},
+        {"attributeName": "total_tokens", "laFieldName": "Total Tokens"},
+        {"attributeName": "cost_usd", "laFieldName": "Cost USD"},
+        {"attributeName": "pricing_basis", "laFieldName": "Pricing Basis"},
         {"attributeName": "node_name", "laFieldName": "Node Name"},
         {"attributeName": "duration_ms", "laFieldName": "Duration MS"},
         {"attributeName": "error", "laFieldName": "Error"},

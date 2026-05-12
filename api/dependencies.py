@@ -169,34 +169,54 @@ def log_conversation_in(
     )
 
 
+def _mcp_tool_names(mcp_tools_used: list[Any] | None) -> list[str]:
+    """Return stable, queryable MCP tool names without raw tool payloads."""
+    names: list[str] = []
+    for item in mcp_tools_used or []:
+        name: str | None = None
+        if isinstance(item, str):
+            name = item
+        elif isinstance(item, dict):
+            for key in ("name", "tool_name", "id"):
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    name = value
+                    break
+        if name is None:
+            name = str(item)
+        name = name.strip()
+        if name:
+            names.append(name)
+    return names
+
+
 def log_conversation_out(
     final_answer: str,
     error: str | None,
     mcp_used: bool | None,
-    mcp_tools_used: list[dict[str, Any]] | None,
+    mcp_tools_used: list[Any] | None,
     standalone_question: str | None,
 ) -> None:
     """Log outcome of a conversation (RAG/MCP) for tracing."""
-    preview = (final_answer or "")[:_CONV_LOG_PREVIEW_LEN]
-    preview_one_line = preview.replace("\n", " ").replace("\r", " ").strip()
     answer_len = len(final_answer or "")
+    standalone_len = len(standalone_question or "")
+    tool_names = _mcp_tool_names(mcp_tools_used)
     attributes = {
         "event_type": "chat_out",
         "answer_len": answer_len,
+        "standalone_len": standalone_len,
         "error": error,
         "mcp_used": bool(mcp_used),
-        "mcp_tools_used": mcp_tools_used or [],
+        "mcp_tool_count": len(tool_names),
+        "mcp_tool_names": ",".join(tool_names),
     }
-    if standalone_question:
-        attributes["standalone_preview"] = (standalone_question or "")[:_CONV_LOG_PREVIEW_LEN]
-    attributes["final_answer_preview"] = preview_one_line
     conv_log.info(
-        "chat_out answer_len=%s error=%s mcp_used=%s mcp_tools_used=%s standalone_preview=%s final_answer_preview=%s",
+        "chat_out answer_len=%s standalone_len=%s error=%s mcp_used=%s mcp_tool_count=%s mcp_tool_names=%s",
         answer_len,
+        standalone_len,
         error,
         mcp_used,
-        mcp_tools_used or [],
-        attributes.get("standalone_preview"),
-        preview_one_line,
+        len(tool_names),
+        ",".join(tool_names),
         extra={"otel_attributes": attributes},
     )
