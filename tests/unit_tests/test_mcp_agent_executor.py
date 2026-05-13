@@ -72,6 +72,37 @@ def test_langchain_executor_returns_final_answer_and_tools(monkeypatch) -> None:
     assert len(fake_agent.calls) == 1
 
 
+def test_langchain_executor_closes_async_llm_client(monkeypatch) -> None:
+    fake_agent = _FakeAgent({"messages": [AIMessage(content="done")]})
+
+    class FakeLLM:
+        def __init__(self) -> None:
+            self.close_calls = 0
+
+        async def aclose(self) -> None:
+            self.close_calls += 1
+
+    fake_llm = FakeLLM()
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: fake_llm)
+    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
+
+    import asyncio
+
+    asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="finish",
+            chat_history=None,
+            model_id=None,
+            tools=[SimpleNamespace(name="finish", description="finish")],
+            run_config=None,
+            require_tool_call=False,
+        )
+    )
+
+    assert fake_llm.close_calls == 1
+
+
 def test_langchain_executor_enforces_require_tool_call(monkeypatch) -> None:
     fake_agent = _FakeAgent({"messages": [AIMessage(content="No tools needed")]})
 
@@ -126,6 +157,18 @@ def test_build_system_prompt_uses_mixed_prompt_when_oracle_retrieval_tool_presen
         run_config=None,
     )
     assert "When document context was provided in the user message" in prompt
+
+
+def test_build_system_prompt_prioritizes_explicit_workflows_generically() -> None:
+    prompt = mod._build_system_prompt(
+        "Process every invoice document and email the final summary.",
+        [SimpleNamespace(name="oracle_retrieval", description="retrieve")],
+        run_config={"configurable": {"mode": "mixed"}},
+    )
+    assert "Explicit multi-step workflows override the preference for fewer tool calls" in prompt
+    assert "work unit" in prompt
+    assert "user's requested completion criteria" in prompt
+    assert "item/document/record" not in prompt
 
 
 def test_langchain_executor_normalizes_missing_tool_call_ids(monkeypatch) -> None:

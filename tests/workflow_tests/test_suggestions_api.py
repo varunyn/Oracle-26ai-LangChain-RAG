@@ -16,7 +16,7 @@ def test_suggestions_endpoint_uses_sync_llm_invoke(monkeypatch) -> None:
         async def ainvoke(self, messages: list[object]) -> AIMessage:
             raise RuntimeError("ainvoke should not be used for suggestions")
 
-    monkeypatch.setattr("src.rag_agent.runtime.suggestions.get_llm", lambda **kwargs: FakeLLM())
+    monkeypatch.setattr("api.routes.suggestions.get_llm", lambda **kwargs: FakeLLM())
 
     async def run() -> None:
         payload = {"last_message": "You can create a visual application from App Builder."}

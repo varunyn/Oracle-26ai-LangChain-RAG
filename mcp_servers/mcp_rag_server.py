@@ -6,6 +6,7 @@ import asyncio
 import logging
 import sys
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -17,9 +18,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from api.services.graph_service import ChatRuntimeService
 from api.settings import Settings, get_settings
 from src.rag_agent.infrastructure.mcp_settings import normalize_mcp_transport
+from src.rag_agent.runtime.chat_service import ChatRuntimeService
 
 logger = logging.getLogger(__name__)
 mcp = FastMCP(
@@ -112,9 +113,17 @@ def rag_ask(
         logger.exception("RAG invoke error in MCP")
         return {"answer": "", "citations": [], "error": str(exc)}
 
-    answer = (final_state.get("final_answer") or "").strip()
-    citations_raw = final_state.get("citations") or []
-    citations = [{"source": c.get("source", ""), "page": c.get("page", "")} for c in citations_raw]
+    answer = str(final_state.get("final_answer") or "").strip()
+    citations_raw_obj = final_state.get("citations")
+    citations_raw = citations_raw_obj if isinstance(citations_raw_obj, list) else []
+    citations = [
+        {
+            "source": str(citation.get("source", "")),
+            "page": str(citation.get("page", "")),
+        }
+        for citation in citations_raw
+        if isinstance(citation, Mapping)
+    ]
     return {
         "answer": answer,
         "citations": citations,

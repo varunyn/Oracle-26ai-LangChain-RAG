@@ -13,7 +13,7 @@ This application provides an intelligent question-answering system that:
 
 ## Architecture
 
-Chat execution is handled by `ChatRuntimeService` (`api/services/graph_service.py`) with explicit mode dispatch:
+Chat execution is handled by `ChatRuntimeService` (`src/rag_agent/runtime/chat_service.py`) with explicit mode dispatch:
 
 - `rag`: Oracle vector similarity search + answer prompt
 - `mcp`: MCP tools only through `langchain_mcp_adapters` + LangChain agent loop

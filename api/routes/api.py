@@ -6,7 +6,8 @@ Composes all individual routers into a single router for inclusion in the main a
 
 from fastapi import APIRouter
 
-from src.rag_agent.runtime import config, documents, feedback, health, langgraph_server, suggestions
+from api.routes import config_route as config
+from api.routes import documents, feedback, health, langgraph_server, suggestions
 
 router = APIRouter()
 

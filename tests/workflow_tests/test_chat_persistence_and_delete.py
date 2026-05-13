@@ -43,8 +43,8 @@ def stub_llm(monkeypatch: MonkeyPatch) -> None:
 def temp_thread_state_fixture(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     """Legacy fixture kept for test signature compatibility.
 
-    Current runtime uses in-memory thread state in ChatRuntimeService, so there is
-    no SQLite checkpointer to configure here.
+    These route-level tests use the default in-memory state path unless a test
+    explicitly constructs a persistent thread-state store.
     """
     _ = (monkeypatch, tmp_path)
 
@@ -171,6 +171,59 @@ def test_persistence_across_two_calls_messages_length_is_4(
             vals = getattr(snapshot, "values", None) or {}
             msgs = cast(list[object], vals.get("messages") or [])
             assert len(msgs) == 4  # Human+AI per turn accumulated across 2 turns
+
+    asyncio.run(run())
+
+
+def test_followup_run_hydrates_persisted_thread_history(
+    temp_thread_state_fixture: None,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    import asyncio
+
+    async def run() -> None:
+        from api.main import app
+        from src.rag_agent.runtime import chat_service
+
+        captured_calls: list[list[str]] = []
+
+        class MemoryAwareLLM:
+            def invoke(self, messages: list[object], config: object | None = None) -> object:
+                _ = config
+                captured_calls.append([str(getattr(message, "content", "")) for message in messages])
+                return SimpleNamespace(content=f"answer {len(captured_calls)}")
+
+        monkeypatch.setattr(chat_service, "get_llm", lambda model_id=None: MemoryAwareLLM())
+        thread_id = f"t_{uuid.uuid4().hex[:8]}"
+
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            headers = {"Content-Type": "application/json"}
+            first = await client.post(
+                f"/api/langgraph/threads/{thread_id}/runs",
+                headers=headers,
+                json=_langgraph_run_payload(
+                    messages=[{"type": "human", "content": "Remember the color blue."}],
+                    mode="direct",
+                ),
+            )
+            assert first.status_code == 200
+            second = await client.post(
+                f"/api/langgraph/threads/{thread_id}/runs",
+                headers=headers,
+                json=_langgraph_run_payload(
+                    messages=[{"type": "human", "content": "What color did I mention?"}],
+                    mode="direct",
+                ),
+            )
+            assert second.status_code == 200
+
+        assert captured_calls[-1] == [
+            "Remember the color blue.",
+            "answer 1",
+            "What color did I mention?",
+        ]
 
     asyncio.run(run())
 

@@ -38,3 +38,4 @@ def vcr_config():
 @pytest.fixture(scope="session", autouse=True)
 def _set_langfuse_environment() -> None:
     os.environ["LANGFUSE_TRACING_ENVIRONMENT"] = "development"
+    os.environ.setdefault("MCP_REPEATED_WORKFLOW_CONTROLLER", "false")

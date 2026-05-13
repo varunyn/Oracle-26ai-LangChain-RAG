@@ -10,9 +10,9 @@ from typing import cast
 from fastapi import Request
 
 from api.resources import AppResources
-from api.services.graph_service import ChatRuntimeService
 from api.settings import Settings
 from api.settings import get_settings as get_settings_global
+from src.rag_agent.runtime.chat_service import ChatRuntimeService
 
 
 def _ensure_app_resources(request: Request) -> AppResources:

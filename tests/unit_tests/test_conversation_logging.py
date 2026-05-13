@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from api import dependencies
-from api.services import graph_service
+from src.rag_agent.runtime import observability
 
 
 def test_log_conversation_out_uses_redacted_dashboard_friendly_attributes(
@@ -49,9 +49,9 @@ def test_emit_usage_observability_adds_dashboard_friendly_attributes(monkeypatch
         captured["args"] = args
         captured["kwargs"] = kwargs
 
-    monkeypatch.setattr(graph_service.logger, "info", fake_info)
+    monkeypatch.setattr(observability.logger, "info", fake_info)
 
-    usage, cost_usd = graph_service._emit_usage_observability(
+    usage, cost_usd = observability.emit_usage_observability(
         mode="rag",
         model_id="google.gemini-2.5-pro",
         session_id="session-1",

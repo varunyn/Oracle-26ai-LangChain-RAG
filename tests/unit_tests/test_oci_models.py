@@ -21,6 +21,8 @@ def test_get_llm_builds_chat_oci_genai_with_shared_auth_config(monkeypatch) -> N
         REGION="us-chicago-1",
         COMPARTMENT_ID="ocid1.compartment.oc1..example",
         OCI_PROFILE="CHICAGO",
+        OCI_MAX_SEQUENTIAL_TOOL_CALLS=10,
+        OCI_TOOL_RESULT_GUIDANCE=True,
     )
 
     monkeypatch.setattr(oci_models, "get_settings", lambda: settings)
@@ -37,6 +39,8 @@ def test_get_llm_builds_chat_oci_genai_with_shared_auth_config(monkeypatch) -> N
         "auth_profile": "CHICAGO",
         "auth_file_location": "/tmp/test.oci.config",
         "model_kwargs": {"temperature": 0.2, "max_tokens": 2048},
+        "max_sequential_tool_calls": 10,
+        "tool_result_guidance": True,
     }
 
 
@@ -54,6 +58,8 @@ def test_get_embedding_model_builds_oci_embeddings_with_shared_auth_config(monke
         REGION="us-chicago-1",
         COMPARTMENT_ID="ocid1.compartment.oc1..example",
         OCI_PROFILE="CHICAGO",
+        OCI_MAX_SEQUENTIAL_TOOL_CALLS=10,
+        OCI_TOOL_RESULT_GUIDANCE=True,
     )
 
     monkeypatch.setattr(oci_models, "get_settings", lambda: settings)
@@ -98,6 +104,8 @@ def test_get_llm_preserves_explicit_xai_model_id_without_provider_override(monke
 
     assert captured["model_id"] == "xai.grok-4-1-fast-reasoning"
     assert "provider" not in captured
+    assert captured["max_sequential_tool_calls"] == 10
+    assert captured["tool_result_guidance"] is True
 
 
 def test_get_llm_uses_openai_max_completion_tokens(monkeypatch) -> None:
@@ -116,6 +124,8 @@ def test_get_llm_uses_openai_max_completion_tokens(monkeypatch) -> None:
         REGION="us-chicago-1",
         COMPARTMENT_ID="ocid1.compartment.oc1..example",
         OCI_PROFILE="CHICAGO",
+        OCI_MAX_SEQUENTIAL_TOOL_CALLS=10,
+        OCI_TOOL_RESULT_GUIDANCE=True,
     )
 
     monkeypatch.setattr(oci_models, "get_settings", lambda: settings)
@@ -143,6 +153,8 @@ def test_get_llm_does_not_pass_profile_for_instance_principal(monkeypatch) -> No
         REGION="us-chicago-1",
         COMPARTMENT_ID="ocid1.compartment.oc1..example",
         OCI_PROFILE="CHICAGO",
+        OCI_MAX_SEQUENTIAL_TOOL_CALLS=10,
+        OCI_TOOL_RESULT_GUIDANCE=True,
     )
 
     monkeypatch.setattr(oci_models, "get_settings", lambda: settings)

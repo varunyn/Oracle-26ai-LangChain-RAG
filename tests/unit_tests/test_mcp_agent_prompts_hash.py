@@ -13,14 +13,14 @@ from src.rag_agent.prompts.mcp_agent_prompts import (
 
 def test_system_prompt_hash_locked():
     """Ensure SYSTEM_PROMPT content is locked by SHA256 hash."""
-    expected_hash = "f56f7b385990c5d3f03d4f8f32bc9df9e8b96de06e444592165d08bd4e78fca3"
+    expected_hash = "557b2f688d28e5a33acecb1876d5705fcc084cf691080b9d247667bd2d8ac961"
     actual_hash = hashlib.sha256(mcp_agent_module.SYSTEM_PROMPT.encode("utf-8")).hexdigest()
     assert actual_hash == expected_hash, f"SYSTEM_PROMPT hash changed: {actual_hash}"
 
 
 def test_system_prompt_mixed_hash_locked():
     """Ensure SYSTEM_PROMPT_MIXED content is locked by SHA256 hash."""
-    expected_hash = "e603888971d7d2528cb87e6b985c9480bd95ad1b355045b02d4a62daa40676ed"
+    expected_hash = "81cecece6a92d908735409fe017563bb5fe149c61d92e5b109f49a69cb781749"
     actual_hash = hashlib.sha256(mcp_agent_module.SYSTEM_PROMPT_MIXED.encode("utf-8")).hexdigest()
     assert actual_hash == expected_hash, f"SYSTEM_PROMPT_MIXED hash changed: {actual_hash}"
 

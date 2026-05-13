@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import json
 import logging
 import re
@@ -637,52 +638,69 @@ async def get_mcp_answer_with_langchain_agent_async(
 
     settings = get_settings()
     llm_model = get_llm(model_id=model_id)
-    agent = create_agent(
-        model=cast(Any, llm_model),
-        tools=list(tools),
-        system_prompt=_build_system_prompt(question, tools, run_config),
-        middleware=cast(Any, _build_middleware(settings, llm_model)),
-        name="mcp_agent_executor",
-    )
-    current_messages: list[object] = cast(list[object], _build_messages(chat_history, question))
-    response_state: Mapping[str, object] | None = None
-    answer = ""
-    tools_used: list[str] = []
-    tool_invocations: list[dict[str, object]] = []
-
-    invoke_config_map: dict[str, object] = dict(run_config or {})
-    raw_callbacks = invoke_config_map.get("callbacks")
-    callbacks = list(raw_callbacks) if isinstance(raw_callbacks, list) else []
-    if tool_progress_callback is not None:
-        callbacks.append(_ToolProgressCallback(tool_progress_callback))
-    if callbacks:
-        invoke_config_map["callbacks"] = callbacks
-    invoke_config = cast(RunnableConfig, invoke_config_map)
-    for retry_idx in range(2):
-        response_state = cast(
-            Mapping[str, object],
-            await agent.ainvoke(
-                cast(Any, {"messages": current_messages}),
-                config=invoke_config,
-            ),
+    try:
+        agent = create_agent(
+            model=cast(Any, llm_model),
+            tools=list(tools),
+            system_prompt=_build_system_prompt(question, tools, run_config),
+            middleware=cast(Any, _build_middleware(settings, llm_model)),
+            name="mcp_agent_executor",
         )
-        _normalize_ai_tool_call_ids(response_state)
-        answer, tools_used = _extract_answer_and_tools(response_state)
-        tool_invocations = _extract_tool_invocations(response_state)
-        answer = _clean_leaked_tool_syntax(answer, tools_used)
-        if retry_idx >= 1:
-            break
-        if not _should_retry_for_literal_tool_text(answer=answer, tools_used=tools_used, tools=tools):
-            break
+        current_messages: list[object] = cast(list[object], _build_messages(chat_history, question))
+        response_state: Mapping[str, object] | None = None
+        answer = ""
+        tools_used: list[str] = []
+        tool_invocations: list[dict[str, object]] = []
 
-        state_messages = response_state.get("messages")
-        if not isinstance(state_messages, Sequence) or isinstance(state_messages, (str, bytes)):
-            break
-        current_messages = [*cast(list[object], list(state_messages)), HumanMessage(_LITERAL_TOOL_CALL_RETRY_INSTRUCTION)]
+        invoke_config_map: dict[str, object] = dict(run_config or {})
+        raw_callbacks = invoke_config_map.get("callbacks")
+        callbacks = list(raw_callbacks) if isinstance(raw_callbacks, list) else []
+        if tool_progress_callback is not None:
+            callbacks.append(_ToolProgressCallback(tool_progress_callback))
+        if callbacks:
+            invoke_config_map["callbacks"] = callbacks
+        invoke_config = cast(RunnableConfig, invoke_config_map)
+        for retry_idx in range(2):
+            response_state = cast(
+                Mapping[str, object],
+                await agent.ainvoke(
+                    cast(Any, {"messages": current_messages}),
+                    config=invoke_config,
+                ),
+            )
+            _normalize_ai_tool_call_ids(response_state)
+            answer, tools_used = _extract_answer_and_tools(response_state)
+            tool_invocations = _extract_tool_invocations(response_state)
+            answer = _clean_leaked_tool_syntax(answer, tools_used)
+            if retry_idx >= 1:
+                break
+            if not _should_retry_for_literal_tool_text(
+                answer=answer,
+                tools_used=tools_used,
+                tools=tools,
+            ):
+                break
 
-    if require_tool_call and not tools_used:
-        return "MCP tool call required but none was produced after retry. Please try again.", [], []
-    return answer, tools_used, tool_invocations
+            state_messages = response_state.get("messages")
+            if not isinstance(state_messages, Sequence) or isinstance(state_messages, (str, bytes)):
+                break
+            current_messages = [
+                *cast(list[object], list(state_messages)),
+                HumanMessage(_LITERAL_TOOL_CALL_RETRY_INSTRUCTION),
+            ]
+
+        if require_tool_call and not tools_used:
+            return "MCP tool call required but none was produced after retry. Please try again.", [], []
+        return answer, tools_used, tool_invocations
+    finally:
+        close = getattr(llm_model, "aclose", None)
+        if callable(close):
+            try:
+                close_result = close()
+                if inspect.isawaitable(close_result):
+                    await close_result
+            except Exception as exc:
+                logger.debug("MCP agent LLM async cleanup failed: %s", exc)
 
 
 __all__ = ["get_mcp_answer_with_langchain_agent_async"]

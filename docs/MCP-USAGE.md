@@ -170,7 +170,7 @@ The backend fetches and refreshes the bearer token automatically and injects it 
 
 ## RAG vs MCP flow (mode)
 
-Chat is handled by `ChatRuntimeService` in `api/services/graph_service.py` (no LangGraph graph). Request **`mode`** selects the path:
+Chat is handled by `ChatRuntimeService` in `src/rag_agent/runtime/chat_service.py` (no LangGraph graph). Request **`mode`** selects the path:
 
 | API `mode` | Behavior                                                                                                                                                  |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -198,7 +198,7 @@ Use `"mode": "mcp"` for MCP tools only, `"mode": "rag"` for retrieval-only, `"mo
 
 ## Implementation (consuming side)
 
-MCP and mixed chat modes load tools through **`langchain_mcp_adapters.MultiServerMCPClient`** (`src/rag_agent/infrastructure/mcp_adapter_runtime.py`; clients and tool lists are cached per connection set). The tool loop runs in **`src/rag_agent/infrastructure/mcp_agent.py`**, invoked from **`api/services/graph_service.py`**. RAG-only and direct modes do not load MCP tools.
+MCP and mixed chat modes load tools through **`langchain_mcp_adapters.MultiServerMCPClient`** (`src/rag_agent/infrastructure/mcp_adapter_runtime.py`; clients and tool lists are cached per connection set). The tool loop runs in **`src/rag_agent/infrastructure/mcp_agent.py`**, invoked from **`src/rag_agent/runtime/chat_service.py`**. RAG-only and direct modes do not load MCP tools.
 
 ### Flow diagram (high level)
 
@@ -217,7 +217,7 @@ flowchart TD
 
 | Path         | When         | Main modules                                                 |
 | ------------ | ------------ | ------------------------------------------------------------ |
-| **`rag`**    | `mode=rag`   | Oracle VS + `RAG_ANSWER_PROMPT_TEMPLATE` in `graph_service` |
+| **`rag`**    | `mode=rag`   | Oracle VS + `RAG_ANSWER_PROMPT_TEMPLATE` in `chat_service` |
 | **`mcp`**    | `mode=mcp`   | `mcp_adapter_runtime` → `get_mcp_answer_async`              |
 | **`mixed`**  | `mode=mixed` | `oracle_retrieval` tool + MCP tools → `get_mcp_answer_async`|
 | **`direct`** | `mode=direct`| `get_llm().invoke` on history                               |

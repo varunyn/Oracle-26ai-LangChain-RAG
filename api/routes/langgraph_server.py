@@ -16,14 +16,21 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, model_validator
 
 from api.dependencies import generate_request_id, get_graph_service, log_conversation_out
+from api.routes.langgraph_middleware import merge_runtime_context
+from api.routes.responses import chat_completion_response_json
 from api.serialization import make_metadata_safe
 from src.rag_agent.core.citations import normalize_citations
 from src.rag_agent.runtime.agent import RuntimeAgent
-from src.rag_agent.runtime.middleware import merge_runtime_context
-from src.rag_agent.runtime.responses import chat_completion_response_json
 
 router = APIRouter(tags=["langgraph-runtime"])
 logger = logging.getLogger(__name__)
+
+
+def _json_response_body(content: object) -> str:
+    body = JSONResponse(content=content).body
+    if isinstance(body, memoryview):
+        body = body.tobytes()
+    return body.decode()
 
 
 class ThreadCreateRequest(BaseModel):
@@ -243,9 +250,9 @@ async def stream_thread_run(
             )
             values = cast(dict[str, Any], getattr(state_snapshot, "values", None) or {})
             historical = _serialize_state_messages(values.get("messages"))
-            for idx, message in enumerate(historical):
-                role = str(message.get("role") or "").strip().lower()
-                content = str(message.get("content") or "")
+            for idx, history_message in enumerate(historical):
+                role = str(history_message.get("role") or "").strip().lower()
+                content = str(history_message.get("content") or "")
                 if not role or not content:
                     continue
                 base_messages.append(
@@ -258,9 +265,9 @@ async def stream_thread_run(
         except Exception:
             base_messages = []
 
-        for idx, message in enumerate(messages):
-            role = str(message.role or "").strip().lower()
-            content = str(message.content or "")
+        for idx, pending_message in enumerate(messages):
+            role = str(pending_message.role or "").strip().lower()
+            content = str(pending_message.content or "")
             if not role or not content:
                 continue
             pending = _to_stream_message(
@@ -276,7 +283,7 @@ async def stream_thread_run(
             base_messages.append(pending)
 
         if base_messages:
-            yield f"event: values\ndata: {JSONResponse(content={'messages': base_messages}).body.decode()}\n\n"
+            yield f"event: values\ndata: {_json_response_body({'messages': base_messages})}\n\n"
 
         def _emit_values() -> str:
             payload_messages = list(base_messages)
@@ -290,7 +297,7 @@ async def stream_thread_run(
                     )
                 )
             payload = {"messages": payload_messages}
-            return f"event: values\ndata: {JSONResponse(content=payload).body.decode()}\n\n"
+            return f"event: values\ndata: {_json_response_body(payload)}\n\n"
 
         try:
             async for event in runtime_agent.stream(

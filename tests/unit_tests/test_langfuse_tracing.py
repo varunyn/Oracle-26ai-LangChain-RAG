@@ -72,3 +72,26 @@ def test_safe_shutdown_calls_client_shutdown_and_clears_singleton(monkeypatch: A
 
     assert client.shutdown_calls == 1
     assert langfuse_tracing._LANGFUSE_CLIENT is None
+
+
+def test_sanitize_usage_metadata_drops_none_token_detail_values() -> None:
+    usage = {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "total_tokens": 15,
+        "output_token_details": {
+            "reasoning": None,
+            "accepted_prediction": 0,
+        },
+    }
+
+    sanitized = langfuse_tracing._sanitize_usage_metadata_for_langfuse(usage)
+
+    assert sanitized == {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "total_tokens": 15,
+        "output_token_details": {
+            "accepted_prediction": 0,
+        },
+    }

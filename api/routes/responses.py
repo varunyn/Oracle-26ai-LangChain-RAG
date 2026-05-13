@@ -16,6 +16,24 @@ from api.settings import get_settings
 from src.rag_agent.core.citations import normalize_citations
 
 
+def _usage_int(usage: dict[str, object] | None, key: str) -> int:
+    if not isinstance(usage, dict):
+        return 0
+    value = usage.get(key, 0)
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            return int(float(value))
+        except ValueError:
+            return 0
+    return 0
+
+
 def to_citations(raw: list[dict[str, object]]) -> list[Citation]:
     citations: list[Citation] = []
     for item in normalize_citations(raw or []):
@@ -50,9 +68,9 @@ def chat_completion_response_json(
     context_usage: dict[str, object] | None = None,
     usage: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    prompt_tokens = int(usage.get("input", 0)) if isinstance(usage, dict) else 0
-    completion_tokens = int(usage.get("output", 0)) if isinstance(usage, dict) else 0
-    total_tokens = int(usage.get("total", 0)) if isinstance(usage, dict) else 0
+    prompt_tokens = _usage_int(usage, "input")
+    completion_tokens = _usage_int(usage, "output")
+    total_tokens = _usage_int(usage, "total")
     if total_tokens == 0:
         total_tokens = prompt_tokens + completion_tokens
     response = ChatCompletionResponse(

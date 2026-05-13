@@ -8,7 +8,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 
-from api.services.graph_service import ChatRuntimeService
+from src.rag_agent.runtime.chat_service import ChatRuntimeService
 
 
 def test_graph_service_run_chat_direct_mode_uses_oci_llm(monkeypatch) -> None:
@@ -19,7 +19,7 @@ def test_graph_service_run_chat_direct_mode_uses_oci_llm(monkeypatch) -> None:
             captured["messages"] = messages
             return AIMessage(content="Direct OCI answer")
 
-    monkeypatch.setattr("api.services.graph_service.get_llm", lambda model_id=None: FakeLLM())
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_llm", lambda model_id=None: FakeLLM())
 
     service = ChatRuntimeService(graph=object())
 
@@ -43,6 +43,49 @@ def test_graph_service_run_chat_direct_mode_uses_oci_llm(monkeypatch) -> None:
     assert captured["messages"]
 
 
+def test_graph_service_direct_mode_hydrates_prior_thread_messages(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    service = ChatRuntimeService(graph=object())
+    thread_id = "thread-direct-memory"
+    service._thread_state[thread_id] = {
+        "messages": [
+            HumanMessage(content="My deployment target is production."),
+            AIMessage(content="I will keep production constraints in mind."),
+        ],
+        "final_answer": "I will keep production constraints in mind.",
+    }
+
+    class FakeLLM:
+        def invoke(self, messages: list[object]) -> AIMessage:
+            captured["messages"] = messages
+            return AIMessage(content="Use production-safe rollout steps.")
+
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_llm", lambda model_id=None: FakeLLM())
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "What should I do next?"}],
+            model_id="google.gemini-2.5-pro",
+            thread_id=thread_id,
+            session_id=None,
+            collection_name=None,
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="direct",
+            mcp_server_keys=None,
+            stream=False,
+        )
+    )
+
+    messages = cast(list[object], captured["messages"])
+    assert [getattr(message, "content", "") for message in messages] == [
+        "My deployment target is production.",
+        "I will keep production constraints in mind.",
+        "What should I do next?",
+    ]
+    assert result["final_answer"] == "Use production-safe rollout steps."
+
+
 def test_graph_service_run_chat_defaults_to_mixed_when_mcp_enabled(monkeypatch) -> None:
     service = ChatRuntimeService(graph=object())
     captured: dict[str, object] = {}
@@ -58,7 +101,7 @@ def test_graph_service_run_chat_defaults_to_mixed_when_mcp_enabled(monkeypatch) 
         return f"calculated: {expression}"
 
     monkeypatch.setattr(
-        "api.services.graph_service._resolve_effective_mode",
+        "src.rag_agent.runtime.chat_service._resolve_effective_mode",
         lambda mode: "mixed",
     )
 
@@ -82,8 +125,8 @@ def test_graph_service_run_chat_defaults_to_mixed_when_mcp_enabled(monkeypatch) 
         _ = kwargs
         return ("mixed-default-answer", ["calculator_tool"], [])
 
-    monkeypatch.setattr("api.services.graph_service.get_mcp_tools_async", fake_get_mcp_tools_async)
-    monkeypatch.setattr("api.services.graph_service.get_mcp_answer_async", fake_get_mcp_answer_async)
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_tools_async", fake_get_mcp_tools_async)
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_answer_async", fake_get_mcp_answer_async)
     monkeypatch.setattr(
         ChatRuntimeService,
         "_build_oracle_retrieval_tool",
@@ -142,12 +185,16 @@ def test_graph_service_run_chat_mcp_mode_uses_mcp_answer_async(monkeypatch) -> N
         return [calculator_tool]
 
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_tools_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
         fake_get_mcp_tools_async,
     )
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_settings",
+        lambda: type("Settings", (), {"REQUIRE_TOOL_CALL": False, "MCP_WORKFLOW_POLICY": {}})(),
     )
 
     result = asyncio.run(
@@ -172,11 +219,120 @@ def test_graph_service_run_chat_mcp_mode_uses_mcp_answer_async(monkeypatch) -> N
     tool_names = [tool_obj.name for tool_obj in cast(list[object], captured["tools"])]
     assert tool_names == ["calculator_tool"]
     assert captured["tool_server_keys"] == ["calculator"]
-    assert captured["require_tool_call"] is None
+    assert captured["require_tool_call"] is False
     assert result["mcp_tools_used"] == ["calculator_tool"]
     assert captured["run_config"] == {
         "configurable": {"thread_id": "thread-1", "mcp_server_keys": ["calculator"]}
     }
+
+
+def test_graph_service_mcp_mode_passes_prior_thread_history_to_agent(monkeypatch) -> None:
+    service = ChatRuntimeService(graph=object())
+    thread_id = "thread-mcp-memory"
+    captured: dict[str, object] = {}
+    service._thread_state[thread_id] = {
+        "messages": [
+            HumanMessage(content="Use the calculator for arithmetic."),
+            AIMessage(content="Understood."),
+        ],
+        "final_answer": "Understood.",
+    }
+
+    @tool
+    def calculator_tool(expression: str) -> str:
+        """Calculate a math expression."""
+        return f"calculated: {expression}"
+
+    async def fake_get_mcp_answer_async(
+        question: str,
+        *,
+        chat_history: list[object] | None = None,
+        **kwargs: object,
+    ) -> tuple[str, list[str], list[object]]:
+        _ = kwargs
+        captured["question"] = question
+        captured["chat_history"] = chat_history
+        return ("4", ["calculator_tool"], [])
+
+    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+        _ = server_keys, run_config
+        return [calculator_tool]
+
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_tools_async", fake_get_mcp_tools_async)
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_answer_async", fake_get_mcp_answer_async)
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_settings",
+        lambda: type("Settings", (), {"REQUIRE_TOOL_CALL": False, "MCP_WORKFLOW_POLICY": {}})(),
+    )
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "What is 2+2?"}],
+            model_id="google.gemini-2.5-pro",
+            thread_id=thread_id,
+            session_id=None,
+            collection_name=None,
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="mcp",
+            mcp_server_keys=["calculator"],
+            stream=False,
+        )
+    )
+
+    history = cast(list[object], captured["chat_history"])
+    assert captured["question"] == "What is 2+2?"
+    assert [getattr(message, "content", "") for message in history] == [
+        "Use the calculator for arithmetic.",
+        "Understood.",
+    ]
+    assert result["final_answer"] == "4"
+
+
+def test_graph_service_mcp_mode_honors_require_tool_call_setting(monkeypatch) -> None:
+    service = ChatRuntimeService(graph=object())
+    captured: dict[str, object] = {}
+
+    @tool
+    def calculator_tool(expression: str) -> str:
+        """Calculate a math expression."""
+        return f"calculated: {expression}"
+
+    async def fake_get_mcp_answer_async(
+        *args: object, **kwargs: object
+    ) -> tuple[str, list[str], list[object]]:
+        _ = args
+        captured["require_tool_call"] = kwargs.get("require_tool_call")
+        return ("ok", ["calculator_tool"], [])
+
+    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+        _ = server_keys, run_config
+        return [calculator_tool]
+
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_settings",
+        lambda: type("Settings", (), {"REQUIRE_TOOL_CALL": True, "MCP_WORKFLOW_POLICY": {}})(),
+    )
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_tools_async", fake_get_mcp_tools_async)
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_answer_async", fake_get_mcp_answer_async)
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "Calculate the integral of x^2 * e^x."}],
+            model_id="google.gemini-2.5-pro",
+            thread_id="thread-1",
+            session_id=None,
+            collection_name=None,
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="mcp",
+            mcp_server_keys=["calculator"],
+            stream=False,
+        )
+    )
+
+    assert result["final_answer"] == "ok"
+    assert captured["require_tool_call"] is True
 
 
 def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> None:
@@ -201,10 +357,10 @@ def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> N
             assert messages
             return AIMessage(content="Oracle 23ai introduces AI Vector Search. [1]")
 
-    monkeypatch.setattr("api.services.graph_service.get_pooled_connection", fake_get_pooled_connection)
-    monkeypatch.setattr("api.services.graph_service.get_embedding_model", lambda: object())
-    monkeypatch.setattr("api.services.graph_service.search_documents", fake_search_documents)
-    monkeypatch.setattr("api.services.graph_service.get_llm", lambda model_id=None: FakeLLM())
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_pooled_connection", fake_get_pooled_connection)
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_embedding_model", lambda: object())
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.search_documents", fake_search_documents)
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_llm", lambda model_id=None: FakeLLM())
 
     result = asyncio.run(
         service.run_chat(
@@ -229,6 +385,70 @@ def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> N
             "metadata": {"source": "Doc1", "page": "1"},
         }
     ]
+
+
+def test_graph_service_rag_mode_contextualizes_followup_before_retrieval(monkeypatch) -> None:
+    service = ChatRuntimeService(graph=object())
+    thread_id = "thread-rag-memory"
+    captured: dict[str, object] = {}
+    service._thread_state[thread_id] = {
+        "messages": [
+            HumanMessage(content="Tell me about Oracle Database 23ai."),
+            AIMessage(content="Oracle Database 23ai includes AI Vector Search."),
+        ],
+        "final_answer": "Oracle Database 23ai includes AI Vector Search.",
+    }
+
+    @contextmanager
+    def fake_get_pooled_connection():
+        yield object()
+
+    def fake_search_documents(**kwargs: object) -> list[Document]:
+        captured["query"] = kwargs["query"]
+        return [
+            Document(
+                page_content="AI Vector Search supports semantic search in Oracle Database 23ai.",
+                metadata={"source": "Doc1"},
+            )
+        ]
+
+    class FakeLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def invoke(self, messages: list[object]) -> AIMessage:
+            self.calls += 1
+            if self.calls == 1:
+                captured["contextualize_prompt"] = getattr(messages[0], "content", "")
+                return AIMessage(content="How does AI Vector Search work in Oracle Database 23ai?")
+            return AIMessage(content="AI Vector Search supports semantic search. [1]")
+
+    fake_llm = FakeLLM()
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_pooled_connection", fake_get_pooled_connection)
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_embedding_model", lambda: object())
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.search_documents", fake_search_documents)
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_llm", lambda model_id=None: fake_llm)
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "How does that work?"}],
+            model_id="google.gemini-2.5-pro",
+            thread_id=thread_id,
+            session_id=None,
+            collection_name=None,
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="rag",
+            mcp_server_keys=None,
+            stream=False,
+        )
+    )
+
+    assert captured["query"] == "How does AI Vector Search work in Oracle Database 23ai?"
+    assert "Oracle Database 23ai includes AI Vector Search." in str(
+        captured["contextualize_prompt"]
+    )
+    assert result["standalone_question"] == "How does AI Vector Search work in Oracle Database 23ai?"
 
 
 def test_graph_service_run_chat_mixed_mode_uses_mcp_answer_async(monkeypatch) -> None:
@@ -266,13 +486,17 @@ def test_graph_service_run_chat_mixed_mode_uses_mcp_answer_async(monkeypatch) ->
         return [calculator_tool]
 
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_tools_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
         fake_get_mcp_tools_async,
     )
     monkeypatch.setattr(ChatRuntimeService, "_build_oracle_retrieval_tool", lambda self, collection_name=None: retrieval_tool)
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_settings",
+        lambda: type("Settings", (), {"REQUIRE_TOOL_CALL": False, "MCP_WORKFLOW_POLICY": {}})(),
     )
 
     result = asyncio.run(
@@ -297,8 +521,137 @@ def test_graph_service_run_chat_mixed_mode_uses_mcp_answer_async(monkeypatch) ->
     assert "retrieval_tool" in tool_names
     assert "calculator_tool" in tool_names
     assert captured["tool_server_keys"] == ["calculator"]
-    assert captured["require_tool_call"] is None
+    assert captured["require_tool_call"] is False
     assert result["mcp_tools_used"] == ["calculator_tool"]
+
+
+def test_graph_service_mixed_mode_honors_require_tool_call_setting(monkeypatch) -> None:
+    service = ChatRuntimeService(graph=object())
+    captured: dict[str, object] = {}
+
+    @tool
+    def retrieval_tool(question: str) -> str:
+        """Retrieve Oracle documentation context for a question."""
+        return f"retrieved: {question}"
+
+    @tool
+    def calculator_tool(expression: str) -> str:
+        """Calculate a math expression."""
+        return f"calculated: {expression}"
+
+    async def fake_get_mcp_answer_async(
+        *args: object, **kwargs: object
+    ) -> tuple[str, list[str], list[object]]:
+        _ = args
+        captured["require_tool_call"] = kwargs.get("require_tool_call")
+        return ("ok", ["calculator_tool"], [])
+
+    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+        _ = server_keys, run_config
+        return [calculator_tool]
+
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_settings",
+        lambda: type("Settings", (), {"REQUIRE_TOOL_CALL": True, "MCP_WORKFLOW_POLICY": {}})(),
+    )
+    monkeypatch.setattr(
+        ChatRuntimeService,
+        "_build_oracle_retrieval_tool",
+        lambda self, collection_name=None: retrieval_tool,
+    )
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_tools_async", fake_get_mcp_tools_async)
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_answer_async", fake_get_mcp_answer_async)
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "Calculate the integral of x^2 * e^x."}],
+            model_id="google.gemini-2.5-pro",
+            thread_id="thread-1",
+            session_id=None,
+            collection_name="RAG_KNOWLEDGE_BASE",
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="mixed",
+            mcp_server_keys=["calculator"],
+            stream=False,
+        )
+    )
+
+    assert result["final_answer"] == "ok"
+    assert captured["require_tool_call"] is True
+
+
+def test_graph_service_mixed_mode_passes_prior_thread_history_to_agent(monkeypatch) -> None:
+    service = ChatRuntimeService(graph=object())
+    thread_id = "thread-mixed-memory"
+    captured: dict[str, object] = {}
+    service._thread_state[thread_id] = {
+        "messages": [
+            HumanMessage(content="When retrieving contracts, use the vendor from the prior invoice."),
+            AIMessage(content="I will use the prior invoice vendor for contract lookups."),
+        ],
+        "final_answer": "I will use the prior invoice vendor for contract lookups.",
+    }
+
+    @tool
+    def retrieval_tool(question: str) -> str:
+        """Retrieve Oracle documentation context for a question."""
+        return f"retrieved: {question}"
+
+    @tool
+    def calculator_tool(expression: str) -> str:
+        """Calculate a math expression."""
+        return f"calculated: {expression}"
+
+    async def fake_get_mcp_answer_async(
+        question: str,
+        *,
+        chat_history: list[object] | None = None,
+        **kwargs: object,
+    ) -> tuple[str, list[str], list[object]]:
+        _ = kwargs
+        captured["question"] = question
+        captured["chat_history"] = chat_history
+        return ("retrieved prior vendor terms", ["retrieval_tool"], [])
+
+    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+        _ = server_keys, run_config
+        return [calculator_tool]
+
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_tools_async", fake_get_mcp_tools_async)
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_answer_async", fake_get_mcp_answer_async)
+    monkeypatch.setattr(
+        ChatRuntimeService,
+        "_build_oracle_retrieval_tool",
+        lambda self, collection_name=None: retrieval_tool,
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_settings",
+        lambda: type("Settings", (), {"REQUIRE_TOOL_CALL": False, "MCP_WORKFLOW_POLICY": {}})(),
+    )
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "Now compare it with the contract terms."}],
+            model_id="google.gemini-2.5-pro",
+            thread_id=thread_id,
+            session_id=None,
+            collection_name="RAG_KNOWLEDGE_BASE",
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="mixed",
+            mcp_server_keys=None,
+            stream=False,
+        )
+    )
+
+    history = cast(list[object], captured["chat_history"])
+    assert captured["question"] == "Now compare it with the contract terms."
+    assert [getattr(message, "content", "") for message in history] == [
+        "When retrieving contracts, use the vendor from the prior invoice.",
+        "I will use the prior invoice vendor for contract lookups.",
+    ]
+    assert result["final_answer"] == "retrieved prior vendor terms"
 
 
 def test_graph_service_run_chat_mcp_mode_uses_all_servers_when_not_specified(monkeypatch) -> None:
@@ -329,12 +682,16 @@ def test_graph_service_run_chat_mcp_mode_uses_all_servers_when_not_specified(mon
         return [routed_tool]
 
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_tools_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
         fake_get_mcp_tools_async,
     )
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_settings",
+        lambda: type("Settings", (), {"REQUIRE_TOOL_CALL": False, "MCP_WORKFLOW_POLICY": {}})(),
     )
 
     result = asyncio.run(
@@ -354,7 +711,7 @@ def test_graph_service_run_chat_mcp_mode_uses_all_servers_when_not_specified(mon
 
     assert result["final_answer"] == "ok"
     assert captured["tool_server_keys"] is None
-    assert captured["require_tool_call"] is None
+    assert captured["require_tool_call"] is False
     assert captured["run_config"]
     configurable = cast(dict[str, object], captured["run_config"])["configurable"]
     assert cast(dict[str, object], configurable)["thread_id"] == "thread-1"
@@ -388,12 +745,12 @@ def test_graph_service_mixed_mode_invokes_mcp_answer_per_request(monkeypatch) ->
         return [calculator_tool]
 
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_tools_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
         fake_get_mcp_tools_async,
     )
     monkeypatch.setattr(ChatRuntimeService, "_build_oracle_retrieval_tool", lambda self, collection_name=None: retrieval_tool)
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
 
@@ -460,12 +817,12 @@ def test_graph_service_mixed_mode_includes_retrieval_references_when_available(m
         return [calculator_tool]
 
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_tools_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
         fake_get_mcp_tools_async,
     )
     monkeypatch.setattr(ChatRuntimeService, "_build_oracle_retrieval_tool", lambda self, collection_name=None: _Tool())
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
 
@@ -519,13 +876,13 @@ def test_graph_service_mixed_mode_falls_back_to_direct_retrieval_for_citations(m
     ]
 
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_tools_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
         fake_get_mcp_tools_async,
     )
     monkeypatch.setattr(ChatRuntimeService, "_build_oracle_retrieval_tool", lambda self, collection_name=None: _Tool())
     monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", lambda self, **kwargs: docs)
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
 
@@ -578,14 +935,14 @@ def test_graph_service_mixed_mode_keeps_non_retrieval_mcp_answer_without_rag_ove
         raise AssertionError("RAG fallback should not run when non-retrieval MCP tools were used")
 
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_tools_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
         fake_get_mcp_tools_async,
     )
     monkeypatch.setattr(
         ChatRuntimeService, "_build_oracle_retrieval_tool", lambda self, collection_name=None: _Tool()
     )
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", fail_if_retrieval_called)
@@ -647,11 +1004,11 @@ def test_graph_service_mixed_mode_retries_with_required_tool_call_when_mcp_tools
         raise AssertionError("RAG fallback must not run when explicit MCP tool reference is present")
 
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_tools_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
         fake_get_mcp_tools_async,
     )
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(
@@ -660,6 +1017,10 @@ def test_graph_service_mixed_mode_retries_with_required_tool_call_when_mcp_tools
         lambda self, collection_name=None: retrieval_tool,
     )
     monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", fail_if_rag_fallback_called)
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_settings",
+        lambda: type("Settings", (), {"REQUIRE_TOOL_CALL": False, "MCP_WORKFLOW_POLICY": {}})(),
+    )
 
     result = asyncio.run(
         service.run_chat(
@@ -682,10 +1043,178 @@ def test_graph_service_mixed_mode_retries_with_required_tool_call_when_mcp_tools
     )
 
     assert len(call_kwargs) == 2
-    assert call_kwargs[0].get("require_tool_call") is None
+    assert call_kwargs[0].get("require_tool_call") is False
     assert call_kwargs[1].get("require_tool_call") is True
     assert result["final_answer"] == "MCP tool call required but none was produced after retry. Please try again."
     assert result["mcp_tools_used"] == []
+
+
+def test_graph_service_mixed_mode_runs_repeated_workflow_before_normal_agent(
+    monkeypatch,
+) -> None:
+    service = ChatRuntimeService(graph=object())
+
+    @tool
+    def retrieval_tool(question: str) -> str:
+        """Retrieve Oracle documentation context for a question."""
+        return f"retrieved: {question}"
+
+    @tool("list_work")
+    def list_work(folder: str) -> str:
+        """List work units."""
+        return folder
+
+    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+        _ = server_keys, run_config
+        return [list_work]
+
+    async def fail_if_normal_agent_runs(*args: object, **kwargs: object):
+        _ = args, kwargs
+        raise AssertionError("normal MCP agent must not run before repeated workflow controller")
+
+    async def fake_repeated_workflow(**kwargs: object):
+        assert kwargs["question"] == "Process every item and send a summary."
+        assert "discovery_result" not in kwargs
+        return (
+            "processed all work",
+            ["list_work"],
+            [{"tool_name": "list_work", "args": {}, "result": '{"items": [{"id": "a"}, {"id": "b"}]}'}],
+        )
+
+    async def fake_should_use_repeated_workflow(**kwargs: object) -> bool:
+        _ = kwargs
+        return True
+
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_tools_async", fake_get_mcp_tools_async)
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_answer_async", fail_if_normal_agent_runs)
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "ENABLE_PERSISTENT_MEMORY": False,
+                "LANGGRAPH_SQLITE_PATH": "",
+                "MCP_REPEATED_WORKFLOW_CONTROLLER": True,
+                "MCP_WORKFLOW_POLICY": {},
+                "REQUIRE_TOOL_CALL": False,
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.should_use_repeated_workflow",
+        fake_should_use_repeated_workflow,
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.run_repeated_mcp_workflow",
+        fake_repeated_workflow,
+    )
+    monkeypatch.setattr(
+        ChatRuntimeService,
+        "_build_oracle_retrieval_tool",
+        lambda self, collection_name=None: retrieval_tool,
+    )
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "Process every item and send a summary."}],
+            model_id="google.gemini-2.5-pro",
+            thread_id="thread-repeated-first",
+            session_id=None,
+            collection_name="RAG_KNOWLEDGE_BASE",
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="mixed",
+            mcp_server_keys=None,
+            stream=False,
+        )
+    )
+
+    assert result["final_answer"] == "processed all work"
+    assert result["mcp_tools_used"] == ["list_work"]
+
+
+def test_graph_service_mixed_mode_falls_back_when_repeated_workflow_has_no_queue(
+    monkeypatch,
+) -> None:
+    service = ChatRuntimeService(graph=object())
+    normal_calls = 0
+
+    @tool
+    def retrieval_tool(question: str) -> str:
+        """Retrieve Oracle documentation context for a question."""
+        return f"retrieved: {question}"
+
+    @tool("list_work")
+    def list_work(folder: str) -> str:
+        """List work units."""
+        return folder
+
+    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+        _ = server_keys, run_config
+        return [list_work]
+
+    async def fake_get_mcp_answer_async(*args: object, **kwargs: object):
+        nonlocal normal_calls
+        _ = args, kwargs
+        normal_calls += 1
+        return ("normal answer", ["list_work"], [{"tool_name": "list_work", "result": "ok"}])
+
+    async def fake_repeated_workflow(**kwargs: object):
+        assert "discovery_result" not in kwargs
+        return None
+
+    async def fake_should_use_repeated_workflow(**kwargs: object) -> bool:
+        _ = kwargs
+        return True
+
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_tools_async", fake_get_mcp_tools_async)
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_mcp_answer_async", fake_get_mcp_answer_async)
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_settings",
+        lambda: type(
+            "Settings",
+            (),
+            {
+                "ENABLE_PERSISTENT_MEMORY": False,
+                "LANGGRAPH_SQLITE_PATH": "",
+                "MCP_REPEATED_WORKFLOW_CONTROLLER": True,
+                "MCP_WORKFLOW_POLICY": {},
+                "REQUIRE_TOOL_CALL": False,
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.should_use_repeated_workflow",
+        fake_should_use_repeated_workflow,
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.run_repeated_mcp_workflow",
+        fake_repeated_workflow,
+    )
+    monkeypatch.setattr(
+        ChatRuntimeService,
+        "_build_oracle_retrieval_tool",
+        lambda self, collection_name=None: retrieval_tool,
+    )
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "Process the item."}],
+            model_id="google.gemini-2.5-pro",
+            thread_id="thread-repeated-fallback",
+            session_id=None,
+            collection_name="RAG_KNOWLEDGE_BASE",
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="mixed",
+            mcp_server_keys=None,
+            stream=False,
+        )
+    )
+
+    assert normal_calls == 1
+    assert result["final_answer"] == "normal answer"
 
 
 def test_graph_service_mixed_mode_enforces_generic_workflow_policy_when_activated(monkeypatch) -> None:
@@ -736,13 +1265,13 @@ def test_graph_service_mixed_mode_enforces_generic_workflow_policy_when_activate
         _ = server_keys, run_config
         return [oic_classify_document, oic_extract_invoice_data]
 
-    monkeypatch.setattr("api.services.graph_service.get_settings", lambda: _Settings())
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_settings", lambda: _Settings())
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_tools_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
         fake_get_mcp_tools_async,
     )
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(
@@ -807,13 +1336,13 @@ def test_graph_service_mixed_mode_workflow_policy_does_not_apply_when_not_activa
         _ = server_keys, run_config
         return [calculator_tool]
 
-    monkeypatch.setattr("api.services.graph_service.get_settings", lambda: _Settings())
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_settings", lambda: _Settings())
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_tools_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
         fake_get_mcp_tools_async,
     )
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(
@@ -875,11 +1404,11 @@ def test_graph_service_mixed_mode_replaces_trivial_answer_with_tool_failure_summ
         return [oic_create_invoice]
 
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_tools_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
         fake_get_mcp_tools_async,
     )
     monkeypatch.setattr(
-        "api.services.graph_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(
@@ -918,7 +1447,7 @@ def test_graph_service_run_chat_does_not_apply_custom_transform_prepass(monkeypa
             _ = messages
             return AIMessage(content="Direct response path")
 
-    monkeypatch.setattr("api.services.graph_service.get_llm", lambda model_id=None: FakeLLM())
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_llm", lambda model_id=None: FakeLLM())
 
     service._thread_state[thread_id] = {
         "messages": [

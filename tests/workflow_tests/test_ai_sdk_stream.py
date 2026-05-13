@@ -201,7 +201,7 @@ def test_values_stream_logs_conversation_out(monkeypatch) -> None:
         captured.append(kwargs)
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.langgraph_server.log_conversation_out",
+        "api.routes.langgraph_server.log_conversation_out",
         fake_log_conversation_out,
         raising=False,
     )

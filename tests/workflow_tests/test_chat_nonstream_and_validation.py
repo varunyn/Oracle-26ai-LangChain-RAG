@@ -103,7 +103,7 @@ def test_langgraph_nonstream_logs_conversation_out(monkeypatch: MonkeyPatch):
         "src.rag_agent.runtime.agent.RuntimeAgent.invoke", _stub_invoke, raising=True
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.langgraph_server.log_conversation_out",
+        "api.routes.langgraph_server.log_conversation_out",
         fake_log_conversation_out,
         raising=True,
     )

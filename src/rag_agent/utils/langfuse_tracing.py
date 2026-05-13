@@ -198,6 +198,7 @@ class _TokenUsageCallback(BaseCallbackHandler):
         **kwargs: object,
     ) -> None:
         try:
+            _sanitize_response_usage_metadata_for_langfuse(response)
             input_tokens = self._input_tokens_by_run.pop(run_id, 0)
             usage, estimated = _merge_usage(response, dict(kwargs), input_tokens)
             if usage is None:
@@ -207,6 +208,67 @@ class _TokenUsageCallback(BaseCallbackHandler):
                 _tag_estimated_usage(self._handler, run_id)
         except Exception as exc:
             logger.debug("Langfuse usage estimate failed: %s", exc)
+
+
+def _sanitize_response_usage_metadata_for_langfuse(response: LLMResult) -> None:
+    for generation in response.generations:
+        for chunk in generation:
+            gen_info = getattr(chunk, "generation_info", None)
+            if isinstance(gen_info, dict) and isinstance(gen_info.get("usage_metadata"), dict):
+                gen_info["usage_metadata"] = _sanitize_usage_metadata_for_langfuse(
+                    cast(dict[str, object], gen_info["usage_metadata"])
+                )
+
+            message = getattr(chunk, "message", None)
+            if not isinstance(message, BaseMessage):
+                continue
+
+            usage_metadata = getattr(message, "usage_metadata", None)
+            if isinstance(usage_metadata, dict):
+                setattr(
+                    message,
+                    "usage_metadata",
+                    _sanitize_usage_metadata_for_langfuse(cast(dict[str, object], usage_metadata)),
+                )
+
+            response_metadata = getattr(message, "response_metadata", None)
+            if isinstance(response_metadata, dict):
+                usage = response_metadata.get("usage")
+                if isinstance(usage, dict):
+                    response_metadata["usage"] = _sanitize_usage_metadata_for_langfuse(
+                        cast(dict[str, object], usage)
+                    )
+
+
+def _sanitize_usage_metadata_for_langfuse(raw: dict[str, object]) -> dict[str, object]:
+    sanitized: dict[str, object] = {}
+    for key, value in raw.items():
+        if value is None:
+            continue
+        if key.endswith("_token_details") and isinstance(value, dict):
+            nested = {
+                str(nested_key): nested_value
+                for nested_key, nested_value in cast(dict[object, object], value).items()
+                if _is_langfuse_token_count(nested_value)
+            }
+            if nested:
+                sanitized[key] = nested
+            continue
+        if key.endswith("_tokens_details") and isinstance(value, list):
+            nested_items = [
+                item
+                for item in value
+                if isinstance(item, dict) and _is_langfuse_token_count(item.get("token_count"))
+            ]
+            if nested_items:
+                sanitized[key] = nested_items
+            continue
+        sanitized[key] = value
+    return sanitized
+
+
+def _is_langfuse_token_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _merge_usage(

@@ -134,6 +134,8 @@ def get_llm(
         "service_endpoint": endpoint,
         "compartment_id": get_settings().COMPARTMENT_ID,
         "model_kwargs": model_kw,
+        "max_sequential_tool_calls": getattr(get_settings(), "OCI_MAX_SEQUENTIAL_TOOL_CALLS", 10),
+        "tool_result_guidance": bool(getattr(get_settings(), "OCI_TOOL_RESULT_GUIDANCE", True)),
     }
     if use_profile and profile and auth_file_location:
         llm_kwargs["auth_profile"] = profile

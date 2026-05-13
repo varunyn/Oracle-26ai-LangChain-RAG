@@ -11,7 +11,7 @@ This doc describes conversation memory, **sessions**, and **threads** in the cur
 
 ## Runtime memory model
 
-- Backend memory is owned by `ChatRuntimeService` (`api/services/graph_service.py`).
+- Backend memory is owned by `ChatRuntimeService` (`src/rag_agent/runtime/chat_service.py`).
 - The service stores thread state in a process-local dictionary.
 - Input is delta-only: each request should send the new user message.
 - Memory survives across turns in one process, and is cleared on process restart.
@@ -31,6 +31,6 @@ This doc describes conversation memory, **sessions**, and **threads** in the cur
 
 - Session/thread handling: `frontend/src/hooks/useChatSession.ts`
 - Chat request schema: `api/schemas.py`
-- Chat runtime state: `api/services/graph_service.py`
-- Thread delete endpoint: `src/rag_agent/runtime/langgraph_server.py` (`DELETE /api/threads/{thread_id}`)
+- Chat runtime state: `src/rag_agent/runtime/chat_service.py`
+- Thread delete endpoint: `api/routes/langgraph_server.py` (`DELETE /api/threads/{thread_id}`)
 - Langfuse metadata injection: `src/rag_agent/utils/langfuse_tracing.py`

@@ -1,4 +1,4 @@
-"""Runtime API package for thread/run/config/documents/feedback endpoints."""
+"""Application runtime components used by the FastAPI API layer."""
 
 from .agent import RuntimeAgent
 

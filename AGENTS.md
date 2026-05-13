@@ -80,9 +80,15 @@ A **README for agents**: a dedicated, predictable place for context and instruct
 3. **Functions & Classes**: snake_case for functions/vars, PascalCase for classes, UPPER_SNAKE for constants. Keep functions focused on one responsibility. Extract helper functions or services when branching, state mutation, or error handling starts to obscure the main flow; push complex logic into helper services (see `src/rag_agent/*.py`).
 4. **Error Handling**: Catch the most specific exception possible, log via module logger, and either rethrow with context (`raise CustomError(...) from exc`) or return typed error payloads (e.g., `search_error_response`). Never swallow exceptions silently.
 5. **Logging**: Always create module loggers via `logging.getLogger(__name__)`. Prefer logs that describe the operation, outcome, and identifiers; avoid logging secrets, full tokens, or large raw payloads.
-6. **State & Data Flow**: Chat runtime state is managed in `api/services/graph_service.py` and request config in `api/dependencies.py`. Keep response contracts stable (`final_answer`, `citations`, `reranker_docs`, `context_usage`, `mcp_*`) and centralize citation normalization in `src/rag_agent/core/citations.py`.
-7. **Security**: Never check `.env` into git; use `.env.example` as reference. Use OCI wallet paths from settings/env, not hardcoded strings.
-8. **Testing**: Tests live under `tests/` with categorized suites: `tests/unit_tests` for deterministic unit tests, `tests/workflow_tests` for deterministic orchestration tests with mocked boundaries, and `tests/integration_tests` for real external/provider/backend tests. Respect `pytest` markers (`integration`, `vcr`, `langsmith`). Use VCR for HTTP recording (`--record-mode=once`). Detailed LangChain testing guidance lives in `tests/AGENTS.md`.
+6. **State & Data Flow**: Chat runtime state is managed in `src/rag_agent/runtime/chat_service.py` and request config in `api/dependencies.py`. Keep response contracts stable (`final_answer`, `citations`, `reranker_docs`, `context_usage`, `mcp_*`) and centralize citation normalization in `src/rag_agent/core/citations.py`.
+7. **AI Workflow Control**: For agentic workflows, do not use regex or hardcoded prompt-keyword matching to decide whether a workflow should loop, which tools should be called, or what business process is being requested. Prefer model-based classification, native LangChain/LangGraph tool-calling semantics, tool metadata, and explicit structured state. Keep deterministic Python logic for parsing already-structured tool results, validating schemas, checkpointing, and enforcing state transitions. Do not hardcode invoice-specific, folder-specific, or vendor-specific workflow behavior in generic workflow infrastructure.
+8. **Security**: Never check `.env` into git; use `.env.example` as reference. Use OCI wallet paths from settings/env, not hardcoded strings.
+9. **Testing**: Tests live under `tests/` with categorized suites: `tests/unit_tests` for deterministic unit tests, `tests/workflow_tests` for deterministic orchestration tests with mocked boundaries, and `tests/integration_tests` for real external/provider/backend tests. Respect `pytest` markers (`integration`, `vcr`, `langsmith`). Use VCR for HTTP recording (`--record-mode=once`). Detailed LangChain testing guidance lives in `tests/AGENTS.md`.
+   - AI/agent behavior cannot be considered validated by mocked tests alone. For changes to LLM routing, native tool calling, MCP workflow loops, prompt contracts, or model-specific behavior, add or update an opt-in live integration/e2e test under `tests/integration_tests`.
+   - Keep live AI tests explicitly gated so normal CI remains deterministic and cheap. Use `RUN_INTEGRATION_TESTS=1 OCI_INTEGRATION_TESTS=1` plus a feature-specific flag when appropriate, for example `AI_WORKFLOW_E2E_TESTS=1`.
+   - Prefer local fake tools inside live AI e2e tests when the goal is to validate model/tool-calling behavior. This exercises the real LLM and LangChain/LangGraph runtime while avoiding irreversible external side effects such as creating invoices.
+   - Live AI assertions should validate observable contracts: tool names called, every expected work item handled, final action invoked, and non-empty/error-free response. Avoid exact prose assertions on freeform model text.
+   - When a live AI test exposes model behavior that deterministic tests missed, keep both: add deterministic unit/workflow coverage for the discovered guardrail and keep the live test as the provider-facing regression.
 
 ## 8. Code Style — TypeScript / Next.js
 
@@ -130,6 +136,10 @@ uv run pytest tests/workflow_tests/test_ai_sdk_stream.py -k "references"
 
 # Integration-only pytest
 uv run pytest tests/integration_tests -m integration
+
+# Live AI workflow e2e (real OCI LLM, local fake tools; opt-in only)
+RUN_INTEGRATION_TESTS=1 OCI_INTEGRATION_TESTS=1 AI_WORKFLOW_E2E_TESTS=1 \
+  uv run pytest tests/integration_tests/test_ai_repeated_workflow_e2e.py -q -s
 
 # Ruff autofix import order only
 uv run ruff check --select I --fix

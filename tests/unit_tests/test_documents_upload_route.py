@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.rag_agent.runtime import documents
+from api.routes import documents
 
 app = FastAPI()
 app.include_router(documents.router)

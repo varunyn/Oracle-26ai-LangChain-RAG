@@ -190,6 +190,13 @@ OCI and Oracle AI Vector Search integrations use the official [oracle/langchain-
 uv sync --group dev
 ```
 
+**Live AI workflow e2e checks** are opt-in because they call the configured OCI LLM:
+
+```bash
+RUN_INTEGRATION_TESTS=1 OCI_INTEGRATION_TESTS=1 AI_WORKFLOW_E2E_TESTS=1 \
+  uv run pytest tests/integration_tests/test_ai_repeated_workflow_e2e.py -q -s
+```
+
 ### Configuration
 
 **IMPORTANT**: Copy `.env.example` to `.env` and set your values. The `.env` file is in `.gitignore` and will not be committed.
@@ -326,7 +333,8 @@ The Langfuse UI will run at `http://localhost:3300` (default) using its own comp
 - Maintains conversation context (`chat_history` in state)
 - Rewrites retrieval-oriented follow-up questions when needed
 - Configurable history length (`MAX_MSGS_IN_HISTORY`)
-- LangGraph checkpointer state is persisted per `thread_id` in the API runtime
+- When `ENABLE_PERSISTENT_MEMORY=true`, thread state is persisted per `thread_id`
+  in the SQLite file configured by `LANGGRAPH_SQLITE_PATH`
 
 ### 🎯 Intelligent Reranking
 

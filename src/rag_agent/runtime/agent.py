@@ -8,7 +8,7 @@ can reuse the same invocation and streaming behavior.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Literal, cast
 
 from api.schemas import ChatMessage
 
@@ -41,7 +41,8 @@ class RuntimeAgent:
                         if isinstance(block, dict) and isinstance(block.get("text"), str)
                     )
                 if role_raw in {"user", "assistant", "system"} and isinstance(content_raw, str):
-                    normalized.append(ChatMessage(role=role_raw, content=content_raw))
+                    role = cast(Literal["user", "assistant", "system"], role_raw)
+                    normalized.append(ChatMessage(role=role, content=content_raw))
             if normalized:
                 return normalized
         return [ChatMessage(role="user", content=str(message or "").strip())]
@@ -59,17 +60,20 @@ class RuntimeAgent:
         mode: str | None,
         mcp_server_keys: list[str] | None,
     ) -> dict[str, object]:
-        return await self._chat_runtime_service.run_chat(
-            messages=[message.model_dump() for message in messages],
-            model_id=model_id,
-            thread_id=thread_id,
-            session_id=session_id,
-            collection_name=collection_name,
-            enable_reranker=enable_reranker,
-            enable_tracing=enable_tracing,
-            mode=mode,
-            mcp_server_keys=mcp_server_keys,
-            stream=False,
+        return cast(
+            dict[str, object],
+            await self._chat_runtime_service.run_chat(
+                messages=[message.model_dump() for message in messages],
+                model_id=model_id,
+                thread_id=thread_id,
+                session_id=session_id,
+                collection_name=collection_name,
+                enable_reranker=enable_reranker,
+                enable_tracing=enable_tracing,
+                mode=mode,
+                mcp_server_keys=mcp_server_keys,
+                stream=False,
+            ),
         )
 
     async def stream(

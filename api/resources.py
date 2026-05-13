@@ -14,9 +14,10 @@ from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import cast
 
-from api.services.graph_service import ChatRuntimeService
 from api.settings import Settings, get_settings
 from src.rag_agent.infrastructure.mcp_adapter_runtime import clear_adapter_runtime_cache
+from src.rag_agent.runtime.chat_service import ChatRuntimeService
+from src.rag_agent.runtime.thread_checkpoints import LangGraphCheckpointThreadStateStore
 from src.rag_agent.utils.langfuse_tracing import safe_shutdown as langfuse_safe_shutdown
 
 
@@ -38,11 +39,16 @@ async def create_app_resources() -> AppResources:
     Called once in FastAPI lifespan startup.
     """
     settings = get_settings()
-    chat_runtime_service = ChatRuntimeService()
+    state_conn = (
+        LangGraphCheckpointThreadStateStore(settings.LANGGRAPH_SQLITE_PATH)
+        if settings.ENABLE_PERSISTENT_MEMORY
+        else None
+    )
+    chat_runtime_service = ChatRuntimeService(thread_state_store=state_conn)
     return AppResources(
         settings=settings,
         chat_runtime_service=chat_runtime_service,
-        _state_conn=None,
+        _state_conn=state_conn,
     )
 
 

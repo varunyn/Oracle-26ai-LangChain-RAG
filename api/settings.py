@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     # Union so dotenv can pass string; validators normalize. Empty => model_validator fills from REGION.
     MODEL_LIST: str | list[str] = Field(default_factory=list)
     MODEL_DISPLAY_NAMES: str | dict[str, str] = Field(default_factory=dict)
+    OCI_MAX_SEQUENTIAL_TOOL_CALLS: int = 10
+    OCI_TOOL_RESULT_GUIDANCE: bool = True
 
     @field_validator("MODEL_LIST", mode="before")
     @classmethod
@@ -158,6 +160,15 @@ class Settings(BaseSettings):
         ]
     )
 
+    # =============================================================================
+    # CONVERSATION MEMORY / THREADS
+    # =============================================================================
+    ENABLE_PERSISTENT_MEMORY: bool = False
+    LANGGRAPH_SQLITE_PATH: str = ".local-data/langgraph-checkpoints.sqlite"
+    ALLOW_CLIENT_THREAD_ID: bool = True
+    THREAD_ID_STRATEGY: str = "uuid4"
+    THREAD_ID_PREFIX: str = ""
+
     @field_validator("CORS_ALLOW_ORIGINS", mode="before")
     @classmethod
     def _parse_cors_allow_origins(cls, v: object) -> list[str]:
@@ -205,6 +216,8 @@ class Settings(BaseSettings):
     MCP_OAUTH_GRANT_TYPE: str = "client_credentials"
     MCP_OAUTH_AUDIENCE: str | None = None
     MCP_OAUTH_REFRESH_SKEW_SECONDS: int = 30
+    REQUIRE_TOOL_CALL: bool = False
+    MCP_REPEATED_WORKFLOW_CONTROLLER: bool = True
     MCP_WORKFLOW_POLICY: str | dict[str, object] = Field(default_factory=dict)
 
     @field_validator("RAG_SEARCH_MODE", "MCP_SEARCH_MODE", mode="before")

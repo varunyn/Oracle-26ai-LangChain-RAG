@@ -1,6 +1,6 @@
 # Server-owned conversation memory
 
-This app keeps chat memory on the backend in `ChatRuntimeService` (`api/services/graph_service.py`). The client sends only the latest user turn (delta-only), and the service stores thread-scoped state under `thread_id`.
+This app keeps chat memory on the backend in `ChatRuntimeService` (`src/rag_agent/runtime/chat_service.py`). The client sends only the latest user turn (delta-only), and the service stores thread-scoped state under `thread_id`.
 
 ## Key behaviors
 
@@ -25,7 +25,7 @@ This app keeps chat memory on the backend in `ChatRuntimeService` (`api/services
 uv run python - <<'PY'
 import asyncio
 from api.dependencies import build_chat_config
-from api.services.graph_service import ChatRuntimeService
+from src.rag_agent.runtime.chat_service import ChatRuntimeService
 
 THREAD_ID = "example-thread"
 

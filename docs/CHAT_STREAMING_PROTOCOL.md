@@ -50,7 +50,7 @@ curl -sS \
 
 ## Server-owned memory: delta-only input + thread IDs
 
-- The server is the source of truth for conversation context in `ChatRuntimeService` (`api/services/graph_service.py`).
+- The server is the source of truth for conversation context in `ChatRuntimeService` (`src/rag_agent/runtime/chat_service.py`).
 - API requests should contain at least one user/human message in `input.messages`.
 - `thread_id` is the conversation identifier.
   - Frontend persists `thread_id` in `localStorage` and reuses it on later turns.
@@ -64,7 +64,7 @@ curl -sS \
 uv run python - <<'PY'
 import asyncio
 from api.dependencies import build_chat_config
-from api.services.graph_service import ChatRuntimeService
+from src.rag_agent.runtime.chat_service import ChatRuntimeService
 
 async def main() -> None:
     run_config = build_chat_config(thread_id="t1")
