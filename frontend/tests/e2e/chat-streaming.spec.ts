@@ -167,6 +167,58 @@ test.describe('chat streaming', () => {
     expect(pageErrors.filter((message) => message.includes('Maximum update depth'))).toEqual([])
   })
 
+  test('removes the cleared chat from local history', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem('rag_agent_thread_id', 'thread-clear-active')
+      window.localStorage.setItem(
+        'rag_agent_chat_threads',
+        JSON.stringify([
+          {
+            id: 'thread-clear-active',
+            title: 'Active chat to clear',
+            createdAt: 2,
+            updatedAt: 2,
+          },
+          {
+            id: 'thread-keep',
+            title: 'Keep this chat',
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ]),
+      )
+    })
+    await page.route('**/api/langgraph/**/history', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '[]',
+      })
+    })
+    await page.route('**/api/threads/thread-clear-active', (route) => {
+      route.fulfill({ status: 204 })
+    })
+
+    await page.goto('/')
+
+    const history = page.getByLabel('Chat history')
+    await expect(history.getByRole('button', { name: 'Active chat to clear' })).toBeVisible()
+    await page.getByRole('button', { name: 'Clear Chat History' }).click()
+
+    await expect(page.getByText('Ask a question about your documents')).toBeVisible()
+    await expect(history.getByRole('button', { name: 'Active chat to clear' })).toHaveCount(0)
+    await expect(history.getByRole('button', { name: 'Keep this chat' })).toBeVisible()
+    await expect(history.getByRole('button', { name: 'New chat' })).toHaveCount(0)
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const raw = window.localStorage.getItem('rag_agent_chat_threads')
+          return raw ? JSON.parse(raw).map((thread: { id: string }) => thread.id) : []
+        }),
+      )
+      .toEqual(['thread-keep'])
+  })
+
   test('expands the chat input for long multi-line prompts', async ({ page }) => {
     await page.goto('/')
 

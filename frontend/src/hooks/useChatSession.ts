@@ -73,19 +73,6 @@ function readStoredThreadHistory(): ChatThreadSummary[] {
   }
 }
 
-function ensureThread(
-  history: ChatThreadSummary[],
-  threadId: string,
-  now = Date.now(),
-): ChatThreadSummary[] {
-  const existing = history.find((thread) => thread.id === threadId);
-  if (existing) return sortAndLimit(history);
-  return sortAndLimit([
-    { id: threadId, title: "New chat", createdAt: now, updatedAt: now },
-    ...history,
-  ]);
-}
-
 function sortAndLimit(history: ChatThreadSummary[]): ChatThreadSummary[] {
   const deduped = new Map<string, ChatThreadSummary>();
   for (const thread of history) {
@@ -104,11 +91,15 @@ function updateThreadHistoryTitle(
   threadId: string,
   title: string,
 ): ChatThreadSummary[] {
+  const now = Date.now();
   const existing = history.find((thread) => thread.id === threadId);
-  if (!existing || existing.title === title) return history;
+  if (!existing) {
+    return sortAndLimit([{ id: threadId, title, createdAt: now, updatedAt: now }, ...history]);
+  }
+  if (existing.title === title) return history;
   return sortAndLimit(
     history.map((thread) =>
-      thread.id === threadId ? { ...thread, title, updatedAt: Date.now() } : thread,
+      thread.id === threadId ? { ...thread, title, updatedAt: now } : thread,
     ),
   );
 }
@@ -117,7 +108,7 @@ function createInitialState(): SessionState {
   const threadId = readStoredThreadId() ?? generateThreadId();
   return {
     threadId,
-    threadHistory: ensureThread(readStoredThreadHistory(), threadId),
+    threadHistory: sortAndLimit(readStoredThreadHistory()),
   };
 }
 
@@ -148,18 +139,14 @@ export function useChatSession() {
   const setThreadId = useCallback((threadId: string) => {
     const nextThreadId = threadId.trim();
     if (!nextThreadId) return;
-    setState((previous) => ({
-      threadId: nextThreadId,
-      threadHistory: ensureThread(previous.threadHistory, nextThreadId),
-    }));
+    setState((previous) =>
+      previous.threadId === nextThreadId ? previous : { ...previous, threadId: nextThreadId },
+    );
   }, []);
 
   const startNewChat = useCallback(() => {
     const nextThreadId = generateThreadId();
-    setState((previous) => ({
-      threadId: nextThreadId,
-      threadHistory: ensureThread(previous.threadHistory, nextThreadId),
-    }));
+    setState((previous) => ({ ...previous, threadId: nextThreadId }));
   }, []);
 
   const updateThreadTitle = useCallback((threadId: string, title: string) => {
@@ -186,10 +173,7 @@ export function useChatSession() {
     const nextThreadId = generateThreadId();
     setState((previous) => ({
       threadId: nextThreadId,
-      threadHistory: ensureThread(
-        previous.threadHistory.filter((thread) => thread.id !== previousThreadId),
-        nextThreadId,
-      ),
+      threadHistory: previous.threadHistory.filter((thread) => thread.id !== previousThreadId),
     }));
     helpers.setMessages?.([]);
     helpers.setFeedbackSubmitted(false);
