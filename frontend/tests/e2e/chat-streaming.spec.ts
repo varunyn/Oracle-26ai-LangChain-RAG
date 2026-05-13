@@ -117,6 +117,77 @@ test.describe('chat streaming', () => {
     )
   })
 
+  test('keeps long chat history scrollable in the sidebar', async ({ page }) => {
+    const threads = Array.from({ length: 30 }, (_, index) => {
+      const number = index + 1
+      return {
+        id: `thread-long-${number}`,
+        title: `Long history chat ${number}`,
+        createdAt: number,
+        updatedAt: number,
+      }
+    }).reverse()
+
+    await page.setViewportSize({ width: 1280, height: 720 })
+    await page.addInitScript((seedThreads) => {
+      window.localStorage.setItem('rag_agent_thread_id', 'thread-long-30')
+      window.localStorage.setItem('rag_agent_chat_threads', JSON.stringify(seedThreads))
+    }, threads)
+    await page.route('**/api/langgraph/**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '[]',
+      })
+    })
+
+    await page.goto('/')
+
+    const history = page.getByTestId('chat-history-list')
+    await expect(
+      history.getByRole('button', { name: 'Long history chat 30', exact: true }),
+    ).toBeVisible()
+    const metrics = await history.evaluate((node) => ({
+      clientHeight: node.clientHeight,
+      scrollHeight: node.scrollHeight,
+    }))
+    expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
+    const initialLastThreadPosition = await history.evaluate((historyNode) => {
+      const button = Array.from(historyNode.querySelectorAll('button')).find(
+        (item) => item.textContent?.trim() === 'Long history chat 1',
+      )
+      if (!button) throw new Error('Expected final history item')
+      const buttonRect = button.getBoundingClientRect()
+      const historyRect = historyNode.getBoundingClientRect()
+        return {
+          buttonTop: buttonRect.top,
+          historyBottom: historyRect.bottom,
+        }
+    })
+    expect(initialLastThreadPosition.buttonTop).toBeGreaterThan(
+      initialLastThreadPosition.historyBottom,
+    )
+
+    await history.evaluate((node) => {
+      node.scrollTop = node.scrollHeight
+    })
+    const scrolledLastThreadPosition = await history.evaluate((historyNode) => {
+      const button = Array.from(historyNode.querySelectorAll('button')).find(
+        (item) => item.textContent?.trim() === 'Long history chat 1',
+      )
+      if (!button) throw new Error('Expected final history item')
+      const buttonRect = button.getBoundingClientRect()
+      const historyRect = historyNode.getBoundingClientRect()
+        return {
+          buttonBottom: buttonRect.bottom,
+          historyBottom: historyRect.bottom,
+        }
+    })
+    expect(scrolledLastThreadPosition.buttonBottom).toBeLessThanOrEqual(
+      scrolledLastThreadPosition.historyBottom,
+    )
+  })
+
   test('keeps chat history title updates stable after asking', async ({ page }) => {
     const pageErrors: string[] = []
     page.on('pageerror', (error) => {

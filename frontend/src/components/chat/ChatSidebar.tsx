@@ -120,31 +120,36 @@ export function ChatSidebar({
           </button>
         </div>
       </div>
-      <div className="min-w-[18rem] border-b border-border/70 px-3 py-3">
-        <div className="max-h-56 space-y-1 overflow-y-auto pr-1" aria-label="Chat history">
-          {threadHistory.map((thread) => {
-            const active = thread.id === activeThreadId;
-            return (
-              <button
-                key={thread.id}
-                type="button"
-                onClick={() => onSelectThread(thread.id)}
-                data-testid="chat-history-thread"
-                aria-current={active ? "page" : undefined}
-                className={`flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
-                  active
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                }`}
-              >
-                <MessageSquare className="size-4 shrink-0" aria-hidden />
-                <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-              </button>
-            );
-          })}
+      <div className="min-h-0 min-w-[18rem] flex-1 overflow-y-auto">
+        <div className="border-b border-border/70 px-3 py-3">
+          <div
+            className="max-h-[min(45vh,28rem)] space-y-1 overflow-y-auto pr-1"
+            aria-label="Chat history"
+            data-testid="chat-history-list"
+          >
+            {threadHistory.map((thread) => {
+              const active = thread.id === activeThreadId;
+              return (
+                <button
+                  key={thread.id}
+                  type="button"
+                  onClick={() => onSelectThread(thread.id)}
+                  data-testid="chat-history-thread"
+                  aria-current={active ? "page" : undefined}
+                  className={`flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
+                    active
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                  }`}
+                >
+                  <MessageSquare className="size-4 shrink-0" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
-      <div className="min-w-[18rem] space-y-5 px-4 py-5 sm:px-5">
+        <div className="space-y-5 px-4 py-5 sm:px-5">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Retrieval settings
         </h2>
@@ -250,8 +255,8 @@ export function ChatSidebar({
         >
           Clear Chat History
         </button>
-      </div>
-      <div className="mt-auto min-w-[18rem] border-t border-border px-4 py-5 sm:px-5">
+        </div>
+        <div className="border-t border-border px-4 py-5 sm:px-5">
         <h3 className="mb-3 text-sm font-medium text-foreground">
           Upload documents
         </h3>
@@ -344,6 +349,7 @@ export function ChatSidebar({
             {uploadStatus}
           </p>
         ) : null}
+        </div>
       </div>
     </aside>
   );
