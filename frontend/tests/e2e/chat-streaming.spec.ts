@@ -280,6 +280,11 @@ test.describe('chat streaming', () => {
     await expect(history.getByRole('button', { name: 'Active chat to clear' })).toHaveCount(0)
     await expect(history.getByRole('button', { name: 'Keep this chat' })).toBeVisible()
     await expect(history.getByRole('button', { name: 'New chat' })).toHaveCount(0)
+    const toastClose = page.getByRole('button', { name: 'Close', exact: true })
+    await expect(toastClose).toBeVisible()
+    const closeBox = await toastClose.boundingBox()
+    expect(closeBox?.width).toBeGreaterThanOrEqual(40)
+    expect(closeBox?.height).toBeGreaterThanOrEqual(40)
     await expect
       .poll(() =>
         page.evaluate(() => {
