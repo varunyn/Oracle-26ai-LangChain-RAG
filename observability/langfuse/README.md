@@ -13,6 +13,13 @@ docker compose -f observability/langfuse/docker-compose.yml up -d
 
 The compose file binds the Langfuse UI to `http://localhost:3300` (default) and exposes MinIO on `http://localhost:9090` (S3 API) and `http://localhost:9091` (console). All internal databases stay on `127.0.0.1` so the stack is only reachable from your machine.
 
+ClickHouse uses Docker `json-file` log rotation by default to prevent local Docker/Colima disks from filling up. The defaults keep three 10 MB files and can be adjusted in `observability/langfuse/.env`:
+
+```bash
+CLICKHOUSE_DOCKER_LOG_MAX_SIZE=10m
+CLICKHOUSE_DOCKER_LOG_MAX_FILE=3
+```
+
 To stop everything:
 
 ```bash

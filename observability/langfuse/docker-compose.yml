@@ -4,6 +4,12 @@ version: "3.9"
 # Usage: from repo root run `docker compose -f observability/langfuse/docker-compose.yml up -d`
 # Copy .env.example → .env first and change all CHANGEME secrets.
 
+x-clickhouse-log-rotation: &clickhouse-log-rotation
+  driver: json-file
+  options:
+    max-size: ${CLICKHOUSE_DOCKER_LOG_MAX_SIZE:-10m}
+    max-file: ${CLICKHOUSE_DOCKER_LOG_MAX_FILE:-3}
+
 services:
   langfuse-worker:
     image: docker.io/langfuse/langfuse-worker:3
@@ -101,6 +107,7 @@ services:
     image: docker.io/clickhouse/clickhouse-server
     restart: always
     user: "101:101"
+    logging: *clickhouse-log-rotation
     env_file:
       - .env
     environment:
