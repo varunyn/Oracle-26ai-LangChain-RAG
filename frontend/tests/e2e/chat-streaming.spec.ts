@@ -72,6 +72,51 @@ test.describe('chat streaming', () => {
     await expect(suggestions.getByRole('button', { name: /resume/i })).toHaveCount(0)
   })
 
+  test('shows locally known chat history and switches active threads', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem('rag_agent_thread_id', 'thread-history-1')
+      window.localStorage.setItem(
+        'rag_agent_chat_threads',
+        JSON.stringify([
+          {
+            id: 'thread-history-1',
+            title: 'Latest invoice workflow',
+            createdAt: 2,
+            updatedAt: 2,
+          },
+          {
+            id: 'thread-history-2',
+            title: 'Vendor payment terms',
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ]),
+      )
+    })
+    await page.route('**/api/langgraph/**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '[]',
+      })
+    })
+
+    await page.goto('/')
+
+    const history = page.getByLabel('Chat history')
+    await expect(history.getByRole('button', { name: 'Latest invoice workflow' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    await history.getByRole('button', { name: 'Vendor payment terms' }).click()
+
+    await expect(page.getByTestId('chat-root')).toHaveAttribute('data-thread-id', 'thread-history-2')
+    await expect(history.getByRole('button', { name: 'Vendor payment terms' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+  })
+
   test('expands the chat input for long multi-line prompts', async ({ page }) => {
     await page.goto('/')
 

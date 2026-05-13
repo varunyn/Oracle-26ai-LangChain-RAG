@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test'
 
+const port = process.env.PLAYWRIGHT_PORT ?? '4000'
+
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 120_000,
@@ -7,15 +9,15 @@ export default defineConfig({
   reporter: 'list',
   retries: process.env.CI ? 2 : 0,
   webServer: {
-    command: 'PORT=4000 pnpm dev',
-    url: 'http://localhost:4000',
+    command: `PORT=${port} pnpm dev`,
+    url: `http://localhost:${port}`,
     reuseExistingServer: !process.env.CI,
     stdout: 'pipe',
     stderr: 'pipe',
     timeout: 120_000,
   },
   use: {
-    baseURL: 'http://localhost:4000',
+    baseURL: `http://localhost:${port}`,
     trace: 'on-first-retry',
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',

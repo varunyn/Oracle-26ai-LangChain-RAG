@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Database, MessagesSquare } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import { ChatInputBar } from "@/components/chat/ChatInputBar";
 import { useChatSession } from "@/hooks/useChatSession";
@@ -30,8 +30,33 @@ type MainView = "chat" | "sources";
 
 export default function Chat() {
   const { config: appConfig } = useAppConfig();
-  const { threadId, sessionId, clearChat } = useChatSession();
-  return <ChatPageContent key={threadId} appConfig={appConfig} threadId={threadId} sessionId={sessionId} clearChat={clearChat} />;
+  const chatSession = useChatSession();
+  const {
+    threadId,
+    setThreadId,
+    sessionId,
+    clearChat,
+    threadHistory,
+    startNewChat,
+    updateThreadTitle,
+    isReady,
+  } = chatSession;
+  if (!isReady) {
+    return <div className="h-screen bg-muted/20" aria-hidden />;
+  }
+  return (
+    <ChatPageContent
+      key={threadId}
+      appConfig={appConfig}
+      threadId={threadId}
+      sessionId={sessionId}
+      clearChat={clearChat}
+      threadHistory={threadHistory}
+      onSelectThread={setThreadId}
+      onNewChat={startNewChat}
+      onUpdateThreadTitle={updateThreadTitle}
+    />
+  );
 }
 
 type ChatPageContentProps = {
@@ -39,9 +64,39 @@ type ChatPageContentProps = {
   threadId: string;
   sessionId: string;
   clearChat: ReturnType<typeof useChatSession>["clearChat"];
+  threadHistory: ReturnType<typeof useChatSession>["threadHistory"];
+  onSelectThread: ReturnType<typeof useChatSession>["setThreadId"];
+  onNewChat: ReturnType<typeof useChatSession>["startNewChat"];
+  onUpdateThreadTitle: ReturnType<typeof useChatSession>["updateThreadTitle"];
 };
 
-function ChatPageContent({ appConfig, threadId, sessionId, clearChat }: ChatPageContentProps) {
+type ChatMessageLike = {
+  role?: string;
+  content?: string;
+  parts?: { type?: string; text?: string }[];
+};
+
+function deriveThreadTitle(messages: ChatMessageLike[]): string | null {
+  const firstUserMessage = messages.find((message) => message.role === "user");
+  const content =
+    firstUserMessage?.content ||
+    firstUserMessage?.parts?.find((part) => part.type === "text")?.text ||
+    "";
+  const normalized = content.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  return normalized.length > 56 ? `${normalized.slice(0, 53)}...` : normalized;
+}
+
+function ChatPageContent({
+  appConfig,
+  threadId,
+  sessionId,
+  clearChat,
+  threadHistory,
+  onSelectThread,
+  onNewChat,
+  onUpdateThreadTitle,
+}: ChatPageContentProps) {
   const { toast } = useToast();
   const sessionUI = useSessionUIState(appConfig);
   const [mainView, setMainView] = useState<MainView>("chat");
@@ -57,6 +112,11 @@ function ChatPageContent({ appConfig, threadId, sessionId, clearChat }: ChatPage
     clearSessionChat: clearChat,
   });
   const mutations = useChatMutations(sessionUI.collectionName);
+
+  useEffect(() => {
+    const title = deriveThreadTitle(chat.messages as ChatMessageLike[]);
+    if (title) onUpdateThreadTitle(threadId, title);
+  }, [chat.messages, onUpdateThreadTitle, threadId]);
 
   return (
     <div
@@ -83,6 +143,10 @@ function ChatPageContent({ appConfig, threadId, sessionId, clearChat }: ChatPage
         setUploadFiles={mutations.setUploadFiles}
         uploadStatus={mutations.uploadStatus}
         onUpload={mutations.handleUpload}
+        threadHistory={threadHistory}
+        activeThreadId={threadId}
+        onSelectThread={onSelectThread}
+        onNewChat={onNewChat}
       />
       <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col">
         <ChatHeader
