@@ -99,6 +99,20 @@ function sortAndLimit(history: ChatThreadSummary[]): ChatThreadSummary[] {
     .slice(0, MAX_STORED_THREADS);
 }
 
+function updateThreadHistoryTitle(
+  history: ChatThreadSummary[],
+  threadId: string,
+  title: string,
+): ChatThreadSummary[] {
+  const existing = history.find((thread) => thread.id === threadId);
+  if (!existing || existing.title === title) return history;
+  return sortAndLimit(
+    history.map((thread) =>
+      thread.id === threadId ? { ...thread, title, updatedAt: Date.now() } : thread,
+    ),
+  );
+}
+
 function createInitialState(): SessionState {
   const threadId = readStoredThreadId() ?? generateThreadId();
   return {
@@ -153,13 +167,7 @@ export function useChatSession() {
     if (!threadId.trim() || !cleanTitle) return;
     setState((previous) => ({
       ...previous,
-      threadHistory: sortAndLimit(
-        previous.threadHistory.map((thread) =>
-          thread.id === threadId
-            ? { ...thread, title: cleanTitle, updatedAt: Date.now() }
-            : thread,
-        ),
-      ),
+      threadHistory: updateThreadHistoryTitle(previous.threadHistory, threadId, cleanTitle),
     }));
   }, []);
 
