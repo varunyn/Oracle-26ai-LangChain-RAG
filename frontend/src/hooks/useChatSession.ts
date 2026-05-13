@@ -165,10 +165,14 @@ export function useChatSession() {
   const updateThreadTitle = useCallback((threadId: string, title: string) => {
     const cleanTitle = title.trim();
     if (!threadId.trim() || !cleanTitle) return;
-    setState((previous) => ({
-      ...previous,
-      threadHistory: updateThreadHistoryTitle(previous.threadHistory, threadId, cleanTitle),
-    }));
+    setState((previous) => {
+      const threadHistory = updateThreadHistoryTitle(
+        previous.threadHistory,
+        threadId,
+        cleanTitle,
+      );
+      return threadHistory === previous.threadHistory ? previous : { ...previous, threadHistory };
+    });
   }, []);
 
   function clearChat<TMessage, TContext>(helpers: {

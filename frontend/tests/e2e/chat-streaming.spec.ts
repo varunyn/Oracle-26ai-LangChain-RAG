@@ -117,6 +117,56 @@ test.describe('chat streaming', () => {
     )
   })
 
+  test('keeps chat history title updates stable after asking', async ({ page }) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => {
+      pageErrors.push(error.message)
+    })
+    await page.addInitScript(() => {
+      window.localStorage.setItem('rag_agent_thread_id', 'thread-title-loop')
+      window.localStorage.setItem(
+        'rag_agent_chat_threads',
+        JSON.stringify([
+          {
+            id: 'thread-title-loop',
+            title: 'Existing title',
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ]),
+      )
+    })
+    await page.route('**/api/langgraph/**/history', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '[]',
+      })
+    })
+    await page.route('**/api/langgraph/**/runs/stream', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: [
+          'event: values',
+          'data: {"messages":[{"type":"human","content":"Will title updates loop?"}]}',
+          '',
+          'event: values',
+          'data: {"messages":[{"type":"human","content":"Will title updates loop?"},{"type":"ai","content":"No."}]}',
+          '',
+        ].join('\n'),
+      })
+    })
+
+    await page.goto('/')
+    await page.getByRole('textbox', { name: 'Message' }).fill('Will title updates loop?')
+    await page.getByRole('button', { name: 'Ask' }).click()
+
+    await expect(page.getByText('No.')).toBeVisible()
+    await expect(page.getByText('This page couldn’t load')).toHaveCount(0)
+    expect(pageErrors.filter((message) => message.includes('Maximum update depth'))).toEqual([])
+  })
+
   test('expands the chat input for long multi-line prompts', async ({ page }) => {
     await page.goto('/')
 
