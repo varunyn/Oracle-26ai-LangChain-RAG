@@ -346,7 +346,8 @@ test.describe('chat streaming', () => {
     const { input, chatResponsePromise } = await askQuestion(page, PROMPT)
 
     await expect(input).toBeDisabled({ timeout: 5_000 })
-    await expect(page.getByText('Generating a grounded response...')).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByTestId('chat-streaming-indicator')).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByText('Working on it')).toBeVisible({ timeout: 5_000 })
 
     const chatResponse = await chatResponsePromise
     const chatHeaders = chatResponse.headers()

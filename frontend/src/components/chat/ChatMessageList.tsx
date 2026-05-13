@@ -47,6 +47,23 @@ function extractToolHeader(text: string): { toolName: string | null; displayCont
   return { toolName: null, displayContent: text };
 }
 
+function hasAssistantProgress(message: MessageLike): boolean {
+  const refPart =
+    Array.isArray(message.parts) && message.role === "assistant"
+      ? message.parts.find((part) => part?.type === "data-references")
+      : null;
+  if (!refPart?.data || typeof refPart.data !== "object") return false;
+  const progressEvents = (refPart.data as MessageReferences).mcp_progress_events;
+  return Array.isArray(progressEvents) && progressEvents.length > 0;
+}
+
+function hasActiveAssistantOutput(messages: MessageLike[]): boolean {
+  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+  if (!lastAssistant) return false;
+  const text = getMessageContent(lastAssistant as Parameters<typeof getMessageContent>[0]).trim();
+  return text.length > 0 || hasAssistantProgress(lastAssistant);
+}
+
 export function ChatMessageList({
   messages,
   status,
@@ -61,6 +78,9 @@ export function ChatMessageList({
   pendingSuggestion,
   showOptimisticSuggestion,
 }: ChatMessageListProps): React.ReactElement {
+  const isStreamingTurn = status === "submitted" || status === "streaming";
+  const showStreamingIndicator = isStreamingTurn && !hasActiveAssistantOutput(messages);
+
   return (
     <div
       ref={chatContainerRef}
@@ -207,7 +227,7 @@ export function ChatMessageList({
       })}
       </div>
 
-      {status === "submitted" || status === "streaming" ? (
+      {showStreamingIndicator ? (
         <Message from="assistant">
           <MessageContent>
             <StreamingIndicator />
