@@ -55,6 +55,18 @@ def get_llm(model_id: str | None = None) -> Any:
 get_oracle_vs = _oci_models.get_oracle_vs
 
 
+def _v3_raw_event(*, method: str, data: object) -> dict[str, object]:
+    return {
+        "type": "event",
+        "method": method,
+        "params": {
+            "namespace": [],
+            "timestamp": int(time.time() * 1000),
+            "data": data,
+        },
+    }
+
+
 def search_documents(**kwargs: object) -> list[Document]:
     return cast(list[Document], _retrieval.search_documents(**cast(Any, kwargs)))
 
@@ -636,7 +648,7 @@ class ChatRuntimeService:
         self._store_thread_state(thread_id, incoming_messages, direct_result)
         return direct_result
 
-    async def stream_chat(
+    async def _stream_runtime_events(
         self,
         *,
         messages: list[dict[str, object]],
@@ -715,6 +727,55 @@ class ChatRuntimeService:
         if result.get("error"):
             references["error"] = result["error"]
         yield {"type": "references", "data": references}
+
+    async def astream_events(
+        self,
+        input_payload: dict[str, object],
+        *,
+        config: dict[str, object] | None = None,
+        version: str = "v3",
+    ) -> AsyncIterator[dict[str, object]]:
+        if version != "v3":
+            raise ValueError("ChatRuntimeService only supports stream_events version='v3'.")
+
+        raw_messages = input_payload.get("messages")
+        messages = cast(list[dict[str, object]], raw_messages if isinstance(raw_messages, list) else [])
+        configurable = config.get("configurable") if isinstance(config, dict) else None
+        cfg = cast(dict[str, object], configurable if isinstance(configurable, dict) else {})
+
+        async for event in self._stream_runtime_events(
+            messages=messages,
+            model_id=cast(str | None, cfg.get("model_id")),
+            thread_id=cast(str | None, cfg.get("thread_id")),
+            session_id=cast(str | None, cfg.get("session_id")),
+            collection_name=cast(str | None, cfg.get("collection_name")),
+            enable_reranker=cast(bool | None, cfg.get("enable_reranker")),
+            enable_tracing=cast(bool | None, cfg.get("enable_tracing")),
+            mode=cast(str | None, cfg.get("mode")),
+            mcp_server_keys=cast(list[str] | None, cfg.get("mcp_server_keys")),
+        ):
+            event_type = event.get("type")
+            if event_type == "text":
+                text = str(event.get("delta") or "")
+                if not text:
+                    continue
+                yield _v3_raw_event(
+                    method="messages",
+                    data=(
+                        {
+                            "event": "content-block-delta",
+                            "delta": {"type": "text-delta", "text": text},
+                        },
+                        {"langgraph_node": "chat_runtime"},
+                    ),
+                )
+            elif event_type == "tool_event":
+                yield _v3_raw_event(method="tool_calls", data=event.get("data") or {})
+            elif event_type == "references":
+                yield _v3_raw_event(
+                    method="custom",
+                    data={"type": "references", "data": event.get("data") or {}},
+                )
 
     def _build_oracle_retrieval_tool(self, collection_name: str | None) -> StructuredTool:
         return rag_runtime.build_oracle_retrieval_tool(

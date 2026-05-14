@@ -33,90 +33,188 @@ def _last_assistant(events: list[dict[str, object]]) -> dict[str, object]:
     return assistant
 
 
+def _v3_raw_event(method: str, data: object) -> dict[str, object]:
+    return {"type": "event", "method": method, "params": {"data": data}}
+
+
+async def _yield_v3_events(runtime_events: list[dict[str, object]]) -> AsyncIterator[dict[str, object]]:
+    for event in runtime_events:
+        event_type = event.get("type")
+        if event_type == "text":
+            yield _v3_raw_event(
+                "messages",
+                (
+                    {
+                        "event": "content-block-delta",
+                        "delta": {"type": "text-delta", "text": event.get("delta")},
+                    },
+                    {"langgraph_node": "test"},
+                ),
+            )
+        elif event_type == "tool_event":
+            yield _v3_raw_event("tool_calls", event.get("data") or {})
+        elif event_type == "references":
+            yield _v3_raw_event("custom", {"type": "references", "data": event.get("data") or {}})
+
+
 class StubGraph:
-    async def stream_chat(self, **kwargs: object) -> AsyncIterator[dict[str, object]]:
-        _ = kwargs
-        yield {"type": "text", "delta": "Hello from stub values stream. This is deterministic."}
-        yield {
-            "type": "references",
-            "data": {
-                "standalone_question": "Hello?",
-                "citations": [{"source": "Doc1", "page": 1}],
-                "reranker_docs": [{"page_content": "Example text", "metadata": {"id": "d1"}}],
-                "context_usage": {
-                    "tokens": 123,
-                    "prompt_tokens": 12,
-                    "completion_tokens": 111,
+    async def astream_events(
+        self,
+        input_payload: dict[str, object],
+        *,
+        config: dict[str, object],
+        version: str,
+    ) -> AsyncIterator[dict[str, object]]:
+        _ = input_payload, config, version
+        events: list[dict[str, object]] = [
+            {"type": "text", "delta": "Hello from stub values stream. This is deterministic."},
+            {
+                "type": "references",
+                "data": {
+                    "standalone_question": "Hello?",
+                    "citations": [{"source": "Doc1", "page": 1}],
+                    "reranker_docs": [{"page_content": "Example text", "metadata": {"id": "d1"}}],
+                    "context_usage": {
+                        "tokens": 123,
+                        "prompt_tokens": 12,
+                        "completion_tokens": 111,
+                    },
                 },
             },
-        }
+        ]
+        async for event in _yield_v3_events(events):
+            yield event
 
 
 class StubGraphWithInterpreterLeakAttempt:
-    async def stream_chat(self, **kwargs: object) -> AsyncIterator[dict[str, object]]:
-        _ = kwargs
-        yield {"type": "text", "delta": "- Navigate to the Visual Applications page. [1]\n- Click New. [1]"}
+    async def astream_events(
+        self,
+        input_payload: dict[str, object],
+        *,
+        config: dict[str, object],
+        version: str,
+    ) -> AsyncIterator[dict[str, object]]:
+        _ = input_payload, config, version
+        events: list[dict[str, object]] = [
+            {"type": "text", "delta": "- Navigate to the Visual Applications page. [1]\n- Click New. [1]"},
+            {
+                "type": "references",
+                "data": {
+                    "standalone_question": None,
+                    "citations": [{"source": "Doc1", "page": 1}],
+                    "reranker_docs": [{"page_content": "Example text", "metadata": {"id": "d1"}}],
+                    "context_usage": {"tokens": 22},
+                },
+            },
+        ]
+        async for event in _yield_v3_events(events):
+            yield event
+
+
+class StubRuntimeEventService:
+    async def astream_events(
+        self,
+        input_payload: dict[str, object],
+        *,
+        config: dict[str, object],
+        version: str,
+    ) -> AsyncIterator[dict[str, object]]:
+        _ = input_payload, config, version
+        async for event in _yield_v3_events(self.events()):
+            yield event
+
+    def events(self) -> list[dict[str, object]]:
+        return [
+            {"type": "text", "delta": "Hello from new runtime stream."},
+            {
+                "type": "references",
+                "data": {
+                    "standalone_question": "Hello?",
+                    "citations": [{"source": "Doc1", "page": 1}],
+                    "reranker_docs": [{"page_content": "Example text", "metadata": {"id": "d1"}}],
+                    "context_usage": {"tokens": 99},
+                },
+            },
+        ]
+
+
+class StubRuntimeEventServiceWithDecimal(StubRuntimeEventService):
+    def events(self) -> list[dict[str, object]]:
+        return [
+            {"type": "text", "delta": "Hello from decimal runtime stream."},
+            {
+                "type": "references",
+                "data": {
+                    "standalone_question": "Hello?",
+                    "citations": [{"source": "Doc1", "page": 1, "score": Decimal("0.75")}],
+                    "reranker_docs": [{"page_content": "Example text", "metadata": {"score": Decimal("0.5")}}],
+                    "context_usage": {"tokens": Decimal("99")},
+                },
+            },
+        ]
+
+
+class StubRuntimeEventServiceWithToolProgress(StubRuntimeEventService):
+    def events(self) -> list[dict[str, object]]:
+        return [
+            {
+                "type": "tool_event",
+                "data": {
+                    "phase": "start",
+                    "tool_name": "oic_LIST_DOCUMENTS",
+                    "args": {"folderName": "invoices"},
+                },
+            },
+            {"type": "text", "delta": "Processing complete."},
+            {
+                "type": "references",
+                "data": {
+                    "standalone_question": "Review invoices",
+                    "citations": [],
+                    "reranker_docs": [],
+                    "mcp_used": True,
+                    "mcp_tools_used": ["oic_LIST_DOCUMENTS"],
+                },
+            },
+        ]
+
+
+class StubRuntimeV3EventService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def astream_events(
+        self,
+        input_payload: dict[str, object],
+        *,
+        config: dict[str, object],
+        version: str,
+    ) -> AsyncIterator[dict[str, object]]:
+        self.calls.append({"input": input_payload, "config": config, "version": version})
         yield {
-            "type": "references",
-            "data": {
-                "standalone_question": None,
-                "citations": [{"source": "Doc1", "page": 1}],
-                "reranker_docs": [{"page_content": "Example text", "metadata": {"id": "d1"}}],
-                "context_usage": {"tokens": 22},
+            "type": "event",
+            "method": "messages",
+            "params": {
+                "data": (
+                    {
+                        "event": "content-block-delta",
+                        "delta": {"type": "text-delta", "text": "Hello from v3"},
+                    },
+                    {"langgraph_node": "model"},
+                )
             },
         }
-
-
-class StubRuntimeStreamService:
-    async def stream_chat(self, **kwargs: object) -> AsyncIterator[dict[str, object]]:
-        _ = kwargs
-        yield {"type": "text", "delta": "Hello from new runtime stream."}
         yield {
-            "type": "references",
-            "data": {
-                "standalone_question": "Hello?",
-                "citations": [{"source": "Doc1", "page": 1}],
-                "reranker_docs": [{"page_content": "Example text", "metadata": {"id": "d1"}}],
-                "context_usage": {"tokens": 99},
-            },
-        }
-
-
-class StubRuntimeStreamServiceWithDecimal:
-    async def stream_chat(self, **kwargs: object) -> AsyncIterator[dict[str, object]]:
-        _ = kwargs
-        yield {"type": "text", "delta": "Hello from decimal runtime stream."}
-        yield {
-            "type": "references",
-            "data": {
-                "standalone_question": "Hello?",
-                "citations": [{"source": "Doc1", "page": 1, "score": Decimal("0.75")}],
-                "reranker_docs": [{"page_content": "Example text", "metadata": {"score": Decimal("0.5")}}],
-                "context_usage": {"tokens": Decimal("99")},
-            },
-        }
-
-
-class StubRuntimeStreamServiceWithToolProgress:
-    async def stream_chat(self, **kwargs: object) -> AsyncIterator[dict[str, object]]:
-        _ = kwargs
-        yield {
-            "type": "tool_event",
-            "data": {
-                "phase": "start",
-                "tool_name": "oic_LIST_DOCUMENTS",
-                "args": {"folderName": "invoices"},
-            },
-        }
-        yield {"type": "text", "delta": "Processing complete."}
-        yield {
-            "type": "references",
-            "data": {
-                "standalone_question": "Review invoices",
-                "citations": [],
-                "reranker_docs": [],
-                "mcp_used": True,
-                "mcp_tools_used": ["oic_LIST_DOCUMENTS"],
+            "type": "event",
+            "method": "messages",
+            "params": {
+                "data": (
+                    {
+                        "event": "content-block-delta",
+                        "delta": {"type": "text-delta", "text": " events."},
+                    },
+                    {"langgraph_node": "model"},
+                )
             },
         }
 
@@ -158,10 +256,10 @@ def test_values_stream_happy_path() -> None:
         app.dependency_overrides.clear()
 
 
-def test_values_stream_prefers_service_level_stream_chat() -> None:
+def test_values_stream_uses_app_v3_event_stream() -> None:
     from api.dependencies import get_graph_service
 
-    app.dependency_overrides[get_graph_service] = lambda: StubRuntimeStreamService()
+    app.dependency_overrides[get_graph_service] = lambda: StubRuntimeEventService()
 
     async def run() -> None:
         headers = {"Content-Type": "application/json"}
@@ -192,6 +290,43 @@ def test_values_stream_prefers_service_level_stream_chat() -> None:
         app.dependency_overrides.clear()
 
 
+def test_values_stream_uses_v3_event_stream_when_available() -> None:
+    from api.dependencies import get_graph_service
+
+    stub = StubRuntimeV3EventService()
+    app.dependency_overrides[get_graph_service] = lambda: stub
+
+    async def run() -> None:
+        headers = {"Content-Type": "application/json"}
+        payload = _stream_payload([{"type": "human", "content": "Hello"}])
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            async with client.stream(
+                "POST",
+                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+                headers=headers,
+                json=payload,
+            ) as response:
+                assert response.status_code == 200
+                chunks: list[bytes] = []
+                async for chunk in response.aiter_bytes():
+                    chunks.append(chunk)
+
+        assert stub.calls
+        assert stub.calls[0]["version"] == "v3"
+        config = cast(dict[str, object], stub.calls[0]["config"])
+        assert cast(dict[str, object], config["configurable"])["thread_id"] == THREAD_ID
+        events = _parse_values_events(chunks)
+        assistant = _last_assistant(events)
+        assert assistant.get("content") == "Hello from v3 events."
+
+    try:
+        asyncio.run(run())
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_values_stream_logs_conversation_out(monkeypatch) -> None:
     from api.dependencies import get_graph_service
 
@@ -205,7 +340,7 @@ def test_values_stream_logs_conversation_out(monkeypatch) -> None:
         fake_log_conversation_out,
         raising=False,
     )
-    app.dependency_overrides[get_graph_service] = lambda: StubRuntimeStreamService()
+    app.dependency_overrides[get_graph_service] = lambda: StubRuntimeEventService()
 
     async def run() -> None:
         headers = {"Content-Type": "application/json"}
@@ -242,7 +377,7 @@ def test_values_stream_logs_conversation_out(monkeypatch) -> None:
 def test_values_stream_sanitizes_decimal_in_references() -> None:
     from api.dependencies import get_graph_service
 
-    app.dependency_overrides[get_graph_service] = lambda: StubRuntimeStreamServiceWithDecimal()
+    app.dependency_overrides[get_graph_service] = lambda: StubRuntimeEventServiceWithDecimal()
 
     async def run() -> None:
         headers = {"Content-Type": "application/json"}
@@ -277,7 +412,7 @@ def test_values_stream_sanitizes_decimal_in_references() -> None:
 def test_values_stream_includes_tool_progress_events() -> None:
     from api.dependencies import get_graph_service
 
-    app.dependency_overrides[get_graph_service] = lambda: StubRuntimeStreamServiceWithToolProgress()
+    app.dependency_overrides[get_graph_service] = lambda: StubRuntimeEventServiceWithToolProgress()
 
     async def run() -> None:
         headers = {"Content-Type": "application/json"}
@@ -314,9 +449,18 @@ def test_values_stream_error_on_empty_message() -> None:
     from api.dependencies import get_graph_service
 
     class EmptyErrorStreamService:
-        async def stream_chat(self, **kwargs: object) -> AsyncIterator[dict[str, object]]:
-            _ = kwargs
-            yield {"type": "references", "data": {"error": "Empty or missing user message"}}
+        async def astream_events(
+            self,
+            input_payload: dict[str, object],
+            *,
+            config: dict[str, object],
+            version: str,
+        ) -> AsyncIterator[dict[str, object]]:
+            _ = input_payload, config, version
+            async for event in _yield_v3_events(
+                [{"type": "references", "data": {"error": "Empty or missing user message"}}]
+            ):
+                yield event
 
     app.dependency_overrides[get_graph_service] = lambda: EmptyErrorStreamService()
 
@@ -353,10 +497,16 @@ def test_values_stream_emits_generic_error_on_exception() -> None:
     from api.dependencies import get_graph_service
 
     class RaisingGraph:
-        async def stream_chat(self, **kwargs: object) -> AsyncIterator[dict[str, object]]:
-            _ = kwargs
+        async def astream_events(
+            self,
+            input_payload: dict[str, object],
+            *,
+            config: dict[str, object],
+            version: str,
+        ) -> AsyncIterator[dict[str, object]]:
+            _ = input_payload, config, version
             raise Exception("SECRET_DO_NOT_LEAK")
-            yield {"type": "text", "delta": ""}  # pragma: no cover
+            yield _v3_raw_event("messages", {})  # pragma: no cover
 
     app.dependency_overrides[get_graph_service] = lambda: RaisingGraph()
 

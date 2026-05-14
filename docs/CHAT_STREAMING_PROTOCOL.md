@@ -23,6 +23,9 @@ Notes:
 - Stream completion is transport close (there is no `[DONE]` sentinel).
 - Assistant references/citations are carried in `response_metadata` / `additional_kwargs`.
 - Frontend uses `@langchain/react` `useStream` against `${NEXT_PUBLIC_API_BASE}/api/langgraph`.
+- Internally, `RuntimeAgent` consumes LangChain/LangGraph `astream_events(..., version="v3")`
+  from the runtime service, then adapts text/tool-call/reference projections back into
+  this values-stream contract.
 
 Example request:
 
