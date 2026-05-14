@@ -37,7 +37,9 @@ def _v3_raw_event(method: str, data: object) -> dict[str, object]:
     return {"type": "event", "method": method, "params": {"data": data}}
 
 
-async def _yield_v3_events(runtime_events: list[dict[str, object]]) -> AsyncIterator[dict[str, object]]:
+async def _yield_v3_events(
+    runtime_events: list[dict[str, object]],
+) -> AsyncIterator[dict[str, object]]:
     for event in runtime_events:
         event_type = event.get("type")
         if event_type == "text":
@@ -96,7 +98,10 @@ class StubGraphWithInterpreterLeakAttempt:
     ) -> AsyncIterator[dict[str, object]]:
         _ = input_payload, config, version
         events: list[dict[str, object]] = [
-            {"type": "text", "delta": "- Navigate to the Visual Applications page. [1]\n- Click New. [1]"},
+            {
+                "type": "text",
+                "delta": "- Navigate to the Visual Applications page. [1]\n- Click New. [1]",
+            },
             {
                 "type": "references",
                 "data": {
@@ -147,7 +152,9 @@ class StubRuntimeEventServiceWithDecimal(StubRuntimeEventService):
                 "data": {
                     "standalone_question": "Hello?",
                     "citations": [{"source": "Doc1", "page": 1, "score": Decimal("0.75")}],
-                    "reranker_docs": [{"page_content": "Example text", "metadata": {"score": Decimal("0.5")}}],
+                    "reranker_docs": [
+                        {"page_content": "Example text", "metadata": {"score": Decimal("0.5")}}
+                    ],
                     "context_usage": {"tokens": Decimal("99")},
                 },
             },
@@ -317,6 +324,51 @@ def test_values_stream_uses_v3_event_stream_when_available() -> None:
         assert stub.calls[0]["version"] == "v3"
         config = cast(dict[str, object], stub.calls[0]["config"])
         assert cast(dict[str, object], config["configurable"])["thread_id"] == THREAD_ID
+        events = _parse_values_events(chunks)
+        assistant = _last_assistant(events)
+        assert assistant.get("content") == "Hello from v3 events."
+
+    try:
+        asyncio.run(run())
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_values_stream_reads_v3_events_without_runtime_agent_adapter(monkeypatch) -> None:
+    from api.dependencies import get_graph_service
+
+    async def fail_runtime_agent_stream(
+        *args: object, **kwargs: object
+    ) -> AsyncIterator[dict[str, object]]:
+        _ = args, kwargs
+        raise AssertionError("stream endpoint should consume service.astream_events directly")
+        yield {}  # pragma: no cover
+
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.agent.RuntimeAgent.stream",
+        fail_runtime_agent_stream,
+        raising=False,
+    )
+    stub = StubRuntimeV3EventService()
+    app.dependency_overrides[get_graph_service] = lambda: stub
+
+    async def run() -> None:
+        headers = {"Content-Type": "application/json"}
+        payload = _stream_payload([{"type": "human", "content": "Hello"}])
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            async with client.stream(
+                "POST",
+                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+                headers=headers,
+                json=payload,
+            ) as response:
+                assert response.status_code == 200
+                chunks: list[bytes] = []
+                async for chunk in response.aiter_bytes():
+                    chunks.append(chunk)
+
         events = _parse_values_events(chunks)
         assistant = _last_assistant(events)
         assert assistant.get("content") == "Hello from v3 events."

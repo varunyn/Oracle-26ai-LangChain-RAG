@@ -1,7 +1,7 @@
 """LangGraph-style thread/run router served by the FastAPI app.
 
 This module provides the API surface used by frontend ``useStream`` clients
-and delegates runtime execution to ``RuntimeAgent``.
+and delegates runtime execution to ``ChatRuntimeService``.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from api.routes.responses import chat_completion_response_json
 from api.serialization import make_metadata_safe
 from src.rag_agent.core.citations import normalize_citations
 from src.rag_agent.runtime.agent import RuntimeAgent
+from src.rag_agent.runtime.streaming import astream_v3_raw_events, runtime_events_from_v3
 
 router = APIRouter(tags=["langgraph-runtime"])
 logger = logging.getLogger(__name__)
@@ -276,8 +277,10 @@ async def stream_thread_run(
                 message_id=f"{thread_id}:pending:{turn_id}:{idx}",
             )
             last = base_messages[-1] if base_messages else None
-            if last and last.get("type") == pending.get("type") and last.get("content") == pending.get(
-                "content"
+            if (
+                last
+                and last.get("type") == pending.get("type")
+                and last.get("content") == pending.get("content")
             ):
                 continue
             base_messages.append(pending)
@@ -300,7 +303,8 @@ async def stream_thread_run(
             return f"event: values\ndata: {_json_response_body(payload)}\n\n"
 
         try:
-            async for event in runtime_agent.stream(
+            async for raw_event in astream_v3_raw_events(
+                chat_runtime_service,
                 messages=messages,
                 model_id=run_input.model,
                 thread_id=thread_id,
@@ -311,30 +315,33 @@ async def stream_thread_run(
                 mode=run_input.mode,
                 mcp_server_keys=run_input.mcp_server_keys,
             ):
-                if event.get("type") == "text":
-                    delta = str(event.get("delta") or "")
-                    if delta:
-                        assistant_text += delta
+                for event in runtime_events_from_v3(raw_event):
+                    if event.get("type") == "text":
+                        delta = str(event.get("delta") or "")
+                        if delta:
+                            assistant_text += delta
+                            yield _emit_values()
+                    elif event.get("type") == "references":
+                        safe_references = make_metadata_safe(
+                            cast(dict[str, object], event.get("data") or {})
+                        )
+                        citations = normalize_citations(
+                            cast(list[dict[str, object]], safe_references.get("citations") or [])
+                        )
+                        safe_references["citations"] = citations
+                        if progress_events:
+                            safe_references["mcp_progress_events"] = list(progress_events)
+                        references = cast(dict[str, object], safe_references)
                         yield _emit_values()
-                elif event.get("type") == "references":
-                    safe_references = make_metadata_safe(
-                        cast(dict[str, object], event.get("data") or {})
-                    )
-                    citations = normalize_citations(
-                        cast(list[dict[str, object]], safe_references.get("citations") or [])
-                    )
-                    safe_references["citations"] = citations
-                    if progress_events:
-                        safe_references["mcp_progress_events"] = list(progress_events)
-                    references = cast(dict[str, object], safe_references)
-                    yield _emit_values()
-                elif event.get("type") == "tool_event":
-                    safe_event = make_metadata_safe(cast(dict[str, object], event.get("data") or {}))
-                    progress_events.append(cast(dict[str, object], safe_event))
-                    if len(progress_events) > 100:
-                        progress_events = progress_events[-100:]
-                    references["mcp_progress_events"] = list(progress_events)
-                    yield _emit_values()
+                    elif event.get("type") == "tool_event":
+                        safe_event = make_metadata_safe(
+                            cast(dict[str, object], event.get("data") or {})
+                        )
+                        progress_events.append(cast(dict[str, object], safe_event))
+                        if len(progress_events) > 100:
+                            progress_events = progress_events[-100:]
+                        references["mcp_progress_events"] = list(progress_events)
+                        yield _emit_values()
             log_conversation_out(
                 final_answer=assistant_text,
                 error=cast(str | None, references.get("error")),
@@ -376,15 +383,15 @@ async def get_thread_state(
         status_code=200,
         content=jsonable_encoder(
             {
-            "values": {
-                "messages": _serialize_state_messages(values.get("messages")),
-            },
-            "next": [],
-            "tasks": [],
-            "checkpoint": None,
-            "metadata": {},
-            "created_at": None,
-            "parent_checkpoint": None,
+                "values": {
+                    "messages": _serialize_state_messages(values.get("messages")),
+                },
+                "next": [],
+                "tasks": [],
+                "checkpoint": None,
+                "metadata": {},
+                "created_at": None,
+                "parent_checkpoint": None,
             }
         ),
     )

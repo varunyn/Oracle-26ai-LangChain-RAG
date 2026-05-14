@@ -35,6 +35,7 @@ from .memory import (
     to_langchain_messages,
 )
 from .observability import emit_usage_observability, extract_usage
+from .streaming import v3_raw_event
 from .thread_checkpoints import LangGraphCheckpointThreadStateStore
 
 logger = logging.getLogger(__name__)
@@ -53,18 +54,6 @@ def get_llm(model_id: str | None = None) -> Any:
 
 
 get_oracle_vs = _oci_models.get_oracle_vs
-
-
-def _v3_raw_event(*, method: str, data: object) -> dict[str, object]:
-    return {
-        "type": "event",
-        "method": method,
-        "params": {
-            "namespace": [],
-            "timestamp": int(time.time() * 1000),
-            "data": data,
-        },
-    }
 
 
 def search_documents(**kwargs: object) -> list[Document]:
@@ -95,10 +84,13 @@ def _prepare_run_config(
     session_id: str | None,
     enable_tracing: bool | None,
 ) -> RunnableConfig:
-    base = _build_run_config(
-        thread_id=thread_id,
-        mcp_server_keys=mcp_server_keys,
-    ) or {}
+    base = (
+        _build_run_config(
+            thread_id=thread_id,
+            mcp_server_keys=mcp_server_keys,
+        )
+        or {}
+    )
     run_config: dict[str, object] = dict(base)
     configurable = run_config.get("configurable")
     if isinstance(configurable, dict):
@@ -180,7 +172,9 @@ def _workflow_policy_for_request(*, mode: str, question: str) -> dict[str, objec
     apply_modes = _to_string_list(policy_raw.get("apply_modes")) or ["mixed"]
     if mode not in {m.lower() for m in apply_modes}:
         return None
-    activation_terms = [term.lower() for term in _to_string_list(policy_raw.get("activation_terms"))]
+    activation_terms = [
+        term.lower() for term in _to_string_list(policy_raw.get("activation_terms"))
+    ]
     lower_question = question.strip().lower()
     if activation_terms and not any(term in lower_question for term in activation_terms):
         return None
@@ -233,11 +227,7 @@ def _enforce_workflow_policy(
     tool_capability_map = cast(dict[str, list[str]], policy.get("tool_capability_map") or {})
     if not required_capabilities or not tool_capability_map:
         return False, [], None
-    called_tool_names = {
-        str(name).strip().lower()
-        for name in tools_used
-        if str(name).strip()
-    }
+    called_tool_names = {str(name).strip().lower() for name in tools_used if str(name).strip()}
     called_tool_names.update(
         str(inv.get("tool_name") or "").strip().lower()
         for inv in tool_invocations
@@ -407,10 +397,14 @@ class ChatRuntimeService:
                 tools_used=tools_used,
                 tool_invocations=cast(list[dict[str, object]], tool_invocations),
             )
-            policy_error = policy_failure_message if policy_applied and missing_capabilities else None
+            policy_error = (
+                policy_failure_message if policy_applied and missing_capabilities else None
+            )
             if policy_error:
                 final_answer = policy_error
-            tool_failure_error = _tool_failure_summary(cast(list[dict[str, object]], tool_invocations))
+            tool_failure_error = _tool_failure_summary(
+                cast(list[dict[str, object]], tool_invocations)
+            )
             if not policy_error and _is_trivial_answer(final_answer) and tool_failure_error:
                 final_answer = tool_failure_error
                 policy_error = tool_failure_error
@@ -461,9 +455,7 @@ class ChatRuntimeService:
                 "citations": self._citations_from_docs(retrieval_docs),
                 "reranker_docs": self._serialize_docs(retrieval_docs),
                 "context_usage": (
-                    {"retrieved_docs_count": len(retrieval_docs)}
-                    if retrieval_docs
-                    else None
+                    {"retrieved_docs_count": len(retrieval_docs)} if retrieval_docs else None
                 ),
                 "mcp_used": bool(tools_used),
                 "mcp_tools_used": tools_used,
@@ -539,8 +531,13 @@ class ChatRuntimeService:
                     "mcp_tools_used": tools_used,
                     "mcp_tool_invocations": tool_invocations,
                 }
-                tool_failure_error = _tool_failure_summary(cast(list[dict[str, object]], tool_invocations))
-                if _is_trivial_answer(str(mcp_result.get("final_answer") or "")) and tool_failure_error:
+                tool_failure_error = _tool_failure_summary(
+                    cast(list[dict[str, object]], tool_invocations)
+                )
+                if (
+                    _is_trivial_answer(str(mcp_result.get("final_answer") or ""))
+                    and tool_failure_error
+                ):
                     mcp_result["final_answer"] = tool_failure_error
                     mcp_result["error"] = tool_failure_error
                 mcp_result["model_id"] = resolved_model_id
@@ -739,7 +736,9 @@ class ChatRuntimeService:
             raise ValueError("ChatRuntimeService only supports stream_events version='v3'.")
 
         raw_messages = input_payload.get("messages")
-        messages = cast(list[dict[str, object]], raw_messages if isinstance(raw_messages, list) else [])
+        messages = cast(
+            list[dict[str, object]], raw_messages if isinstance(raw_messages, list) else []
+        )
         configurable = config.get("configurable") if isinstance(config, dict) else None
         cfg = cast(dict[str, object], configurable if isinstance(configurable, dict) else {})
 
@@ -759,7 +758,7 @@ class ChatRuntimeService:
                 text = str(event.get("delta") or "")
                 if not text:
                     continue
-                yield _v3_raw_event(
+                yield v3_raw_event(
                     method="messages",
                     data=(
                         {
@@ -770,9 +769,9 @@ class ChatRuntimeService:
                     ),
                 )
             elif event_type == "tool_event":
-                yield _v3_raw_event(method="tool_calls", data=event.get("data") or {})
+                yield v3_raw_event(method="tool_calls", data=event.get("data") or {})
             elif event_type == "references":
-                yield _v3_raw_event(
+                yield v3_raw_event(
                     method="custom",
                     data={"type": "references", "data": event.get("data") or {}},
                 )
@@ -933,7 +932,9 @@ class ChatRuntimeService:
                 references["mcp_used"] = True
             mcp_tools_used = result.get("mcp_tools_used")
             if isinstance(mcp_tools_used, list):
-                references["mcp_tools_used"] = [str(tool) for tool in mcp_tools_used if str(tool).strip()]
+                references["mcp_tools_used"] = [
+                    str(tool) for tool in mcp_tools_used if str(tool).strip()
+                ]
             mcp_inv = result.get("mcp_tool_invocations")
             if isinstance(mcp_inv, list) and mcp_inv:
                 references["mcp_tool_invocations"] = mcp_inv
