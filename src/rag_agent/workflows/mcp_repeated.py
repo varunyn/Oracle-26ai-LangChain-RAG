@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
+from langchain_core.messages import ToolMessage
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -227,7 +228,7 @@ def _cached_tool(tool: BaseTool, cache: dict[str, object]) -> BaseTool:
             default=str,
         )
         if cache_key not in cache:
-            cache[cache_key] = await tool.ainvoke(kwargs)
+            cache[cache_key] = await _invoke_tool_for_cache(tool, kwargs, cache_key)
         return cache[cache_key]
 
     args_schema = tool.args_schema or tool.get_input_schema()
@@ -239,6 +240,22 @@ def _cached_tool(tool: BaseTool, cache: dict[str, object]) -> BaseTool:
         response_format=getattr(tool, "response_format", "content"),
         metadata=getattr(tool, "metadata", None),
     )
+
+
+async def _invoke_tool_for_cache(tool: BaseTool, kwargs: dict[str, Any], cache_key: str) -> Any:
+    if getattr(tool, "response_format", "content") != "content_and_artifact":
+        return await tool.ainvoke(kwargs)
+
+    tool_call = {
+        "type": "tool_call",
+        "id": f"cached_{abs(hash(cache_key))}",
+        "name": tool.name,
+        "args": kwargs,
+    }
+    result = await tool.ainvoke(tool_call)
+    if isinstance(result, ToolMessage):
+        return (result.content, result.artifact)
+    return result
 
 
 def _workflow_config(workflow_thread_id: str) -> dict[str, dict[str, str]]:

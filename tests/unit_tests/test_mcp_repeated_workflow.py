@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 
-from langchain_core.tools import tool
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import StructuredTool, tool
 
-from src.rag_agent.workflows.mcp_repeated import run_repeated_mcp_workflow
+from src.rag_agent.workflows.mcp_repeated import _cached_tool, run_repeated_mcp_workflow
 from src.rag_agent.workflows.work_unit_extraction import extract_work_units_from_tool_invocations
 
 
@@ -67,6 +68,44 @@ def test_extract_work_units_ignores_nested_detail_collections() -> None:
     ]
 
     assert extract_work_units_from_tool_invocations(invocations) == []
+
+
+def test_cached_tool_preserves_content_and_artifact_response_format() -> None:
+    calls = 0
+
+    async def retrieve(query: str) -> tuple[str, list[dict[str, str]]]:
+        """Retrieve context."""
+        nonlocal calls
+        calls += 1
+        return ("retrieved context", [{"query": query}])
+
+    tool_with_artifact = StructuredTool.from_function(
+        coroutine=retrieve,
+        name="oracle_retrieval",
+        description="Retrieve context.",
+        response_format="content_and_artifact",
+    )
+    cached = _cached_tool(tool_with_artifact, {})
+
+    async def invoke_twice() -> tuple[object, object]:
+        tool_call = {
+            "type": "tool_call",
+            "id": "call-1",
+            "name": "oracle_retrieval",
+            "args": {"query": "payment terms"},
+        }
+        first = await cached.ainvoke(tool_call)
+        second = await cached.ainvoke(tool_call)
+        return first, second
+
+    first_result, second_result = asyncio.run(invoke_twice())
+
+    assert calls == 1
+    assert isinstance(first_result, ToolMessage)
+    assert first_result.content == "retrieved context"
+    assert first_result.artifact == [{"query": "payment terms"}]
+    assert isinstance(second_result, ToolMessage)
+    assert second_result.artifact == first_result.artifact
 
 
 def test_run_repeated_mcp_workflow_discovers_processes_then_finalizes(monkeypatch) -> None:
