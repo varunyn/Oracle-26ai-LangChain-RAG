@@ -83,6 +83,9 @@ def get_langfuse_client() -> Any | None:
     release = getattr(get_settings(), "LANGFUSE_RELEASE", None)
     if release:
         extra_kwargs["release"] = release
+    sample_rate = getattr(get_settings(), "LANGFUSE_SAMPLE_RATE", None)
+    if isinstance(sample_rate, (int, float)) and not isinstance(sample_rate, bool):
+        extra_kwargs["sample_rate"] = float(sample_rate)
 
     with _CLIENT_LOCK:
         if _LANGFUSE_CLIENT is not None:

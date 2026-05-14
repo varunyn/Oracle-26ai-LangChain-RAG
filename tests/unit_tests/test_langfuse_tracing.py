@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 from src.rag_agent.core import config
@@ -45,6 +46,34 @@ def test_add_langfuse_callbacks_enabled_adds_callbacks_and_metadata(monkeypatch:
     assert run_config["metadata"].get("langfuse_session_id") == "sess-2"
     assert run_config["metadata"].get("langfuse_user_id") == "user-2"
     assert run_config["configurable"]["thread_id"] == "t-2"
+
+
+def test_get_langfuse_client_passes_sample_rate_when_configured(monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    class _LangfuseRuntime:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", _LangfuseRuntime)
+    monkeypatch.setattr(
+        langfuse_tracing,
+        "get_settings",
+        lambda: SimpleNamespace(
+            LANGFUSE_HOST="http://localhost:3300",
+            LANGFUSE_PUBLIC_KEY="pk-test",
+            LANGFUSE_SECRET_KEY="sk-test",
+            LANGFUSE_TRACING_ENVIRONMENT="test",
+            LANGFUSE_ENVIRONMENT=None,
+            LANGFUSE_RELEASE=None,
+            LANGFUSE_SAMPLE_RATE=0.25,
+        ),
+    )
+    langfuse_tracing.set_langfuse_client(None, disabled=False)
+
+    assert langfuse_tracing.get_langfuse_client() is not None
+    assert captured["sample_rate"] == 0.25
 
 
 def test_safe_flush_no_op_when_disabled(monkeypatch: Any) -> None:

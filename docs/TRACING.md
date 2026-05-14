@@ -62,6 +62,7 @@ Tracing is done **via the LangChain callback stack** (no API-level manual trace)
    - `LANGFUSE_HOST` (e.g., `http://localhost:3300` for the local stack)
    - `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`
    - `LANGFUSE_TRACING_ENVIRONMENT` (optional, defaults to `development`)
+   - `LANGFUSE_SAMPLE_RATE` (optional, `0.0` to `1.0`) to reduce trace volume
 3. Restart `./run_api.sh`. The chat route injects a Langfuse `CallbackHandler` into run config when Langfuse is enabled. Every invoke/stream sends a **single trace** with nested spans for LLM and tool execution, plus token usage where available.
 4. Inspect the trace in Langfuse (Sessions → latest trace). The SDK runs fail-open—if Langfuse is offline, requests continue without blocking.
 5. **Session vs thread**: The frontend sends a **session_id** (new per tab load/refresh, not persisted) and a **thread_id** (conversation continuity, persisted in localStorage). The backend passes `session_id` into the run config metadata (`langfuse_session_id`) so Langfuse groups traces into Sessions (one “browser visit”).
