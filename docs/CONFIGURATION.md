@@ -18,7 +18,7 @@ Jump to any section:
 | [LLM & embeddings](#llm--embeddings)                           | Chat model, temperature, and embedding model  |
 | [Oracle Vector Store](#oracle-vector-store)                    | Database connection for RAG search            |
 | [RAG / Search](#rag--search)                                   | Retrieval and context options                 |
-| [UI (backend)](#ui-backend)                                    | Language list and user feedback               |
+| [UI (backend)](#ui-backend)                                    | CORS and user feedback                         |
 | [Frontend (Next.js)](#frontend-nextjs)                         | Default flow mode, default model, backend URL |
 | [Conversation memory / threads](#conversation-memory--threads) | Checkpointer and clear-chat behavior          |
 | [MCP](#mcp)                                                    | MCP tools and server config                   |
@@ -108,6 +108,8 @@ Choose the chat model for generation and the embedding model for search.
 | `MAX_TOKENS`          | `4000`                        | Maximum tokens per response.                                                              |
 | `MODEL_LIST`          | (by region)                   | Comma-separated or JSON array of model IDs. If unset, defaults are derived from `REGION`. |
 | `MODEL_DISPLAY_NAMES` | `{}`                          | JSON object mapping model ID to display name (e.g. `{"model.id":"Display Name"}`).        |
+| `OCI_MAX_SEQUENTIAL_TOOL_CALLS` | `10`               | Maximum sequential OCI native tool calls before the model runtime stops tool iteration.    |
+| `OCI_TOOL_RESULT_GUIDANCE` | `true`                  | Add guidance around OCI tool results when supported by the runtime.                        |
 | `EMBED_MODEL_TYPE`    | `OCI`                         | Embedding provider (only `OCI` supported).                                                |
 | `EMBED_MODEL_ID`      | `cohere.embed-v4.0`           | Embedding model ID.                                                                       |
 
@@ -148,11 +150,13 @@ Control retrieval breadth and context shaping.
 
 ## UI (backend)
 
-Backend options that affect the UI (e.g. dropdowns and features).
+Backend options that affect browser access and UI features.
 
 | Variable               | Default                                | Description                                        |
 | ---------------------- | -------------------------------------- | -------------------------------------------------- |
 | `ENABLE_USER_FEEDBACK` | `true`                                 | Enable in-UI feedback (e.g. star rating).          |
+| `ENABLE_CORS`          | `true`                                 | Enable FastAPI CORS middleware.                    |
+| `CORS_ALLOW_ORIGINS`   | localhost frontend URLs                | Comma-separated or JSON array of allowed origins.  |
 
 ---
 
@@ -178,9 +182,11 @@ Thread state behavior.
 
 | Variable                   | Default          | Description                                                       |
 | -------------------------- | ---------------- | ----------------------------------------------------------------- |
-| `ALLOW_CLIENT_THREAD_ID`   | (when supported) | Allow client to send thread ID.                                   |
-| `THREAD_ID_STRATEGY`       | (when supported) | How thread IDs are generated.                                     |
-| `THREAD_ID_PREFIX`         | (when supported) | Optional prefix for thread IDs.                                   |
+| `ENABLE_PERSISTENT_MEMORY` | `false`          | Persist thread state across API restarts.                         |
+| `LANGGRAPH_SQLITE_PATH`    | `.local-data/langgraph-checkpoints.sqlite` | SQLite checkpoint file used when persistent memory is enabled. |
+| `ALLOW_CLIENT_THREAD_ID`   | `true`           | Allow client to send thread ID.                                   |
+| `THREAD_ID_STRATEGY`       | `uuid4`          | How thread IDs are generated.                                     |
+| `THREAD_ID_PREFIX`         | empty            | Optional prefix for thread IDs.                                   |
 
 ### Clear chat
 
@@ -197,7 +203,19 @@ MCP (Model Context Protocol) client and server configuration.
 | `ENABLE_MCP_TOOLS`                  | `true`         | Enable MCP tool use.                                           |
 | `MCP_SERVER_KEYS`                   | (none)         | Comma-separated list of configured MCP server keys to load tools from (e.g. `default,context7`). This does not choose the default chat mode. |
 | `MCP_SEARCH_MODE`                   | `vector`       | Default retrieval mode for semantic-search MCP tools: `vector`, `hybrid`, or `text`. |
+| `MCP_MAX_ROUNDS`                    | `2`            | Maximum MCP tool-call rounds passed into chat runtime config. |
 | `ENABLE_MCP_CLIENT_JWT`             | `false`        | Enable JWT auth for MCP client.                                |
+| `ENABLE_MCP_OAUTH`                  | `false`        | Enable OAuth client-credentials auth for MCP clients. |
+| `MCP_OAUTH_CLIENT_ID`               | —              | OAuth client ID. |
+| `MCP_OAUTH_CLIENT_SECRET`           | —              | OAuth client secret. |
+| `MCP_OAUTH_TOKEN_URL`               | —              | OAuth token endpoint URL. |
+| `MCP_OAUTH_SCOPE`                   | —              | Optional OAuth scope. |
+| `MCP_OAUTH_GRANT_TYPE`              | `client_credentials` | OAuth grant type. |
+| `MCP_OAUTH_AUDIENCE`                | —              | Optional OAuth audience. |
+| `MCP_OAUTH_REFRESH_SKEW_SECONDS`    | `30`           | Refresh OAuth tokens this many seconds before expiry. |
+| `REQUIRE_TOOL_CALL`                 | `false`        | Require a tool call in supported MCP workflow paths. |
+| `MCP_REPEATED_WORKFLOW_CONTROLLER`  | `true`         | Enable repeated-workflow orchestration behavior. |
+| `MCP_WORKFLOW_POLICY`               | `{}`           | JSON object for workflow-controller policy. |
 | `MCP_SERVERS_CONFIG`                | (see settings) | JSON object; see [MCP-USAGE.md](MCP-USAGE.md).                 |
 
 ### MCP server runtime (`mcp_servers/*.py`)
@@ -226,6 +244,8 @@ Optional tracing, logging, and local Docker stacks.
 | `LANGFUSE_PUBLIC_KEY`          | —                       | Langfuse public key.                                    |
 | `LANGFUSE_SECRET_KEY`          | —                       | Langfuse secret key.                                    |
 | `LANGFUSE_TRACING_ENVIRONMENT` | `development`           | Langfuse tracing environment name.                      |
+| `LANGFUSE_ENVIRONMENT`         | —                       | Optional compatibility environment name.                |
+| `LANGFUSE_RELEASE`             | —                       | Optional release/version label for traces.              |
 | `LANGFUSE_SAMPLE_RATE`         | —                       | Optional trace sampling rate from `0.0` to `1.0`.       |
 
 **Langfuse stack (Docker)**
@@ -257,12 +277,14 @@ See [OBSERVABILITY.md](OBSERVABILITY.md) and [OBSERVABILITY_ROUTING.md](OBSERVAB
 
 ### OCI Logging Analytics (optional)
 
-| Variable                         | Default | Description                         |
-| -------------------------------- | ------- | ----------------------------------- |
-| `ENABLE_OCI_LOGGING_ANALYTICS`   | `false` | Send logs to OCI Logging Analytics. |
-| `LOGGING_ANALYTICS_NAMESPACE`    | —       | Logging Analytics namespace.        |
-| `LOGGING_ANALYTICS_LOG_GROUP_ID` | —       | Log group OCID.                     |
-| (others)                         | —       | See `.env.example` for full list.   |
+| Variable                              | Default   | Description                         |
+| ------------------------------------- | --------- | ----------------------------------- |
+| `ENABLE_OCI_LOGGING_ANALYTICS`        | `false`   | Send logs to OCI Logging Analytics. |
+| `LOGGING_ANALYTICS_NAMESPACE`         | —         | Logging Analytics namespace.        |
+| `LOGGING_ANALYTICS_LOG_GROUP_ID`      | —         | Log group OCID.                     |
+| `LOGGING_ANALYTICS_LOG_SET`           | —         | Optional log set name.              |
+| `LOGGING_ANALYTICS_RESOURCE_CATEGORY` | `rag-api` | Resource category metadata.         |
+| `LOGGING_ANALYTICS_META_PROPERTIES`   | —         | Optional extra metadata properties. |
 
 ---
 

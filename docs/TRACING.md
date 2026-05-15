@@ -57,7 +57,7 @@ Tracing is done **via the LangChain callback stack** (no API-level manual trace)
    - Copy `observability/langfuse/.env.example` → `.env` and update all secrets
    - Start the stack: `docker compose -f observability/langfuse/docker-compose.yml up -d`
    - Langfuse UI is available at `http://localhost:3300` by default (MinIO console on `http://localhost:9091`)
-2. Install the Python SDK (`pip install langfuse`) and set the Langfuse variables in `.env`:
+2. Sync project dependencies (`uv sync`; the Python SDK is pinned in `pyproject.toml`) and set the Langfuse variables in `.env`:
    - `ENABLE_LANGFUSE_TRACING = True`
    - `LANGFUSE_HOST` (e.g., `http://localhost:3300` for the local stack)
    - `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`

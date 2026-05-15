@@ -10,7 +10,8 @@ A LangChain-powered Oracle RAG application with chat, MCP tools, and observabili
 
 This repository is best understood as a **reference implementation**, not a zero-config starter. It combines:
 
-- a LangGraph-based backend with retrieval, reranking, follow-up handling, and MCP tool orchestration
+- a FastAPI backend with LangGraph-compatible thread/run endpoints
+- `ChatRuntimeService` mode dispatch for retrieval, MCP tools, direct chat, and follow-up transforms
 - a Next.js chat frontend with streaming responses and citations
 - Oracle/OCI-backed embeddings, chat models, and vector search
 - optional observability with OpenTelemetry, Grafana/Tempo/Loki, and Langfuse
@@ -33,112 +34,72 @@ This application provides an intelligent question-answering system that:
 
 ## Architecture
 
-The active backend runtime now uses the decision-first **LangGraph V2** workflow exposed through `src/rag_agent/workflow.py`. Instead of the legacy RAG-first mixed fallback path, V2 normalizes the turn, decides intent, and then executes exactly one branch: **retrieve**, **tool**, **direct**, or **reformat**. The finalizer packages the selected branch output into the stable `/api/chat` response and streaming contract.
+The active backend runtime is centered on `ChatRuntimeService` in `src/rag_agent/runtime/chat_service.py`. API routes normalize incoming chat turns, dispatch to one of the explicit runtime modes, and return stable chat responses or LangGraph-compatible `event: values` streams.
 
 ### Key Directories
 
-| Directory        | Purpose                                                                                             |
-| ---------------- | --------------------------------------------------------------------------------------------------- |
-| `src/rag_agent/` | LangGraph workflow, follow-up interpretation, search, reranker, answer generator, router, MCP nodes |
-| `api/`           | FastAPI app, chat/config/documents/feedback/health routers, graph invocation                        |
-| `frontend/`      | Next.js app; `src/app` (pages, API routes), `src/components`, `src/lib` (chat, config, types)       |
-| `mcp_servers/`   | MCP servers (RAG, semantic search, minimal)                                                         |
-| `scripts/`       | Document population, table create/drop/truncate, BM25                                               |
-| `tests/`         | Pytest and manual run scripts for MCP/workflow                                                      |
-| `docs/`          | Setup, MCP usage, tracing, OCI, database                                                            |
-
-```mermaid
----
-config:
-  flowchart:
-    curve: linear
----
-graph TD;
-    __start__([<p>__start__</p>]):::first
-    Router(Router)
-    Search(Search)
-    SearchErrorResponse(SearchErrorResponse)
-    Rerank(Rerank)
-    AnswerFromDocs(AnswerFromDocs)
-    DraftAnswer(DraftAnswer)
-    FollowUpInterpreter(FollowUpInterpreter)
-    GroundedReformatAnswer(GroundedReformatAnswer)
-    SelectMCPTools(SelectMCPTools)
-    CallMCPTools(CallMCPTools)
-    DirectAnswer(DirectAnswer)
-    __end__([<p>__end__</p>]):::last
-    AnswerFromDocs -. &nbsp;draft&nbsp; .-> DraftAnswer;
-    AnswerFromDocs -. &nbsp;select_mcp&nbsp; .-> SelectMCPTools;
-    CallMCPTools --> DraftAnswer;
-    DirectAnswer --> DraftAnswer;
-    FollowUpInterpreter -. &nbsp;reformat&nbsp; .-> GroundedReformatAnswer;
-    FollowUpInterpreter -. &nbsp;search&nbsp; .-> Search;
-    GroundedReformatAnswer --> DraftAnswer;
-    Rerank --> AnswerFromDocs;
-    Router -. &nbsp;direct&nbsp; .-> DirectAnswer;
-    Router -. &nbsp;followup&nbsp; .-> FollowUpInterpreter;
-    Router -. &nbsp;select_mcp&nbsp; .-> SelectMCPTools;
-    Search -. &nbsp;error&nbsp; .-> SearchErrorResponse;
-    Search -. &nbsp;rerank&nbsp; .-> Rerank;
-    SelectMCPTools --> CallMCPTools;
-    __start__ --> Router;
-    DraftAnswer --> __end__;
-    SearchErrorResponse --> __end__;
-    classDef default fill:#f2f0ff,line-height:1.2
-    classDef first fill-opacity:0
-    classDef last fill:#bfb6fc
-```
+| Directory                 | Purpose                                                                                       |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/rag_agent/runtime/`  | Chat runtime, streaming adapters, memory, retrieval helpers, and thread state persistence     |
+| `src/rag_agent/workflows/` | Repeated MCP workflow helpers and work-unit extraction                                        |
+| `src/rag_agent/infrastructure/` | OCI, Oracle vector search, MCP adapter, and model/tool integrations                    |
+| `api/`                    | FastAPI app, chat/config/documents/feedback/health routers, and LangGraph-compatible endpoints |
+| `frontend/`               | Next.js app; `src/app`, `src/components`, and `src/lib` chat/config/types                     |
+| `mcp_servers/`            | MCP servers for RAG, semantic search, and minimal local tools                                  |
+| `scripts/`                | Document population, database/table utilities, stack management, and API doc sync              |
+| `tests/`                  | Unit, workflow, integration, and manual run scripts                                            |
+| `docs/`                   | Setup, MCP usage, tracing, OCI, database, and generated API documentation                      |
 
 ## Key Components
 
-### 1. **Semantic Search** (`vector_search.py`)
+### 1. **Runtime Service** (`src/rag_agent/runtime/chat_service.py`)
 
-- Performs retrieval in Oracle AI Vector Search
-- Supports configurable retrieval mode (`vector`, `hybrid`, or `text`)
-- Returns the most relevant chunks for reranking and answer generation
+- Owns chat execution for `rag`, `mcp`, `mixed`, and `direct` modes
+- Maintains server-side thread memory
+- Emits LangChain/LangGraph v3 stream events for the thread/run API
 
-### 2. **Reranker** (`reranker.py`)
+### 2. **Retrieval Runtime** (`src/rag_agent/runtime/rag_runtime.py`)
 
-- Uses LLM to evaluate and rank retrieved documents
-- Filters out irrelevant results
-- Improves answer quality by focusing on best matches
+- Builds Oracle retrieval tools
+- Normalizes retrieved documents and citations
+- Supports direct RAG answer generation
 
-### 3. **Answer Generator** (`answer_generator.py`)
+### 3. **MCP Integrations** (`src/rag_agent/infrastructure/`)
 
-- Generates final answer using retrieved context
-- Includes citations to source documents
-- Supports streaming for real-time responses
+- Loads configured MCP servers and tools
+- Runs MCP-only and mixed retrieval/tool paths
+- Supports repeated work-unit workflows for multi-step tool tasks
 
-### 4. **State Management** (`agent_state.py`)
+### 4. **Thread State** (`src/rag_agent/runtime/thread_checkpoints.py`)
 
-- Manages workflow state across all nodes
-- Tracks: user request, chat history, documents, answers, errors
+- Persists current thread state when persistent memory is enabled
+- Keeps API state endpoints aligned with the LangGraph-compatible frontend protocol
 
 ## Data Flow
 
 ```
 User Query
     ↓
-[NormalizeTurn] → stabilize messages and current user request
+[Normalize Messages] → stable ChatMessage payload
     ↓
-[DecideIntent] → choose retrieve / tool / direct / reformat
+[Mode Dispatch] → rag | mcp | mixed | direct
     ↓
-[Retrieve Path] RewriteForRetrieval → RunRAG
+[RAG Path] Oracle retrieval + answer prompt
         OR
-[Tool Path] RunMCP
+[MCP Path] configured MCP tools
         OR
-[Direct Path] RunDirect
+[Mixed Path] Oracle retrieval tool + MCP tools in one agent loop
         OR
-[Reformat Path] ReformatAnswer
+[Direct Path] LLM on chat history only
     ↓
-[FinalizeResponse] → stable final answer + citations + references
+[References + State] → citations, context usage, MCP metadata, thread memory
     ↓
-Next.js UI → displays answer + citations
+Next.js UI → streamed answer + citations
 ```
 
 ## Technology Stack
 
-- **Framework**: LangGraph (agent orchestration)
+- **Framework**: LangChain v1 agents and LangGraph-compatible thread/run APIs
 - **Vector Database**: Oracle 26AI / Oracle AI Vector Search
 - **LLM**: OCI Generative AI (Meta Llama, Cohere, OpenAI models)
 - **Embeddings**: OCI Generative AI (Cohere multilingual)

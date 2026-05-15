@@ -207,6 +207,7 @@ class Settings(BaseSettings):
         return [k.strip() for k in s.split(",") if k.strip()] or None
 
     MCP_SEARCH_MODE: str = "vector"
+    MCP_MAX_ROUNDS: int = 2
     ENABLE_MCP_CLIENT_JWT: bool = False
     ENABLE_MCP_OAUTH: bool = False
     MCP_OAUTH_CLIENT_ID: str | None = None
