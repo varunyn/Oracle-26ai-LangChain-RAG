@@ -17,6 +17,7 @@ from langchain_oci.common.auth import create_oci_client_kwargs
 from langchain_oracledb import OracleVS
 from oci.generative_ai_inference import GenerativeAiInferenceClient
 from oci.generative_ai_inference import models as oci_genai_models
+from opentelemetry import trace
 
 from api.settings import get_settings
 
@@ -220,6 +221,18 @@ def rerank_documents(
 
     settings = get_settings()
     limit = max(1, min(int(top_n or getattr(settings, "RERANK_TOP_N", 5)), len(docs)))
+    endpoint_id = str(getattr(settings, "RERANK_DEDICATED_ENDPOINT_ID", "") or "").strip()
+    serving_mode_name = "dedicated" if endpoint_id else "on_demand"
+    attributes = {
+        "rag.rerank.enabled": True,
+        "rag.rerank.provider": "oci",
+        "rag.rerank.model_id": str(getattr(settings, "RERANK_MODEL_ID", "unknown") or "unknown"),
+        "rag.rerank.input_docs": len(docs),
+        "rag.rerank.top_n": limit,
+        "rag.rerank.query_length": len(query or ""),
+        "oci.genai.operation": "rerank_text",
+        "oci.genai.serving_mode": serving_mode_name,
+    }
     details_kwargs: dict[str, object] = {
         "input": query,
         "compartment_id": settings.COMPARTMENT_ID,
@@ -236,20 +249,38 @@ def rerank_documents(
         details_kwargs["max_tokens_per_document"] = int(max_tokens)
 
     details = oci_genai_models.RerankTextDetails(**details_kwargs)
-    response = _get_rerank_client().rerank_text(details)
-    data = getattr(response, "data", None)
-    ranks = getattr(data, "document_ranks", None) or []
-    ordered: list[tuple[float, Document]] = []
-    seen: set[int] = set()
-    for rank in ranks:
-        index = getattr(rank, "index", None)
-        if not isinstance(index, int) or index < 0 or index >= len(docs) or index in seen:
-            continue
-        score = float(getattr(rank, "relevance_score", 0.0) or 0.0)
-        ordered.append((score, docs[index]))
-        seen.add(index)
-    ordered.sort(key=lambda item: item[0], reverse=True)
-    return [doc for _, doc in ordered[:limit]]
+    tracer = trace.get_tracer(__name__)
+    with tracer.start_as_current_span("oci.rerank_text") as span:
+        for key, value in attributes.items():
+            span.set_attribute(key, value)
+
+        response = _get_rerank_client().rerank_text(details)
+        data = getattr(response, "data", None)
+        ranks = getattr(data, "document_ranks", None) or []
+        ordered: list[tuple[float, Document]] = []
+        seen: set[int] = set()
+        for rank in ranks:
+            index = getattr(rank, "index", None)
+            if not isinstance(index, int) or index < 0 or index >= len(docs) or index in seen:
+                continue
+            score = float(getattr(rank, "relevance_score", 0.0) or 0.0)
+            ordered.append((score, docs[index]))
+            seen.add(index)
+        ordered.sort(key=lambda item: item[0], reverse=True)
+        reranked = [doc for _, doc in ordered[:limit]]
+
+        output_docs = len(reranked)
+        span.set_attribute("rag.rerank.output_docs", output_docs)
+        log_attributes = {"event_type": "oci_rerank", **attributes, "rag.rerank.output_docs": output_docs}
+        logger.info(
+            "oci_rerank_success model_id=%s input_docs=%d output_docs=%d top_n=%d",
+            log_attributes["rag.rerank.model_id"],
+            len(docs),
+            output_docs,
+            limit,
+            extra={"otel_attributes": log_attributes},
+        )
+        return reranked
 
 
 def get_oracle_vs(
