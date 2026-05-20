@@ -52,54 +52,9 @@ Context: {context}
 Respond with only the JSON object, no markdown code fence, no explanation.
 """
 
-RERANKER_TEMPLATE = """
-You are an intelligent ranking assistant. Your task is to rank and filter text chunks
-based on their relevance to a given user query. You will receive:
-
-1. A user query.
-2. A list of text chunks.
-
-Your goal is to:
-- Rank the text chunks in order of relevance to the user query.
-- Remove any text chunks that are completely irrelevant to the query.
-
-### Instructions:
-- Assign a **relevance score** to each chunk based on how well it answers or relates to the query.
-- Return only the **top-ranked** chunks, filtering out those that are completely irrelevant.
-- The output should be a **sorted list** of relevant chunks, from most to least relevant.
-- Return only the JSON, don't add other text.
-- Don't return the text of the chunk, only the index and the score.
-
-### Input Format:
-User Query:
-{query}
-
-Text Chunks (list indexed from 0):
-{chunks}
-
-### **Output Format:**
-Return a **JSON object** with the following format:
-```json
-{{
-  "ranked_chunks": [
-    {{"index": 0, "score": X.X}},
-    {{"index": 2, "score": Y.Y}},
-    ...
-  ]
-}}
-```
-Where:
-- "index" is the original position of the chunk in the input list. Index starts from 0.
-- "score" is the relevance score (higher is better).
-
-Ensure that only relevant chunks are included in the output. If no chunk is relevant, return an empty list.
-
-"""
-
 __all__ = [
     "SYSTEM_PROMPT",
     "SYSTEM_PROMPT_MIXED",
     "ANSWER_PROMPT_TEMPLATE",
     "ANSWER_STRUCTURED_PROMPT_TEMPLATE",
-    "RERANKER_TEMPLATE",
 ]

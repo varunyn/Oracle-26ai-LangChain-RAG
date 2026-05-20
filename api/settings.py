@@ -145,6 +145,11 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = 4000
     CHUNK_OVERLAP: int = 100
     ENABLE_RERANKER: bool = True
+    RERANK_MODEL_ID: str = "cohere.rerank-v4.0-fast"
+    RERANK_DEDICATED_ENDPOINT_ID: str | None = None
+    RERANK_TOP_N: int = 5
+    RERANK_MAX_CHUNKS_PER_DOCUMENT: int | None = None
+    RERANK_MAX_TOKENS_PER_DOCUMENT: int | None = None
 
     # =============================================================================
     # UI

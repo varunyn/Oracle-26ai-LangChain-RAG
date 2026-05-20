@@ -137,14 +137,19 @@ Connect to Oracle 26AI for vector search (required for RAG).
 
 Control retrieval breadth and context shaping.
 
-| Variable             | Default              | Description                                        |
-| -------------------- | -------------------- | -------------------------------------------------- |
-| `RAG_SEARCH_MODE`    | `vector`             | Retrieval mode for RAG: `vector`, `hybrid`, or `text`. |
-| `COLLECTION_LIST`    | `RAG_KNOWLEDGE_BASE` | Comma-separated or JSON array of collection names. |
-| `DEFAULT_COLLECTION` | `RAG_KNOWLEDGE_BASE` | Default collection when not specified.             |
-| `CHUNK_SIZE`         | `4000`               | Chunk size for splitting.                          |
-| `CHUNK_OVERLAP`      | `100`                | Overlap between chunks.                            |
-| `ENABLE_RERANKER`    | `true`               | Enable reranking of retrieved chunks.              |
+| Variable                           | Default                    | Description                                        |
+| ---------------------------------- | -------------------------- | -------------------------------------------------- |
+| `RAG_SEARCH_MODE`                  | `vector`                   | Retrieval mode for RAG: `vector`, `hybrid`, or `text`. |
+| `COLLECTION_LIST`                  | `RAG_KNOWLEDGE_BASE`       | Comma-separated or JSON array of collection names. |
+| `DEFAULT_COLLECTION`               | `RAG_KNOWLEDGE_BASE`       | Default collection when not specified.             |
+| `CHUNK_SIZE`                       | `4000`                     | Chunk size for splitting.                          |
+| `CHUNK_OVERLAP`                    | `100`                      | Overlap between chunks.                            |
+| `ENABLE_RERANKER`                  | `true`                     | Enable reranking of retrieved chunks.              |
+| `RERANK_MODEL_ID`                  | `cohere.rerank-v4.0-fast`  | OCI Generative AI on-demand rerank model ID.       |
+| `RERANK_DEDICATED_ENDPOINT_ID`     | —                          | Optional dedicated rerank endpoint OCID. If set, dedicated serving is used instead of on-demand. |
+| `RERANK_TOP_N`                     | `5`                        | Maximum number of reranked documents to keep.      |
+| `RERANK_MAX_CHUNKS_PER_DOCUMENT`   | —                          | Optional OCI rerank chunk limit per document.      |
+| `RERANK_MAX_TOKENS_PER_DOCUMENT`   | —                          | Optional OCI rerank token limit per document.      |
 
 ---
 
@@ -329,6 +334,8 @@ DB_TCP_CONNECT_TIMEOUT=5
 RAG_SEARCH_MODE=vector
 COLLECTION_LIST=RAG_KNOWLEDGE_BASE
 ENABLE_RERANKER=true
+RERANK_MODEL_ID=cohere.rerank-v4.0-fast
+RERANK_TOP_N=5
 
 # MCP (semantic-search tools)
 MCP_SEARCH_MODE=vector

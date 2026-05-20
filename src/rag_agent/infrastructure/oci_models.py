@@ -11,8 +11,12 @@ from typing import Any
 
 import oracledb
 from langchain_community.vectorstores.utils import DistanceStrategy
+from langchain_core.documents import Document
 from langchain_oci import ChatOCIGenAI, OCIGenAIEmbeddings
+from langchain_oci.common.auth import create_oci_client_kwargs
 from langchain_oracledb import OracleVS
+from oci.generative_ai_inference import GenerativeAiInferenceClient
+from oci.generative_ai_inference import models as oci_genai_models
 
 from api.settings import get_settings
 
@@ -102,6 +106,13 @@ def _get_oci_auth_file_location() -> str:
     return _resolve_oci_config_key_file(path)
 
 
+def _get_service_endpoint() -> str:
+    return (
+        getattr(get_settings(), "SERVICE_ENDPOINT", None)
+        or f"https://inference.generativeai.{get_settings().REGION}.oci.oraclecloud.com"
+    ).rstrip("/")
+
+
 def get_llm(
     model_id: str | None = None,
     temperature: float | None = None,
@@ -120,10 +131,7 @@ def get_llm(
     use_profile = _uses_auth_profile(auth_type)
     auth_file_location = _get_oci_auth_file_location() if use_profile else None
 
-    endpoint = (
-        getattr(get_settings(), "SERVICE_ENDPOINT", None)
-        or f"https://inference.generativeai.{get_settings().REGION}.oci.oraclecloud.com"
-    ).rstrip("/")
+    endpoint = _get_service_endpoint()
 
     model_kw: dict[str, Any] = {"temperature": temperature}
     token_key = "max_completion_tokens" if model_id.startswith("openai.") else "max_tokens"
@@ -152,10 +160,7 @@ def get_embedding_model(model_type: str = "OCI") -> OCIGenAIEmbeddings:
     if model_type != "OCI":
         raise ValueError("Invalid value for model_type: must be 'OCI'")
 
-    endpoint = (
-        getattr(get_settings(), "SERVICE_ENDPOINT", None)
-        or f"https://inference.generativeai.{get_settings().REGION}.oci.oraclecloud.com"
-    ).rstrip("/")
+    endpoint = _get_service_endpoint()
     auth_type = get_settings().AUTH
 
     embed_kwargs = {
@@ -176,6 +181,75 @@ def get_embedding_model(model_type: str = "OCI") -> OCIGenAIEmbeddings:
     embed_model = OCIGenAIEmbeddings(**embed_kwargs)
     logger.info("Embedding model is: %s", get_settings().EMBED_MODEL_ID)
     return embed_model
+
+
+def _get_rerank_serving_mode() -> object:
+    endpoint_id = str(getattr(get_settings(), "RERANK_DEDICATED_ENDPOINT_ID", "") or "").strip()
+    if endpoint_id:
+        return oci_genai_models.DedicatedServingMode(endpoint_id=endpoint_id)
+    return oci_genai_models.OnDemandServingMode(
+        model_id=getattr(get_settings(), "RERANK_MODEL_ID", "cohere.rerank-v4.0-fast")
+    )
+
+
+def _get_rerank_client() -> GenerativeAiInferenceClient:
+    settings = get_settings()
+    auth_type = settings.AUTH
+    profile = settings.OCI_PROFILE or "DEFAULT"
+    auth_file_location = (
+        _get_oci_auth_file_location() if _uses_auth_profile(auth_type) else "~/.oci/config"
+    )
+    client_kwargs = create_oci_client_kwargs(
+        auth_type=auth_type,
+        service_endpoint=_get_service_endpoint(),
+        auth_file_location=auth_file_location,
+        auth_profile=profile,
+    )
+    return GenerativeAiInferenceClient(**client_kwargs)
+
+
+def rerank_documents(
+    query: str,
+    docs: list[Document],
+    *,
+    top_n: int | None = None,
+) -> list[Document]:
+    """Rerank LangChain documents with OCI Generative AI Inference rerankText."""
+    if not query.strip() or not docs:
+        return docs
+
+    settings = get_settings()
+    limit = max(1, min(int(top_n or getattr(settings, "RERANK_TOP_N", 5)), len(docs)))
+    details_kwargs: dict[str, object] = {
+        "input": query,
+        "compartment_id": settings.COMPARTMENT_ID,
+        "serving_mode": _get_rerank_serving_mode(),
+        "documents": [str(doc.page_content or "") for doc in docs],
+        "top_n": limit,
+        "is_echo": False,
+    }
+    max_chunks = getattr(settings, "RERANK_MAX_CHUNKS_PER_DOCUMENT", None)
+    if max_chunks is not None:
+        details_kwargs["max_chunks_per_document"] = int(max_chunks)
+    max_tokens = getattr(settings, "RERANK_MAX_TOKENS_PER_DOCUMENT", None)
+    if max_tokens is not None:
+        details_kwargs["max_tokens_per_document"] = int(max_tokens)
+
+    details = oci_genai_models.RerankTextDetails(**details_kwargs)
+    response = _get_rerank_client().rerank_text(details)
+    data = getattr(response, "data", None)
+    ranks = getattr(data, "document_ranks", None) or []
+    ordered: list[tuple[float, Document]] = []
+    seen: set[int] = set()
+    for rank in ranks:
+        index = getattr(rank, "index", None)
+        if not isinstance(index, int) or index < 0 or index >= len(docs) or index in seen:
+            continue
+        score = float(getattr(rank, "relevance_score", 0.0) or 0.0)
+        ordered.append((score, docs[index]))
+        seen.add(index)
+    ordered.sort(key=lambda item: item[0], reverse=True)
+    return [doc for _, doc in ordered[:limit]]
 
 
 def get_oracle_vs(

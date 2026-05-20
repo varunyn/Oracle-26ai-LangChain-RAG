@@ -387,6 +387,67 @@ def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> N
     ]
 
 
+def test_graph_service_rag_mode_uses_native_reranker_when_enabled(monkeypatch) -> None:
+    service = ChatRuntimeService(graph=object())
+    docs = [
+        Document(page_content="Less relevant chunk", metadata={"source": "Doc1"}),
+        Document(page_content="Best matching chunk", metadata={"source": "Doc2"}),
+    ]
+    captured: dict[str, object] = {}
+
+    @contextmanager
+    def fake_get_pooled_connection():
+        yield object()
+
+    def fake_search_documents(**kwargs: object) -> list[Document]:
+        _ = kwargs
+        return docs
+
+    def fake_rerank_documents(query: str, input_docs: list[Document]) -> list[Document]:
+        captured["query"] = query
+        captured["docs"] = input_docs
+        return [docs[1]]
+
+    class FakeLLM:
+        def invoke(self, messages: list[object]) -> AIMessage:
+            _ = messages
+            return AIMessage(content="Best matching chunk [1]")
+
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_pooled_connection", fake_get_pooled_connection
+    )
+    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_embedding_model", lambda: object())
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.search_documents", fake_search_documents
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.rerank_documents", fake_rerank_documents
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_llm", lambda model_id=None: FakeLLM()
+    )
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "What is the best chunk?"}],
+            model_id="google.gemini-2.5-pro",
+            thread_id="thread-rerank",
+            session_id=None,
+            collection_name="RAG_KNOWLEDGE_BASE",
+            enable_reranker=True,
+            enable_tracing=None,
+            mode="rag",
+            mcp_server_keys=None,
+            stream=False,
+        )
+    )
+
+    assert captured == {"query": "What is the best chunk?", "docs": docs}
+    assert result["reranker_docs"] == [
+        {"page_content": "Best matching chunk", "metadata": {"source": "Doc2"}}
+    ]
+
+
 def test_graph_service_rag_mode_contextualizes_followup_before_retrieval(monkeypatch) -> None:
     service = ChatRuntimeService(graph=object())
     thread_id = "thread-rag-memory"

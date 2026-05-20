@@ -20,6 +20,9 @@ from src.rag_agent.infrastructure.oci_models import (
     get_llm,
     get_oracle_vs,
 )
+from src.rag_agent.infrastructure.oci_models import (
+    rerank_documents as oci_rerank_documents,
+)
 from src.rag_agent.infrastructure.retrieval import search_documents
 from src.rag_agent.prompts.runtime_agents import RAG_ANSWER_PROMPT_TEMPLATE
 
@@ -185,6 +188,24 @@ def filter_retrieved_docs(query: str, docs: list[Document]) -> list[Document]:
     return []
 
 
+def rerank_retrieved_docs(
+    query: str,
+    docs: list[Document],
+    *,
+    enable_reranker: bool | None,
+) -> list[Document]:
+    if enable_reranker is not True:
+        return docs
+    try:
+        return cast(
+            list[Document],
+            _compat_dependency("rerank_documents", oci_rerank_documents)(query, docs),
+        )
+    except Exception:
+        logger.exception("oci_rerank_failed docs=%d query_len=%d", len(docs), len(query or ""))
+        return filter_retrieved_docs(query, docs)
+
+
 def query_terms(query: str) -> list[str]:
     stopwords = {
         "a",
@@ -251,6 +272,7 @@ __all__ = [
     "filter_retrieved_docs",
     "format_retrieved_docs",
     "query_terms",
+    "rerank_retrieved_docs",
     "retrieve_oracle_docs",
     "serialize_docs",
     "synthesize_rag_answer",

@@ -60,6 +60,10 @@ def search_documents(**kwargs: object) -> list[Document]:
     return cast(list[Document], _retrieval.search_documents(**cast(Any, kwargs)))
 
 
+def rerank_documents(query: str, docs: list[Document]) -> list[Document]:
+    return _oci_models.rerank_documents(query, docs)
+
+
 def _build_run_config(
     *,
     thread_id: str | None,
@@ -420,6 +424,12 @@ class ChatRuntimeService:
                     collection_name=collection_name,
                     k=8,
                 )
+            if retrieval_docs and latest_user_message:
+                retrieval_docs = self._rank_retrieved_docs(
+                    latest_user_message,
+                    retrieval_docs,
+                    enable_reranker=enable_reranker,
+                )
             # Guardrail: if no MCP tools were used at all, fall back to direct
             # RAG retrieval+synthesis so doc-grounded questions don't bypass DB.
             # Do not override successful non-retrieval MCP tool answers (e.g. calculator).
@@ -435,6 +445,11 @@ class ChatRuntimeService:
                     k=8,
                 )
                 if retrieval_docs:
+                    retrieval_docs = self._rank_retrieved_docs(
+                        latest_user_message,
+                        retrieval_docs,
+                        enable_reranker=enable_reranker,
+                    )
                     rag_answer, rag_usage, resolved_model_id = await self._synthesize_rag_answer(
                         question=latest_user_message,
                         docs=retrieval_docs,
@@ -565,6 +580,11 @@ class ChatRuntimeService:
                     query=standalone_question,
                     collection_name=collection_name,
                     k=5,
+                )
+                docs = self._rank_retrieved_docs(
+                    standalone_question,
+                    docs,
+                    enable_reranker=enable_reranker,
                 )
                 rag_answer, rag_usage, resolved_model_id = await self._synthesize_rag_answer(
                     question=standalone_question,
@@ -804,6 +824,19 @@ class ChatRuntimeService:
 
     def _filter_retrieved_docs(self, query: str, docs: list[Document]) -> list[Document]:
         return rag_runtime.filter_retrieved_docs(query, docs)
+
+    def _rank_retrieved_docs(
+        self,
+        query: str,
+        docs: list[Document],
+        *,
+        enable_reranker: bool | None,
+    ) -> list[Document]:
+        return rag_runtime.rerank_retrieved_docs(
+            query,
+            docs,
+            enable_reranker=enable_reranker,
+        )
 
     def _query_terms(self, query: str) -> list[str]:
         return rag_runtime.query_terms(query)

@@ -152,7 +152,7 @@ uv sync
 
 OCI and Oracle AI Vector Search integrations use the official [oracle/langchain-oracle](https://github.com/oracle/langchain-oracle) packages: **langchain-oci** (LLM and embeddings) and **langchain-oracledb** (vector store). See that repository for documentation and examples.
 
-**OCI Gen AI** is used via **ChatOCIGenAI** (from langchain-oci) for RAG (answer, reranker, follow-up interpretation) and MCP tool-calling. Auth uses the OCI profile from config (~/.oci/config).
+**OCI Gen AI** is used via **ChatOCIGenAI** (from langchain-oci) for RAG answer synthesis, follow-up interpretation, and MCP tool-calling. Native OCI Gen AI rerank is used for retrieval reranking. Auth uses the OCI profile from config (~/.oci/config).
 
 **Development dependencies**:
 
