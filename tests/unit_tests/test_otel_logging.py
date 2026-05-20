@@ -10,6 +10,12 @@ def reset_logging_state():
     """Reset module-level flag and detach handlers added by setup for isolated tests."""
     # Reset configured flag
     lc._configured = False  # type: ignore[attr-defined]
+    try:
+        from opentelemetry.instrumentation.logging import LoggingInstrumentor
+
+        LoggingInstrumentor().uninstrument()
+    except Exception:
+        pass
 
     # Remove our handlers/filters from root to avoid cross-test interference
     root = logging.getLogger()
@@ -42,8 +48,8 @@ def test_otlp_handler_installed_and_idempotent():
     lc.setup_logging(console=False)
     root = logging.getLogger()
 
-    # Exactly one LoggingHandler present
-    from opentelemetry.sdk._logs import LoggingHandler
+    # Exactly one non-deprecated OpenTelemetry logging instrumentation handler present
+    from opentelemetry.instrumentation.logging.handler import LoggingHandler
 
     handlers = [h for h in root.handlers if isinstance(h, LoggingHandler)]
     assert len(handlers) == 1
@@ -52,6 +58,24 @@ def test_otlp_handler_installed_and_idempotent():
     lc.setup_logging(console=False)
     handlers2 = [h for h in logging.getLogger().handlers if isinstance(h, LoggingHandler)]
     assert len(handlers2) == 1
+
+
+def test_batch_log_record_processor_uses_configured_delay(monkeypatch: pytest.MonkeyPatch):
+    captured_delays: list[int | None] = []
+    original_processor = lc.BatchLogRecordProcessor
+
+    class CapturingBatchLogRecordProcessor(original_processor):  # type: ignore[misc]
+        def __init__(self, exporter, *args, **kwargs):  # type: ignore[no-untyped-def]
+            captured_delays.append(kwargs.get("schedule_delay_millis"))
+            super().__init__(exporter, *args, **kwargs)
+
+    monkeypatch.setenv("OTEL_LOGS_BATCH_DELAY_MILLIS", "2500")
+    monkeypatch.setattr(lc, "BatchLogRecordProcessor", CapturingBatchLogRecordProcessor)
+
+    lc.setup_logging(console=False)
+
+    assert captured_delays
+    assert all(delay == 2500 for delay in captured_delays)
 
 
 def test_request_id_injection(caplog: pytest.LogCaptureFixture):

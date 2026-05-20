@@ -238,6 +238,7 @@ Optional tracing, logging, and local Docker stacks.
 | `OTEL_TRACES_ENDPOINT`         | —                       | OTLP traces endpoint.                                   |
 | `OTEL_TRACES_HEADERS`          | —                       | Headers for traces (e.g. auth).                         |
 | `OTEL_LOGS_ENDPOINT`           | —                       | OTLP logs endpoint.                                     |
+| `OTEL_LOGS_BATCH_DELAY_MILLIS` | `1000`                  | OpenTelemetry log export batch delay in milliseconds.   |
 | `ENABLE_OBSERVABILITY_STACK`   | `false`                 | Start local observability stack (Grafana, Tempo, etc.). |
 | `ENABLE_LANGFUSE_TRACING`      | `false`                 | Send traces to Langfuse.                                |
 | `LANGFUSE_HOST`                | `http://localhost:3300` | Langfuse server URL.                                    |

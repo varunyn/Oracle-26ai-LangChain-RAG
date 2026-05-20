@@ -14,6 +14,7 @@ Env vars honored (defaults shown):
 - OTEL_EXPORTER_OTLP_ENDPOINT       (used as base when LOGS endpoint not set)
 - OTEL_EXPORTER_OTLP_HEADERS / OTEL_EXPORTER_OTLP_LOGS_HEADERS (exporter will honor if provided)
 - OTEL_SERVICE_NAME (default: rag-api)
+- OTEL_LOGS_BATCH_DELAY_MILLIS (default: 1000)
 - ENABLE_OCI_LOGGING_ANALYTICS / LOGGING_ANALYTICS_* (optional dual-ship to Oracle Logging Analytics)
 - LOGGING_ANALYTICS_MIN_LEVEL — optional; by default OCI receives (1) user query events (flow_trace, chat_out) and (2) all WARNING+
 """
@@ -42,12 +43,13 @@ from opentelemetry.exporter.otlp.proto.common._internal._log_encoder import (
     encode_logs,
 )
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+from opentelemetry.instrumentation.logging import LoggingInstrumentor
+from opentelemetry.instrumentation.logging.handler import LoggingHandler
 from opentelemetry.proto.logs.v1.logs_pb2 import SeverityNumber
 from opentelemetry.sdk._logs import (
     LoggerProvider as SDKLoggerProvider,
 )
 from opentelemetry.sdk._logs import (
-    LoggingHandler,
     ReadableLogRecord,
 )
 from opentelemetry.sdk._logs.export import (
@@ -567,11 +569,36 @@ def _compute_logs_endpoint() -> str:
     return "http://localhost:4318/v1/logs"
 
 
+def _compute_logs_batch_delay_millis() -> int:
+    raw = os.getenv("OTEL_LOGS_BATCH_DELAY_MILLIS")
+    if raw:
+        try:
+            delay = int(raw)
+            if delay > 0:
+                return delay
+        except ValueError:
+            logger.warning(
+                "Invalid OTEL_LOGS_BATCH_DELAY_MILLIS=%r; using default 1000ms",
+                raw,
+            )
+    try:
+        from api.settings import get_settings
+
+        value = getattr(get_settings(), "OTEL_LOGS_BATCH_DELAY_MILLIS", None)
+        if value is not None:
+            delay = int(value)
+            if delay > 0:
+                return delay
+    except Exception:  # noqa: BLE001
+        pass
+    return 1000
+
+
 def setup_logging(console: bool = True) -> None:
     """
     Configure application logging to export via OTLP HTTP Logs and optional console stream.
 
-    - Adds a single OpenTelemetry LoggingHandler bound to a LoggerProvider with a
+    - Adds a single OpenTelemetry logging instrumentation handler bound to a LoggerProvider with a
       BatchLogRecordProcessor + OTLP HTTP exporter
     - Adds RequestIdFilter at root-logger level so every record carries request_id
     - Ensures uvicorn loggers propagate to root and don't attach their own handlers
@@ -656,8 +683,11 @@ def setup_logging(console: bool = True) -> None:
     if not exporters:
         logger.warning("No log exporters configured; console-only logging active")
 
+    batch_delay_millis = _compute_logs_batch_delay_millis()
     for exp in exporters:
-        provider.add_log_record_processor(BatchLogRecordProcessor(exp))
+        provider.add_log_record_processor(
+            BatchLogRecordProcessor(exp, schedule_delay_millis=batch_delay_millis)
+        )
 
     # Register provider globally so OpenTelemetry-aware libs can find it
     set_logger_provider(provider)
@@ -673,10 +703,15 @@ def setup_logging(console: bool = True) -> None:
 
     # Add a single LoggingHandler (bridges stdlib logging -> OTel Logs)
     if not any(isinstance(h, LoggingHandler) for h in root_logger.handlers):
-        otel_handler = LoggingHandler(level=logging.NOTSET, logger_provider=provider)
+        LoggingInstrumentor().instrument(
+            set_logging_format=False,
+            log_level=logging.NOTSET,
+            logger_provider=provider,
+        )
+    for otel_handler in (h for h in root_logger.handlers if isinstance(h, LoggingHandler)):
         # The filter ensures record has request_id attribute before export
-        otel_handler.addFilter(RequestIdFilter())
-        root_logger.addHandler(otel_handler)
+        if not any(isinstance(f, RequestIdFilter) for f in getattr(otel_handler, "filters", [])):
+            otel_handler.addFilter(RequestIdFilter())
 
     # Optional console stream for local visibility
     if console and not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):

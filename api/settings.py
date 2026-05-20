@@ -285,6 +285,7 @@ class Settings(BaseSettings):
     OTEL_TRACES_ENDPOINT: str | None = None
     OTEL_TRACES_HEADERS: dict[str, str] | None = None
     OTEL_LOGS_ENDPOINT: str | None = None
+    OTEL_LOGS_BATCH_DELAY_MILLIS: int = 1000
     ENABLE_OBSERVABILITY_STACK: bool = False
 
     ENABLE_LANGFUSE_TRACING: bool = False
