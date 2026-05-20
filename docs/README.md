@@ -28,7 +28,7 @@ Chat execution is handled by `ChatRuntimeService` (`src/rag_agent/runtime/chat_s
 | `api/`           | FastAPI app, chat/config/documents/feedback/health routers, runtime invocation                 |
 | `frontend/`      | Next.js app; `src/app` (pages/layout), `src/components`, `src/lib` (chat, config, types) |
 | `mcp_servers/`   | MCP servers (RAG, semantic search, minimal)                                                   |
-| `scripts/`       | Document population, table create/drop/truncate, BM25                                         |
+| `scripts/`       | Document population and table create/drop/truncate utilities                                  |
 | `tests/`         | Pytest and manual run scripts for MCP/workflow                                                |
 | `docs/`          | Setup, MCP usage, tracing, OCI, database                                                      |
 

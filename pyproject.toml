@@ -56,9 +56,6 @@ dependencies = [
     "opentelemetry-instrumentation-logging>=0.63b0",
     "opentelemetry-instrumentation-requests>=0.63b0",
     "opentelemetry-sdk>=1.42.0",
-    # Data processing / search
-    "numpy>=2.2.3",
-    "rank-bm25>=0.2.2",
     # Serialization / configuration / utilities
     "orjson>=3.11.5",
     "python-dateutil>=2.9.0.post0",
@@ -144,8 +141,4 @@ disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
 module = ["langchain_oci.*", "langchain_oracledb.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["rank_bm25.*"]
 ignore_missing_imports = true
