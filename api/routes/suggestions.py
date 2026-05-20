@@ -11,7 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import AliasChoices, BaseModel, Field
 
 from src.rag_agent.infrastructure.oci_models import get_llm
-from src.rag_agent.utils.langfuse_tracing import add_langfuse_callbacks
+from src.rag_agent.utils.langfuse_tracing import add_langfuse_callbacks, start_langfuse_chat_trace
 
 router = APIRouter(tags=["suggestions"])
 logger = logging.getLogger(__name__)
@@ -214,31 +214,61 @@ async def _generate_suggestions_async(
         SystemMessage(content=FOLLOW_UP_SYSTEM),
         HumanMessage(content=prompt_payload),
     ]
+    trace_tags = [
+        tag
+        for tag in (
+            "suggestions",
+            f"model:{model_id}" if model_id else None,
+        )
+        if tag is not None
+    ]
     run_config: dict[str, object] = {"configurable": {"mode": "suggestions", "model_id": model_id or ""}}
-    add_langfuse_callbacks(run_config, session_id=None, user_id=None)
+    with start_langfuse_chat_trace(
+        enabled=True,
+        mode="suggestions",
+        model_id=model_id,
+        session_id=None,
+        thread_id=None,
+        input_payload={
+            "last_user_message": user_context[:2000] or None,
+            "last_message": last_message[:4000],
+        },
+        trace_name="suggestions",
+        tags=trace_tags,
+    ) as langfuse_trace:
+        add_langfuse_callbacks(
+            run_config,
+            session_id=None,
+            user_id=None,
+            trace_context=langfuse_trace.trace_context,
+            trace_name="suggestions",
+            tags=trace_tags,
+        )
 
-    def _invoke() -> object:
+        def _invoke() -> object:
+            try:
+                return llm.invoke(messages, config=run_config)
+            except TypeError:
+                return llm.invoke(messages)
+
+        msg = await asyncio.to_thread(_invoke)
+        text = (getattr(msg, "content", None) or "").strip()
+        raw = re.sub(r"^```json?\s*|\s*```$", "", text).strip()
+        suggestions: list[str] = []
         try:
-            return llm.invoke(messages, config=run_config)
-        except TypeError:
-            return llm.invoke(messages)
-
-    msg = await asyncio.to_thread(_invoke)
-    text = (getattr(msg, "content", None) or "").strip()
-    raw = re.sub(r"^```json?\s*|\s*```$", "", text).strip()
-    suggestions: list[str] = []
-    try:
-        parsed: Any = json.loads(raw)
-        if isinstance(parsed, list):
-            suggestions = [s.strip() for s in parsed if isinstance(s, str) and s.strip()][:6]
-    except (json.JSONDecodeError, TypeError):
-        pass
-    filtered = _filter_suggestions(
-        suggestions=suggestions,
-        last_message=last_message,
-        last_user_message=last_user_message,
-    )
-    return filtered if filtered else _fallback_suggestions(last_user_message, last_message)
+            parsed: Any = json.loads(raw)
+            if isinstance(parsed, list):
+                suggestions = [s.strip() for s in parsed if isinstance(s, str) and s.strip()][:6]
+        except (json.JSONDecodeError, TypeError):
+            pass
+        filtered = _filter_suggestions(
+            suggestions=suggestions,
+            last_message=last_message,
+            last_user_message=last_user_message,
+        )
+        result = filtered if filtered else _fallback_suggestions(last_user_message, last_message)
+        langfuse_trace.update_output({"suggestion_count": len(result)})
+        return result
 
 
 @router.post("/api/suggestions", response_model=SuggestionsResponse)

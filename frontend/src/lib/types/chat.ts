@@ -27,6 +27,7 @@ export type McpProgressEvent = {
 
 /** References attached to an assistant message (citations, reranker docs, MCP, errors) */
 export type MessageReferences = {
+  trace_id?: string;
   standalone_question?: string;
   citations: { source: string; page: string }[];
   reranker_docs: {

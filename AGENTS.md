@@ -107,7 +107,8 @@ A **README for agents**: a dedicated, predictable place for context and instruct
 2. **Runtime Steps**: Each runtime path (`rag`, `mcp`, `mixed`, `direct`) should validate prerequisites and write meaningful `error` fields so API responses and streams surface failures clearly. Keep operations idempotent where possible.
 3. **Core boundary**: Prefer importing observability/config/logging wrappers from `src.rag_agent.core.*`.
    - Compatibility note: `src.rag_agent.utils.*` remains in place as intentional shims during migration.
-4. **Logging IDs**: Request ID header `X-Request-ID` is injected by middleware. Ensure downstream logs include this context.
+4. **Langfuse trace inspection**: When debugging LLM/tool traces, use the installed Langfuse CLI before guessing from code. Prefer `langfuse --env .env api traces list --limit 5 --json`, `langfuse --env .env api traces get <trace-id> --fields core,io,scores,observations,metrics --json`, and `langfuse --env .env api observations list --filter '[{"type":"string","column":"traceId","operator":"=","value":"<trace-id>"}]' --fields core,basic,io,model,usage,metadata --json`. In this Codex shell, `LANGFUSE_*` may not be inherited by child commands, so `--env .env` is the reliable default. Do not print public/secret key values.
+5. **Logging IDs**: Request ID header `X-Request-ID` is injected by middleware. Ensure downstream logs include this context.
 
 ## 10. Security Expectations
 

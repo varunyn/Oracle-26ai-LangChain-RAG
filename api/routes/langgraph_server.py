@@ -459,6 +459,7 @@ async def run_thread(
     reranker_docs = cast(list[dict[str, object]], result.get("reranker_docs") or [])
     context_usage = cast(dict[str, object] | None, result.get("context_usage"))
     usage = cast(dict[str, object] | None, result.get("usage"))
+    trace_id = cast(str | None, result.get("trace_id"))
     resolved_model_id = cast(str | None, result.get("model_id")) or run_input.model
     mcp_tools_used = cast(list[Any] | None, result.get("mcp_tools_used"))
 
@@ -476,7 +477,7 @@ async def run_thread(
             content={
                 "run_id": f"run-{uuid.uuid4().hex[:24]}",
                 "thread_id": thread_id,
-                "output": {"error": err, "content": answer or ""},
+                "output": {"error": err, "content": answer or "", "trace_id": trace_id},
             },
         )
     output = chat_completion_response_json(
@@ -488,6 +489,7 @@ async def run_thread(
         reranker_docs=reranker_docs,
         context_usage=context_usage,
         usage=usage,
+        trace_id=trace_id,
     )
     return ThreadRunResponse(
         run_id=f"run-{uuid.uuid4().hex[:24]}",

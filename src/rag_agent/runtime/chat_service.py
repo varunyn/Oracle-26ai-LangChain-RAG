@@ -20,7 +20,11 @@ from src.rag_agent.infrastructure import retrieval as _retrieval
 from src.rag_agent.infrastructure.direct_mcp_tools import get_mcp_tools_async
 from src.rag_agent.infrastructure.mcp_agent import get_mcp_answer_async
 from src.rag_agent.infrastructure.mcp_settings import get_mcp_servers_config
-from src.rag_agent.utils.langfuse_tracing import add_langfuse_callbacks
+from src.rag_agent.utils.langfuse_tracing import (
+    LangfuseChatTrace,
+    add_langfuse_callbacks,
+    start_langfuse_chat_trace,
+)
 from src.rag_agent.workflows.mcp_repeated import run_repeated_mcp_workflow
 from src.rag_agent.workflows.workflow_intent import should_use_repeated_workflow
 
@@ -87,6 +91,7 @@ def _prepare_run_config(
     model_id: str | None,
     session_id: str | None,
     enable_tracing: bool | None,
+    trace_context: dict[str, str] | None = None,
 ) -> RunnableConfig:
     base = (
         _build_run_config(
@@ -110,8 +115,19 @@ def _prepare_run_config(
         run_config["configurable"] = configurable_payload
     add_langfuse_callbacks(
         run_config,
-        session_id=session_id or thread_id,
-        user_id=thread_id,
+        session_id=session_id,
+        user_id=None,
+        trace_context=trace_context,
+        trace_name=f"chat-{mode or 'unknown'}",
+        tags=[
+            tag
+            for tag in (
+                "chat",
+                f"mode:{mode}" if mode else None,
+                f"model:{model_id}" if model_id else None,
+            )
+            if tag is not None
+        ],
     )
     return cast(RunnableConfig, run_config)
 
@@ -306,6 +322,60 @@ class ChatRuntimeService:
         stream: bool,
         tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> dict[str, object]:
+        normalized_mode = _resolve_effective_mode(mode)
+        question = latest_user_message(messages)
+        with start_langfuse_chat_trace(
+            enabled=enable_tracing,
+            mode=normalized_mode,
+            model_id=model_id,
+            session_id=session_id,
+            thread_id=thread_id,
+            input_payload={"question": question} if question else None,
+        ) as langfuse_trace:
+            try:
+                result = await self._run_chat_impl(
+                    messages=messages,
+                    model_id=model_id,
+                    thread_id=thread_id,
+                    session_id=session_id,
+                    collection_name=collection_name,
+                    enable_reranker=enable_reranker,
+                    enable_tracing=enable_tracing,
+                    mode=mode,
+                    mcp_server_keys=mcp_server_keys,
+                    stream=stream,
+                    tool_progress_callback=tool_progress_callback,
+                    langfuse_trace=langfuse_trace,
+                )
+            except BaseException:
+                raise
+            if langfuse_trace.trace_id:
+                result["trace_id"] = langfuse_trace.trace_id
+            langfuse_trace.update_output(
+                {
+                    "has_error": bool(result.get("error")),
+                    "mcp_used": bool(result.get("mcp_used")),
+                    "tools_used": result.get("mcp_tools_used") or [],
+                }
+            )
+            return result
+
+    async def _run_chat_impl(
+        self,
+        *,
+        messages: list[dict[str, object]],
+        model_id: str | None,
+        thread_id: str | None,
+        session_id: str | None,
+        collection_name: str | None,
+        enable_reranker: bool | None,
+        enable_tracing: bool | None,
+        mode: str | None,
+        mcp_server_keys: list[str] | None,
+        stream: bool,
+        tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
+        langfuse_trace: LangfuseChatTrace | None = None,
+    ) -> dict[str, object]:
         _ = (
             session_id,
             collection_name,
@@ -331,6 +401,7 @@ class ChatRuntimeService:
                 model_id=resolved_model_id,
                 session_id=session_id,
                 enable_tracing=enable_tracing,
+                trace_context=langfuse_trace.trace_context if langfuse_trace else None,
             )
             tool_load_started = time.perf_counter()
             mcp_tools = await get_mcp_tools_async(
@@ -478,6 +549,7 @@ class ChatRuntimeService:
             }
             if isinstance(model_id, str) and model_id.strip():
                 mixed_result["model_id"] = model_id.strip()
+            self._attach_trace_id(mixed_result, langfuse_trace)
             self._store_thread_state(thread_id, incoming_messages, mixed_result)
             return mixed_result
         if normalized_mode != "direct":
@@ -493,6 +565,7 @@ class ChatRuntimeService:
                     model_id=resolved_model_id,
                     session_id=session_id,
                     enable_tracing=enable_tracing,
+                    trace_context=langfuse_trace.trace_context if langfuse_trace else None,
                 )
                 tool_load_started = time.perf_counter()
                 mcp_tools = await get_mcp_tools_async(
@@ -556,6 +629,7 @@ class ChatRuntimeService:
                     mcp_result["final_answer"] = tool_failure_error
                     mcp_result["error"] = tool_failure_error
                 mcp_result["model_id"] = resolved_model_id
+                self._attach_trace_id(mcp_result, langfuse_trace)
                 self._store_thread_state(thread_id, incoming_messages, mcp_result)
                 return mcp_result
             if normalized_mode == "rag":
@@ -568,6 +642,7 @@ class ChatRuntimeService:
                     model_id=model_id,
                     session_id=session_id,
                     enable_tracing=enable_tracing,
+                    trace_context=langfuse_trace.trace_context if langfuse_trace else None,
                 )
                 standalone_question = await self._contextualize_question(
                     question=question,
@@ -612,6 +687,7 @@ class ChatRuntimeService:
                     "usage": emitted_usage,
                     "cost_usd": cost_usd,
                 }
+                self._attach_trace_id(rag_result, langfuse_trace)
                 self._store_thread_state(thread_id, incoming_messages, rag_result)
                 return rag_result
             raise NotImplementedError(
@@ -636,6 +712,7 @@ class ChatRuntimeService:
             model_id=model_id,
             session_id=session_id,
             enable_tracing=enable_tracing,
+            trace_context=langfuse_trace.trace_context if langfuse_trace else None,
         )
         llm = get_llm(model_id=model_id)
         response = await asyncio.to_thread(invoke_llm_with_optional_config, llm, history, run_cfg)
@@ -662,6 +739,7 @@ class ChatRuntimeService:
             "usage": emitted_usage,
             "cost_usd": cost_usd,
         }
+        self._attach_trace_id(direct_result, langfuse_trace)
         self._store_thread_state(thread_id, incoming_messages, direct_result)
         return direct_result
 
@@ -734,6 +812,8 @@ class ChatRuntimeService:
         }
         if result.get("context_usage") is not None:
             references["context_usage"] = result["context_usage"]
+        if result.get("trace_id") is not None:
+            references["trace_id"] = result["trace_id"]
         if result.get("mcp_used"):
             references["mcp_used"] = True
         if result.get("mcp_tools_used"):
@@ -801,6 +881,14 @@ class ChatRuntimeService:
             collection_name=collection_name,
             filter_docs=self._filter_retrieved_docs,
         )
+
+    def _attach_trace_id(
+        self,
+        result: dict[str, object],
+        langfuse_trace: LangfuseChatTrace | None,
+    ) -> None:
+        if langfuse_trace is not None and langfuse_trace.trace_id:
+            result["trace_id"] = langfuse_trace.trace_id
 
     def _retrieve_oracle_docs(
         self, *, query: str, collection_name: str | None, k: int
@@ -974,6 +1062,9 @@ class ChatRuntimeService:
             error_value = result.get("error")
             if isinstance(error_value, str) and error_value.strip():
                 references["error"] = error_value.strip()
+            trace_id = result.get("trace_id")
+            if isinstance(trace_id, str) and trace_id.strip():
+                references["trace_id"] = trace_id.strip()
 
             updated_messages.append(
                 AIMessage(

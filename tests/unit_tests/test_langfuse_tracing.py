@@ -48,6 +48,40 @@ def test_add_langfuse_callbacks_enabled_adds_callbacks_and_metadata(monkeypatch:
     assert run_config["configurable"]["thread_id"] == "t-2"
 
 
+def test_add_langfuse_callbacks_sets_trace_context_name_and_tags(monkeypatch: Any) -> None:
+    """Langfuse callbacks should attach to the request trace without inventing a user id."""
+    captured: dict[str, Any] = {}
+
+    class _CallbackHandler:
+        def __init__(self, *, trace_context: dict[str, str] | None = None) -> None:
+            captured["trace_context"] = trace_context
+
+    import langfuse.langchain
+
+    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
+    monkeypatch.setattr(langfuse.langchain, "CallbackHandler", _CallbackHandler)
+    langfuse_tracing.set_langfuse_client(object(), disabled=False)
+
+    run_config: dict[str, Any] = {"configurable": {"thread_id": "t-3", "model_id": "model-a"}}
+    langfuse_tracing.add_langfuse_callbacks(
+        run_config,
+        session_id="sess-3",
+        user_id=None,
+        trace_context={"trace_id": "trace-3", "parent_span_id": "span-3"},
+        trace_name="chat-rag",
+        tags=["chat", "mode:rag", "model:model-a"],
+    )
+
+    metadata = run_config["metadata"]
+    assert captured["trace_context"] == {"trace_id": "trace-3", "parent_span_id": "span-3"}
+    assert metadata["langfuse_session_id"] == "sess-3"
+    assert "langfuse_user_id" not in metadata
+    assert metadata["langfuse_trace_name"] == "chat-rag"
+    assert metadata["langfuse_tags"] == ["chat", "mode:rag", "model:model-a"]
+    assert metadata["ls_model_name"] == "model-a"
+
+
 def test_get_langfuse_client_passes_sample_rate_when_configured(monkeypatch: Any) -> None:
     captured: dict[str, Any] = {}
 
@@ -74,6 +108,69 @@ def test_get_langfuse_client_passes_sample_rate_when_configured(monkeypatch: Any
 
     assert langfuse_tracing.get_langfuse_client() is not None
     assert captured["sample_rate"] == 0.25
+
+
+def test_start_langfuse_chat_trace_propagates_trace_attributes(monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    class _Observation:
+        trace_id = "trace-1"
+        id = "span-1"
+
+    class _ObservationManager:
+        def __enter__(self) -> _Observation:
+            captured["observation_entered"] = True
+            return _Observation()
+
+        def __exit__(self, *args: object) -> None:
+            captured["observation_exited"] = True
+
+    class _PropagationManager:
+        def __enter__(self) -> None:
+            captured["propagation_entered"] = True
+
+        def __exit__(self, *args: object) -> None:
+            captured["propagation_exited"] = True
+
+    class _Client:
+        def start_as_current_observation(self, **kwargs: Any) -> _ObservationManager:
+            captured["observation_kwargs"] = kwargs
+            return _ObservationManager()
+
+    def _propagate_attributes(**kwargs: Any) -> _PropagationManager:
+        captured["propagation_kwargs"] = kwargs
+        return _PropagationManager()
+
+    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
+    monkeypatch.setattr(langfuse_tracing, "LangfusePropagateAttributes", _propagate_attributes)
+    langfuse_tracing.set_langfuse_client(_Client(), disabled=False)
+
+    with langfuse_tracing.start_langfuse_chat_trace(
+        enabled=True,
+        mode="rag",
+        model_id="model-a",
+        session_id="session-a",
+        thread_id="thread-a",
+        input_payload={"question": "hello"},
+    ) as trace:
+        assert trace.trace_context == {"trace_id": "trace-1", "parent_span_id": "span-1"}
+
+    assert captured["observation_kwargs"] == {
+        "name": "chat-rag",
+        "as_type": "chain",
+        "input": {"question": "hello"},
+        "metadata": {"mode": "rag", "model_id": "model-a", "thread_id": "thread-a"},
+    }
+    assert captured["propagation_kwargs"] == {
+        "trace_name": "chat-rag",
+        "session_id": "session-a",
+        "metadata": {"mode": "rag", "model_id": "model-a", "thread_id": "thread-a"},
+        "tags": ["chat", "mode:rag", "model:model-a"],
+    }
+    assert captured["propagation_entered"] is True
+    assert captured["propagation_exited"] is True
+    assert captured["observation_exited"] is True
 
 
 def test_safe_flush_no_op_when_disabled(monkeypatch: Any) -> None:

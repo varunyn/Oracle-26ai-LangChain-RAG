@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID
 
@@ -18,12 +19,16 @@ from src.rag_agent.core import config as core_config
 from src.rag_agent.utils.context_window import estimate_tokens, messages_to_text
 
 LangfuseRuntime: type[Any] | None
+LangfusePropagateAttributes: Any | None
 try:
     from langfuse import Langfuse as _LangfuseRuntime
+    from langfuse import propagate_attributes as _propagate_attributes
 except Exception:
     LangfuseRuntime = None  # type: ignore[assignment]
+    LangfusePropagateAttributes = None
 else:
     LangfuseRuntime = _LangfuseRuntime
+    LangfusePropagateAttributes = _propagate_attributes
 
 
 logger = logging.getLogger(__name__)
@@ -35,6 +40,92 @@ _CLIENT_LOCK = threading.Lock()
 _LANGFUSE_CLIENT: Any | None = None
 _LANGFUSE_DISABLED = False
 _DISABLE_REASON = ""
+
+
+@dataclass
+class LangfuseChatTrace:
+    trace_id: str | None = None
+    parent_span_id: str | None = None
+    trace_name: str | None = None
+    session_id: str | None = None
+    metadata: dict[str, str] | None = None
+    tags: list[str] | None = None
+    _manager: Any | None = None
+    _observation: Any | None = None
+    _propagation_manager: Any | None = None
+
+    @property
+    def trace_context(self) -> dict[str, str] | None:
+        if not self.trace_id:
+            return None
+        context = {"trace_id": self.trace_id}
+        if self.parent_span_id:
+            context["parent_span_id"] = self.parent_span_id
+        return context
+
+    def update_output(self, output: object) -> None:
+        if self._observation is None:
+            return
+        update = getattr(self._observation, "update", None)
+        if not callable(update):
+            return
+        try:
+            update(output=output)
+        except Exception as exc:
+            logger.debug("Langfuse root trace output update failed: %s", exc)
+
+    def update_error(self, exc: BaseException) -> None:
+        if self._observation is None:
+            return
+        update = getattr(self._observation, "update", None)
+        if not callable(update):
+            return
+        try:
+            update(level="ERROR", status_message=str(exc))
+        except Exception as update_exc:
+            logger.debug("Langfuse root trace error update failed: %s", update_exc)
+
+    def __enter__(self) -> LangfuseChatTrace:
+        if self._manager is None:
+            return self
+        try:
+            self._observation = self._manager.__enter__()
+            trace_id = getattr(self._observation, "trace_id", None)
+            observation_id = getattr(self._observation, "id", None)
+            self.trace_id = trace_id if isinstance(trace_id, str) and trace_id else self.trace_id
+            self.parent_span_id = (
+                observation_id
+                if isinstance(observation_id, str) and observation_id
+                else self.parent_span_id
+            )
+            if LangfusePropagateAttributes is not None and (
+                self.trace_name or self.session_id or self.metadata or self.tags
+            ):
+                self._propagation_manager = LangfusePropagateAttributes(
+                    trace_name=self.trace_name,
+                    session_id=self.session_id,
+                    metadata=self.metadata or None,
+                    tags=self.tags or None,
+                )
+                self._propagation_manager.__enter__()
+        except Exception as exc:
+            _disable(f"root trace start failed: {exc}")
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        if exc is not None and isinstance(exc, BaseException):
+            self.update_error(exc)
+        if self._propagation_manager is not None:
+            try:
+                self._propagation_manager.__exit__(exc_type, exc, traceback)
+            except Exception as exit_exc:
+                logger.debug("Langfuse trace attribute propagation close failed: %s", exit_exc)
+        if self._manager is None:
+            return
+        try:
+            self._manager.__exit__(exc_type, exc, traceback)
+        except Exception as exit_exc:
+            logger.debug("Langfuse root trace close failed: %s", exit_exc)
 
 
 def set_langfuse_client(client: Any | None, *, disabled: bool = False) -> None:
@@ -104,11 +195,68 @@ def get_langfuse_client() -> Any | None:
     return _LANGFUSE_CLIENT
 
 
+def start_langfuse_chat_trace(
+    *,
+    enabled: bool | None,
+    mode: str | None,
+    model_id: str | None,
+    session_id: str | None,
+    thread_id: str | None,
+    input_payload: object | None = None,
+    trace_name: str | None = None,
+    tags: list[str] | None = None,
+) -> LangfuseChatTrace:
+    if enabled is not True:
+        return LangfuseChatTrace()
+    client = get_langfuse_client()
+    if client is None:
+        return LangfuseChatTrace()
+    resolved_trace_name = trace_name or f"chat-{mode or 'unknown'}"
+    resolved_tags = tags or [
+        tag
+        for tag in (
+            "chat",
+            f"mode:{mode}" if mode else None,
+            f"model:{model_id}" if model_id else None,
+        )
+        if tag is not None
+    ]
+    metadata = {
+        key: value
+        for key, value in {
+            "mode": mode,
+            "model_id": model_id,
+            "thread_id": thread_id,
+        }.items()
+        if isinstance(value, str) and value
+    }
+    try:
+        manager = client.start_as_current_observation(
+            name=resolved_trace_name,
+            as_type="chain",
+            input=input_payload,
+            metadata=metadata or None,
+        )
+    except Exception as exc:
+        _disable(f"root trace setup failed: {exc}")
+        return LangfuseChatTrace()
+    return LangfuseChatTrace(
+        trace_name=resolved_trace_name,
+        session_id=session_id,
+        metadata=metadata or None,
+        tags=resolved_tags,
+        _manager=manager,
+    )
+
+
 def add_langfuse_callbacks(
     run_config: dict[str, Any],
     *,
     session_id: str | None = None,
     user_id: str | None = None,
+    trace_context: dict[str, str] | None = None,
+    trace_name: str | None = None,
+    tags: list[str] | None = None,
 ) -> None:
     """Add Langfuse CallbackHandler to run_config when Langfuse is enabled.
 
@@ -126,7 +274,7 @@ def add_langfuse_callbacks(
         logger.debug("Langfuse LangChain callback not available: %s", exc)
         return
     callbacks = list(run_config.get("callbacks") or [])
-    handler = CallbackHandler()
+    handler = CallbackHandler(trace_context=cast(Any, trace_context))
     callbacks.append(_TokenUsageCallback(handler))
     callbacks.append(handler)
     run_config["callbacks"] = callbacks
@@ -138,8 +286,14 @@ def add_langfuse_callbacks(
     )
     if isinstance(model_id, str) and model_id:
         metadata["ls_model_name"] = model_id
-    metadata["langfuse_session_id"] = session_id or ""
-    metadata["langfuse_user_id"] = user_id or ""
+    if session_id:
+        metadata["langfuse_session_id"] = session_id
+    if user_id:
+        metadata["langfuse_user_id"] = user_id
+    if trace_name:
+        metadata["langfuse_trace_name"] = trace_name
+    if tags:
+        metadata["langfuse_tags"] = tags
     run_config["metadata"] = metadata
 
 

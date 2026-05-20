@@ -67,6 +67,7 @@ def chat_completion_response_json(
     reranker_docs: list[dict[str, object]] | None = None,
     context_usage: dict[str, object] | None = None,
     usage: dict[str, object] | None = None,
+    trace_id: str | None = None,
 ) -> dict[str, object]:
     prompt_tokens = _usage_int(usage, "input")
     completion_tokens = _usage_int(usage, "output")
@@ -94,5 +95,6 @@ def chat_completion_response_json(
         citations=to_citations(citations or []) if citations is not None else None,
         reranker_docs=to_reranker_docs(reranker_docs or []) if reranker_docs is not None else None,
         context_usage=context_usage,
+        trace_id=trace_id,
     )
     return response.model_dump()

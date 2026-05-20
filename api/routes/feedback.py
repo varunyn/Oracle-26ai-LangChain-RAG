@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 from api.schemas import FeedbackRequest
 from api.settings import get_settings
+from src.rag_agent.utils.langfuse_tracing import get_langfuse_client
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,24 @@ try:
     from src.rag_agent.utils.rag_feedback import RagFeedback as RagFeedbackClass
 except ImportError:
     RagFeedbackClass = None  # type: ignore[assignment,misc]
+
+
+def record_langfuse_feedback_score(request: FeedbackRequest) -> None:
+    trace_id = (request.trace_id or "").strip()
+    if not trace_id:
+        return
+    client = get_langfuse_client()
+    if client is None:
+        return
+    try:
+        client.create_score(
+            trace_id=trace_id,
+            name="user-rating",
+            value=request.feedback,
+            data_type="NUMERIC",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Langfuse feedback score failed: %s", exc)
 
 
 @router.post("/feedback")
@@ -33,6 +52,7 @@ async def post_feedback(request: FeedbackRequest) -> dict[str, str]:
             request.answer,
             request.feedback,
         )
+        record_langfuse_feedback_score(request)
         return {"status": "ok"}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

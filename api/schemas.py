@@ -85,12 +85,14 @@ class ChatCompletionResponse(BaseModel):
     citations: list[Citation] | None = None
     reranker_docs: list[RerankerDoc] | None = None
     context_usage: dict[str, Any] | None = None
+    trace_id: str | None = None
 
 
 class FeedbackRequest(BaseModel):
     question: str = Field(..., description="User question")
     answer: str = Field(..., description="Assistant answer")
     feedback: int = Field(..., description="Star rating 1-5")
+    trace_id: str | None = Field(default=None, description="Langfuse trace id for this answer")
 
     @field_validator("feedback")
     @classmethod

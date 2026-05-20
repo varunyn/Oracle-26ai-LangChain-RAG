@@ -21,6 +21,7 @@ type ToastApi = {
 };
 
 type ReferencePayload = {
+  trace_id?: string;
   standalone_question?: string;
   citations?: { source: string; page: string }[];
   reranker_docs?: {
@@ -140,11 +141,13 @@ function toReferences(message: BaseMessageWithKwargs): ReferencePayload | null {
       Array.isArray(raw.mcp_tools_used) ||
       Array.isArray(raw.mcp_tool_invocations) ||
       Array.isArray(raw.mcp_progress_events) ||
+      typeof raw.trace_id === "string" ||
       typeof raw.standalone_question === "string" ||
       typeof raw.error === "string" ||
       raw.mcp_used === true;
     if (!hasKnownReferenceField) continue;
     return {
+      trace_id: typeof raw.trace_id === "string" ? raw.trace_id : undefined,
       standalone_question:
         typeof raw.standalone_question === "string" ? raw.standalone_question : undefined,
       citations: Array.isArray(raw.citations)
@@ -188,11 +191,13 @@ function toReferencesFromRawMessage(rawMessage: unknown): ReferencePayload | nul
       Array.isArray(raw.mcp_tools_used) ||
       Array.isArray(raw.mcp_tool_invocations) ||
       Array.isArray(raw.mcp_progress_events) ||
+      typeof raw.trace_id === "string" ||
       typeof raw.standalone_question === "string" ||
       typeof raw.error === "string" ||
       raw.mcp_used === true;
     if (!hasKnownReferenceField) continue;
     return {
+      trace_id: typeof raw.trace_id === "string" ? raw.trace_id : undefined,
       standalone_question:
         typeof raw.standalone_question === "string" ? raw.standalone_question : undefined,
       citations: Array.isArray(raw.citations)
@@ -216,6 +221,14 @@ function toReferencesFromRawMessage(rawMessage: unknown): ReferencePayload | nul
     };
   }
   return null;
+}
+
+function traceIdFromMessage(message: MessageLike): string | undefined {
+  const refPart = message.parts?.find((part) => part.type === "data-references");
+  const data = refPart?.data;
+  if (!data || typeof data !== "object") return undefined;
+  const traceId = (data as ReferencePayload).trace_id;
+  return typeof traceId === "string" && traceId.trim() ? traceId : undefined;
 }
 
 function normalizeStatus(rawStatus: unknown, isLoading: boolean, hasError: boolean): ChatStatus {
@@ -458,12 +471,13 @@ export function useChatController({
 
       const question = getMessageContent(lastUser);
       const answer = getMessageContent(lastAssistant);
+      const traceId = traceIdFromMessage(lastAssistant);
 
       try {
         const res = await fetch(toApiUrl("/api/feedback"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question, answer, feedback: stars }),
+          body: JSON.stringify({ question, answer, feedback: stars, trace_id: traceId }),
         });
         if (res.ok) setFeedbackSubmitted(true);
       } catch (error) {
