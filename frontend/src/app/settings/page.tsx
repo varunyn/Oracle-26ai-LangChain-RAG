@@ -3,10 +3,13 @@
 import Link from "next/link";
 import {
   ArrowLeft,
+  CircleCheck,
+  CircleX,
   Plus,
   RefreshCw,
   Save,
   Server,
+  SquareActivity,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -17,6 +20,8 @@ import {
   fetchMcpServers,
   saveMcpServer,
   setMcpServerEnabled,
+  testMcpServerConnection,
+  type McpConnectionTestResponse,
   type McpServerConfig,
 } from "@/lib/mcp-config";
 
@@ -44,6 +49,8 @@ export default function SettingsPage(): React.ReactElement {
   const [mcpGloballyEnabled, setMcpGloballyEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<McpConnectionTestResponse | null>(null);
   const [pendingToggleKeys, setPendingToggleKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -82,11 +89,18 @@ export default function SettingsPage(): React.ReactElement {
   const selectServer = useCallback((server: McpServerConfig) => {
     setSelectedKey(server.key);
     setDraft(cloneServer(server));
+    setTestResult(null);
   }, []);
 
   const startNewServer = useCallback(() => {
     setSelectedKey("");
     setDraft(emptyDraft);
+    setTestResult(null);
+  }, []);
+
+  const updateDraft = useCallback((patch: Partial<DraftServer>) => {
+    setDraft((current) => ({ ...current, ...patch }));
+    setTestResult(null);
   }, []);
 
   const handleSave = useCallback(async () => {
@@ -110,6 +124,7 @@ export default function SettingsPage(): React.ReactElement {
       });
       setSelectedKey(saved.key);
       setDraft(cloneServer(saved));
+      setTestResult(null);
       toast.success("MCP server saved");
     } catch (error) {
       console.error(error);
@@ -128,6 +143,7 @@ export default function SettingsPage(): React.ReactElement {
           current.map((item) => (item.key === updated.key ? updated : item)),
         );
         setDraft((current) => (current.key === updated.key ? cloneServer(updated) : current));
+        setTestResult(null);
       } catch (error) {
         console.error(error);
         toast.error("Could not update MCP server");
@@ -156,6 +172,7 @@ export default function SettingsPage(): React.ReactElement {
           setSelectedKey("");
           setDraft(emptyDraft);
         }
+        setTestResult(null);
         toast.success("MCP server deleted");
       } catch (error) {
         console.error(error);
@@ -164,6 +181,31 @@ export default function SettingsPage(): React.ReactElement {
     },
     [servers, toast],
   );
+
+  const handleTestConnection = useCallback(async () => {
+    const key = draft.key.trim();
+    const url = draft.url.trim();
+    if (!key || !url) {
+      toast.error("Server key and URL are required before testing");
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await testMcpServerConnection({ ...draft, key, url });
+      setTestResult(result);
+      if (result.ok) {
+        toast.success(`Connection succeeded: ${result.tool_count} tools found`);
+      } else {
+        toast.error("Connection failed");
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Could not test MCP server");
+    } finally {
+      setTesting(false);
+    }
+  }, [draft, toast]);
 
   return (
     <main className="flex h-screen min-h-0 flex-col overflow-hidden bg-muted/20">
@@ -231,7 +273,7 @@ export default function SettingsPage(): React.ReactElement {
                   return (
                     <div
                       key={server.key}
-                      className={`flex items-center gap-3 px-3 py-3 ${
+                      className={`grid grid-cols-[minmax(0,1fr)_3rem] items-center gap-3 px-3 py-3 ${
                         active ? "bg-muted/70" : "bg-card"
                       }`}
                     >
@@ -262,7 +304,7 @@ export default function SettingsPage(): React.ReactElement {
                         type="button"
                         onClick={() => void handleToggle(server)}
                         disabled={pendingToggleKeys.has(server.key)}
-                        className={`relative h-6 w-11 rounded-full border transition-colors ${
+                        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
                           server.enabled
                             ? "border-foreground bg-foreground"
                             : "border-border bg-muted"
@@ -271,8 +313,8 @@ export default function SettingsPage(): React.ReactElement {
                         title={server.enabled ? "Disable" : "Enable"}
                       >
                         <span
-                          className={`absolute top-0.5 size-4 rounded-full bg-background transition-transform ${
-                            server.enabled ? "translate-x-5" : "translate-x-0.5"
+                          className={`absolute left-0.5 top-1/2 size-5 -translate-y-1/2 rounded-full bg-background shadow-sm transition-transform ${
+                            server.enabled ? "translate-x-5" : "translate-x-0"
                           }`}
                         />
                       </button>
@@ -295,9 +337,7 @@ export default function SettingsPage(): React.ReactElement {
                 <input
                   type="text"
                   value={draft.key}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, key: event.target.value }))
-                  }
+                  onChange={(event) => updateDraft({ key: event.target.value })}
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="default"
                 />
@@ -307,10 +347,9 @@ export default function SettingsPage(): React.ReactElement {
                 <select
                   value={draft.transport}
                   onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
+                    updateDraft({
                       transport: event.target.value as McpServerConfig["transport"],
-                    }))
+                    })
                   }
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 >
@@ -324,9 +363,7 @@ export default function SettingsPage(): React.ReactElement {
                 <input
                   type="text"
                   value={draft.url}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, url: event.target.value }))
-                  }
+                  onChange={(event) => updateDraft({ url: event.target.value })}
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="http://localhost:9000/mcp"
                 />
@@ -341,13 +378,48 @@ export default function SettingsPage(): React.ReactElement {
                 <input
                   type="checkbox"
                   checked={draft.enabled}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, enabled: event.target.checked }))
-                  }
+                  onChange={(event) => updateDraft({ enabled: event.target.checked })}
                   className="size-4 rounded border-input text-primary focus:ring-ring"
                 />
               </label>
             </div>
+            {testResult ? (
+              <div
+                className={`mx-5 rounded-md border px-3 py-3 text-sm ${
+                  testResult.ok
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+                    : "border-destructive/30 bg-destructive/10 text-destructive"
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  {testResult.ok ? (
+                    <CircleCheck className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  ) : (
+                    <CircleX className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-medium">
+                      {testResult.ok
+                        ? `${testResult.tool_count} tools found`
+                        : "Connection failed"}
+                    </p>
+                    {testResult.error ? (
+                      <p className="mt-1 break-words text-xs">{testResult.error}</p>
+                    ) : null}
+                    {testResult.tools.length > 0 ? (
+                      <ul className="mt-2 grid gap-1 text-xs">
+                        {testResult.tools.slice(0, 6).map((toolItem) => (
+                          <li key={toolItem.name} className="truncate">
+                            <span className="font-medium">{toolItem.name}</span>
+                            {toolItem.description ? ` - ${toolItem.description}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-4">
               <button
                 type="button"
@@ -358,15 +430,26 @@ export default function SettingsPage(): React.ReactElement {
                 <Trash2 className="size-4" aria-hidden />
                 Delete
               </button>
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                disabled={saving || pendingToggleKeys.size > 0}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Save className="size-4" aria-hidden />
-                {saving ? "Saving..." : "Save server"}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleTestConnection()}
+                  disabled={testing || saving}
+                  className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <SquareActivity className="size-4" aria-hidden />
+                  {testing ? "Testing..." : "Test connection"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSave()}
+                  disabled={saving || pendingToggleKeys.size > 0}
+                  className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Save className="size-4" aria-hidden />
+                  {saving ? "Saving..." : "Save server"}
+                </button>
+              </div>
             </div>
           </section>
         </div>

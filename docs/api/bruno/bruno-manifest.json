@@ -104,6 +104,15 @@
     },
     {
       "method": "POST",
+      "path": "/api/config/mcp-servers/{key}/test",
+      "mode": "generated",
+      "name": "Test MCP Server",
+      "bodyKind": "json",
+      "output": "bruno/CustomRAGAgent/Config/test-mcp-server.bru",
+      "seq": 6
+    },
+    {
+      "method": "POST",
       "path": "/api/feedback",
       "mode": "generated",
       "name": "Feedback",

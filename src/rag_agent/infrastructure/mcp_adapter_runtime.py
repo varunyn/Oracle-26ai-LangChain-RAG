@@ -72,6 +72,21 @@ def _extract_mcp_url_from_run_config(run_config: Mapping[str, Any] | None) -> st
     return None
 
 
+def _extract_config_override(
+    run_config: Mapping[str, Any] | None,
+) -> Mapping[str, Mapping[str, Any]] | None:
+    configurable = _extract_configurable(run_config)
+    override = configurable.get("mcp_servers_config_override")
+    if not isinstance(override, Mapping):
+        return None
+    normalized: dict[str, Mapping[str, Any]] = {}
+    for raw_key, raw_value in override.items():
+        key = str(raw_key).strip()
+        if key and isinstance(raw_value, Mapping):
+            normalized[key] = cast(Mapping[str, Any], raw_value)
+    return normalized or None
+
+
 def _select_server_keys(
     configured_servers: Mapping[str, Mapping[str, Any]],
     *,
@@ -297,7 +312,7 @@ def build_adapter_server_configs(
     if not settings.enable_mcp_tools:
         return {}
 
-    configured = get_mcp_servers_config()
+    configured = _extract_config_override(run_config) or get_mcp_servers_config()
     if not configured:
         return {}
 

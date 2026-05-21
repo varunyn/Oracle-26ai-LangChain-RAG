@@ -78,6 +78,67 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "MCPConnectionTestResponse": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "tool_count": {
+            "title": "Tool Count",
+            "type": "integer"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/MCPConnectionToolResponse"
+            },
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "ok",
+          "tool_count",
+          "tools",
+          "error"
+        ],
+        "title": "MCPConnectionTestResponse",
+        "type": "object"
+      },
+      "MCPConnectionToolResponse": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "MCPConnectionToolResponse",
+        "type": "object"
+      },
       "MCPServerConfigResponse": {
         "properties": {
           "enabled": {
@@ -837,6 +898,65 @@
           }
         },
         "summary": "Patch Mcp Server Enabled Api",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/mcp-servers/{key}/test": {
+      "post": {
+        "operationId": "test_mcp_server_connection_api_api_config_mcp_servers__key__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/MCPServerConfigWrite"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPConnectionTestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Mcp Server Connection Api",
         "tags": [
           "config"
         ]

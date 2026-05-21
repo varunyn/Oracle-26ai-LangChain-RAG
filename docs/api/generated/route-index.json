@@ -46,6 +46,15 @@
       ]
     },
     {
+      "method": "POST",
+      "operationId": "test_mcp_server_connection_api_api_config_mcp_servers__key__test_post",
+      "path": "/api/config/mcp-servers/{key}/test",
+      "summary": "Test Mcp Server Connection Api",
+      "tags": [
+        "config"
+      ]
+    },
+    {
       "method": "DELETE",
       "operationId": "delete_document_source_api_documents_source_delete",
       "path": "/api/documents/source",

@@ -214,6 +214,7 @@ class Settings(BaseSettings):
     MCP_SEARCH_MODE: str = "vector"
     MCP_MAX_ROUNDS: int = 2
     MCP_UI_CONFIG_FILE: str = ".local-data/mcp_servers.json"
+    MCP_CONNECTION_TEST_TIMEOUT_SECONDS: float = 8.0
     ENABLE_MCP_CLIENT_JWT: bool = False
     ENABLE_MCP_OAUTH: bool = False
     MCP_OAUTH_CLIENT_ID: str | None = None

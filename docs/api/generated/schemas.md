@@ -32,6 +32,29 @@ Do not edit manually.
 
 - `detail`: `array`
 
+## `MCPConnectionTestResponse`
+
+- type: `object`
+- required: `key`, `ok`, `tool_count`, `tools`, `error`
+
+### Properties
+
+- `error`: `complex`
+- `key`: `string`
+- `ok`: `boolean`
+- `tool_count`: `integer`
+- `tools`: `array`
+
+## `MCPConnectionToolResponse`
+
+- type: `object`
+- required: `name`, `description`
+
+### Properties
+
+- `description`: `string`
+- `name`: `string`
+
 ## `MCPServerConfigResponse`
 
 - type: `object`

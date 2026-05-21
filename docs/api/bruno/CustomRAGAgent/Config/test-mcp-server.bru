@@ -1,0 +1,22 @@
+meta {
+  name: Test MCP Server
+  type: http
+  seq: 6
+}
+
+post {
+  url: {baseUrl}/api/config/mcp-servers/{key}/test
+  body: json
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+{
+  "transport": "streamable-http",
+  "url": "http://localhost:9000/mcp",
+  "enabled": true
+}
+}

@@ -123,6 +123,12 @@ def default_body_for_operation(path: str) -> dict[str, Any] | None:
             "url": "http://localhost:9000/mcp",
             "enabled": True,
         }
+    if path == "/api/config/mcp-servers/{key}/test":
+        return {
+            "transport": "streamable-http",
+            "url": "http://localhost:9000/mcp",
+            "enabled": True,
+        }
     if path == "/api/config/mcp-servers/{key}/enabled":
         return {"enabled": True}
     return None

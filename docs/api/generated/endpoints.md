@@ -33,6 +33,12 @@ Do not edit manually.
 - tags: config
 - summary: Patch Mcp Server Enabled Api
 
+## POST `/api/config/mcp-servers/{key}/test`
+
+- operationId: `test_mcp_server_connection_api_api_config_mcp_servers__key__test_post`
+- tags: config
+- summary: Test Mcp Server Connection Api
+
 ## DELETE `/api/documents/source`
 
 - operationId: `delete_document_source_api_documents_source_delete`

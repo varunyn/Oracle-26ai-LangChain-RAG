@@ -222,6 +222,7 @@ MCP (Model Context Protocol) client and server configuration.
 | `MCP_REPEATED_WORKFLOW_CONTROLLER`  | `true`         | Enable repeated-workflow orchestration behavior. |
 | `MCP_WORKFLOW_POLICY`               | `{}`           | JSON object for workflow-controller policy. |
 | `MCP_UI_CONFIG_FILE`                | `.local-data/mcp_servers.json` | Server-side JSON file written by the frontend Settings page after MCP UI edits. |
+| `MCP_CONNECTION_TEST_TIMEOUT_SECONDS` | `8`          | Max seconds the Settings page MCP connection test waits before returning a failure. |
 | `MCP_SERVERS_CONFIG`                | (see settings) | JSON object; see [MCP-USAGE.md](MCP-USAGE.md).                 |
 
 ### MCP server runtime (`mcp_servers/*.py`)

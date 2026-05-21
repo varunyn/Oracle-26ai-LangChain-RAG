@@ -55,6 +55,45 @@ def test_build_adapter_server_configs_applies_jwt_headers_when_enabled(monkeypat
     }
 
 
+def test_build_adapter_server_configs_uses_run_config_override(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_settings",
+        lambda: SimpleNamespace(enable_mcp_tools=True, enable_mcp_client_jwt=False),
+    )
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_servers_config",
+        lambda: {
+            "default": {
+                "transport": "streamable-http",
+                "url": "http://localhost:9000/mcp",
+            }
+        },
+    )
+
+    out = mod.build_adapter_server_configs(
+        server_keys=["draft"],
+        run_config={
+            "configurable": {
+                "mcp_servers_config_override": {
+                    "draft": {
+                        "transport": "streamable-http",
+                        "url": "http://localhost:9100/mcp",
+                    }
+                }
+            }
+        },
+    )
+
+    assert out == {
+        "draft": {
+            "transport": "streamable-http",
+            "url": "http://localhost:9100/mcp",
+        }
+    }
+
+
 def test_get_mcp_settings_enables_oauth_supplier(monkeypatch) -> None:
     monkeypatch.setenv("ENABLE_MCP_TOOLS", "true")
     monkeypatch.setenv("ENABLE_MCP_CLIENT_JWT", "true")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 from fastapi import APIRouter, HTTPException, Request
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from api.deps.request import get_settings as get_settings_dep
 from api.settings import Settings
+from src.rag_agent.infrastructure import mcp_adapter_runtime
 from src.rag_agent.infrastructure.mcp_config_store import (
     SUPPORTED_TRANSPORTS,
     MCPServerConfig,
@@ -61,6 +63,19 @@ class MCPServerEnabledWrite(BaseModel):
     enabled: bool
 
 
+class MCPConnectionToolResponse(BaseModel):
+    name: str
+    description: str
+
+
+class MCPConnectionTestResponse(BaseModel):
+    key: str
+    ok: bool
+    tool_count: int
+    tools: list[MCPConnectionToolResponse]
+    error: str | None
+
+
 @router.get("/config")
 async def get_config(request: Request) -> dict[str, object]:
     settings: Settings = get_settings_dep(request)
@@ -106,6 +121,57 @@ def _to_response(server: MCPServerConfig) -> MCPServerConfigResponse:
         url=server.url,
         enabled=server.enabled,
     )
+
+
+def _server_config_for_test(
+    *,
+    key: str,
+    payload: MCPServerConfigWrite | None,
+    settings: Settings,
+) -> MCPServerConfig:
+    if payload is not None:
+        return MCPServerConfig(
+            key=key,
+            transport=payload.transport,
+            url=payload.url,
+            enabled=True,
+        )
+
+    servers = list_mcp_server_configs(
+        base_config=_settings_mcp_config(settings),
+        store_path=_store_path(settings),
+    )
+    current = next((server for server in servers if server.key == key), None)
+    if current is None:
+        raise HTTPException(status_code=404, detail="MCP server not found")
+    return MCPServerConfig(
+        key=current.key,
+        transport=current.transport,
+        url=current.url,
+        enabled=True,
+    )
+
+
+def _test_run_config(server: MCPServerConfig) -> dict[str, object]:
+    return {
+        "configurable": {
+            "mcp_servers_config_override": {
+                server.key: {
+                    "transport": server.transport,
+                    "url": server.url,
+                }
+            }
+        }
+    }
+
+
+def _connection_test_timeout(settings: Settings) -> float:
+    raw_value = getattr(settings, "MCP_CONNECTION_TEST_TIMEOUT_SECONDS", 8.0)
+    try:
+        timeout = float(raw_value)
+    except (TypeError, ValueError):
+        return 8.0
+    return timeout if timeout > 0 else 8.0
 
 
 @router.get("/config/mcp-servers", response_model=MCPServersConfigResponse)
@@ -180,3 +246,62 @@ async def delete_mcp_server_config_api(key: str, request: Request) -> dict[str, 
         store_path=_store_path(settings),
     )
     return {"ok": True}
+
+
+@router.post(
+    "/config/mcp-servers/{key}/test",
+    response_model=MCPConnectionTestResponse,
+)
+async def test_mcp_server_connection_api(
+    key: str,
+    request: Request,
+    payload: MCPServerConfigWrite | None = None,
+) -> MCPConnectionTestResponse:
+    settings: Settings = get_settings_dep(request)
+    normalized_key = _validate_mcp_key(key)
+    server = _server_config_for_test(
+        key=normalized_key,
+        payload=payload,
+        settings=settings,
+    )
+    timeout_seconds = _connection_test_timeout(settings)
+    try:
+        tools = await asyncio.wait_for(
+            mcp_adapter_runtime.load_adapter_tools(
+                server_keys=[server.key],
+                run_config=_test_run_config(server),
+            ),
+            timeout=timeout_seconds,
+        )
+    except TimeoutError:
+        return MCPConnectionTestResponse(
+            key=server.key,
+            ok=False,
+            tool_count=0,
+            tools=[],
+            error=f"Connection test timed out after {timeout_seconds:g} seconds",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return MCPConnectionTestResponse(
+            key=server.key,
+            ok=False,
+            tool_count=0,
+            tools=[],
+            error=str(exc) or type(exc).__name__,
+        )
+
+    tool_summaries = [
+        MCPConnectionToolResponse(
+            name=str(getattr(tool, "name", "") or "").strip(),
+            description=str(getattr(tool, "description", "") or "").strip(),
+        )
+        for tool in tools
+        if str(getattr(tool, "name", "") or "").strip()
+    ]
+    return MCPConnectionTestResponse(
+        key=server.key,
+        ok=True,
+        tool_count=len(tool_summaries),
+        tools=tool_summaries,
+        error=None,
+    )
