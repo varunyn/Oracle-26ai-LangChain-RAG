@@ -12,7 +12,7 @@ import {
   SquareActivity,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/toaster";
 import {
@@ -40,6 +40,75 @@ const emptyDraft: DraftServer = {
 function cloneServer(server: McpServerConfig): DraftServer {
   return { ...server };
 }
+
+type ServerListItemProps = {
+  server: McpServerConfig;
+  active: boolean;
+  pending: boolean;
+  onSelect: (server: McpServerConfig) => void;
+  onToggle: (server: McpServerConfig) => void;
+};
+
+const ServerListItem = memo(function ServerListItem({
+  server,
+  active,
+  pending,
+  onSelect,
+  onToggle,
+}: ServerListItemProps): React.ReactElement {
+  return (
+    <div
+      className={`grid grid-cols-[minmax(0,1fr)_3rem] items-center gap-3 px-3 py-3 ${
+        active
+          ? "bg-primary/[0.08] shadow-[inset_3px_0_0_hsl(var(--primary))]"
+          : "bg-card"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => onSelect(server)}
+        aria-current={active ? "true" : undefined}
+        className={`flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-ring ${
+          active ? "hover:bg-primary/[0.08]" : "hover:bg-muted"
+        }`}
+      >
+        <span
+          className={`inline-flex size-8 shrink-0 items-center justify-center rounded-md border ${
+            server.enabled
+              ? "border-foreground/20 bg-foreground text-background"
+              : "border-border bg-background text-muted-foreground"
+          }`}
+        >
+          <Server className="size-4" aria-hidden />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-foreground">
+            {server.key}
+          </span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {server.url}
+          </span>
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={() => void onToggle(server)}
+        disabled={pending}
+        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+          server.enabled ? "border-foreground bg-foreground" : "border-border bg-muted"
+        }`}
+        aria-label={server.enabled ? "Disable MCP server" : "Enable MCP server"}
+        title={server.enabled ? "Disable" : "Enable"}
+      >
+        <span
+          className={`absolute left-0.5 top-1/2 size-5 -translate-y-1/2 rounded-full bg-background shadow-sm transition-transform ${
+            server.enabled ? "translate-x-5" : "translate-x-0"
+          }`}
+        />
+      </button>
+    </div>
+  );
+});
 
 export default function SettingsPage(): React.ReactElement {
   const { toast } = useToast();
@@ -271,54 +340,14 @@ export default function SettingsPage(): React.ReactElement {
                 servers.map((server) => {
                   const active = server.key === selectedKey;
                   return (
-                    <div
+                    <ServerListItem
                       key={server.key}
-                      className={`grid grid-cols-[minmax(0,1fr)_3rem] items-center gap-3 px-3 py-3 ${
-                        active ? "bg-muted/70" : "bg-card"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => selectServer(server)}
-                        className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
-                      >
-                        <span
-                          className={`inline-flex size-8 shrink-0 items-center justify-center rounded-md border ${
-                            server.enabled
-                              ? "border-foreground/20 bg-foreground text-background"
-                              : "border-border bg-background text-muted-foreground"
-                          }`}
-                        >
-                          <Server className="size-4" aria-hidden />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium text-foreground">
-                            {server.key}
-                          </span>
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {server.url}
-                          </span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleToggle(server)}
-                        disabled={pendingToggleKeys.has(server.key)}
-                        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
-                          server.enabled
-                            ? "border-foreground bg-foreground"
-                            : "border-border bg-muted"
-                        }`}
-                        aria-label={server.enabled ? "Disable MCP server" : "Enable MCP server"}
-                        title={server.enabled ? "Disable" : "Enable"}
-                      >
-                        <span
-                          className={`absolute left-0.5 top-1/2 size-5 -translate-y-1/2 rounded-full bg-background shadow-sm transition-transform ${
-                            server.enabled ? "translate-x-5" : "translate-x-0"
-                          }`}
-                        />
-                      </button>
-                    </div>
+                      server={server}
+                      active={active}
+                      pending={pendingToggleKeys.has(server.key)}
+                      onSelect={selectServer}
+                      onToggle={handleToggle}
+                    />
                   );
                 })
               )}
