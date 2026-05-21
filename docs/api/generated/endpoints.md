@@ -9,6 +9,30 @@ Do not edit manually.
 - tags: config
 - summary: Get Config
 
+## GET `/api/config/mcp-servers`
+
+- operationId: `get_mcp_servers_config_api_api_config_mcp_servers_get`
+- tags: config
+- summary: Get Mcp Servers Config Api
+
+## DELETE `/api/config/mcp-servers/{key}`
+
+- operationId: `delete_mcp_server_config_api_api_config_mcp_servers__key__delete`
+- tags: config
+- summary: Delete Mcp Server Config Api
+
+## PUT `/api/config/mcp-servers/{key}`
+
+- operationId: `put_mcp_server_config_api_api_config_mcp_servers__key__put`
+- tags: config
+- summary: Put Mcp Server Config Api
+
+## PATCH `/api/config/mcp-servers/{key}/enabled`
+
+- operationId: `patch_mcp_server_enabled_api_api_config_mcp_servers__key__enabled_patch`
+- tags: config
+- summary: Patch Mcp Server Enabled Api
+
 ## DELETE `/api/documents/source`
 
 - operationId: `delete_document_source_api_documents_source_delete`

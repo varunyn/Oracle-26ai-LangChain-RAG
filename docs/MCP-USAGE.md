@@ -79,7 +79,7 @@ curl -X POST http://localhost:9000/mcp \
 
 ## Part 2: Consuming MCP (RAG backend and UIs)
 
-The RAG backend and UIs **consume** MCP: they connect to MCP server(s) and attach their tools to the LLM. Configuration is in `.env` (or environment) via `MCP_SERVERS_CONFIG` and related options; see `.env.example`.
+The RAG backend and UIs **consume** MCP: they connect to MCP server(s) and attach their tools to the LLM. Initial/default configuration comes from `.env` (or environment) via `MCP_SERVERS_CONFIG` and related options; see `.env.example`. The Next.js Settings page can then create a server-side override file at `MCP_UI_CONFIG_FILE` so configured MCPs can be added, edited, disabled, or deleted without editing `.env`.
 
 ### 1. Use one MCP in RAG chat (Next.js app)
 
@@ -95,7 +95,7 @@ The RAG backend and UIs **consume** MCP: they connect to MCP server(s) and attac
   ```
 
 - Set `ENABLE_MCP_TOOLS = True`.
-- Restart the backend. The Next.js app does not send MCP settings; the backend uses this config.
+- Restart the backend. The Next.js Settings page shows this server as the initial/default entry until you make a UI edit.
 
 ### 2. Add another MCP as a preset (Next.js / API)
 
@@ -108,7 +108,7 @@ The RAG backend and UIs **consume** MCP: they connect to MCP server(s) and attac
   }
   ```
 
-- **Next.js UI**: In the sidebar, paste the preset URL you want (for a local server, typically `http://localhost:9000/mcp`) and click **Connect / Reload tools**.
+- **Next.js UI**: Open **Settings** from the chat header, add or edit the MCP server entry, and save it. After the first UI edit, the backend reads the UI-managed server list from `MCP_UI_CONFIG_FILE`.
 - **API note**: MCP-enabled chat is supported through `POST /api/langgraph/threads/{thread_id}/runs` with `mode="mcp"` or `mode="mixed"`.
 
 ### 3. Use multiple MCPs in RAG chat at once
@@ -130,9 +130,9 @@ The RAG backend and UIs **consume** MCP: they connect to MCP server(s) and attac
 
 You can point this app at any HTTP MCP server (different repo or machine).
 
-- **Next.js UI**: Use the sidebar MCP settings (no Streamlit app required) to point at the external server, then click **Connect / Reload tools**.
-- **Preset in config**: Add an entry to `MCP_SERVERS_CONFIG` (e.g. `"external": { "transport": "streamable-http", "url": "http://YOUR_HOST:PORT/mcp/" }`) and use that URL in the UI or API.
-- **Next.js**: The backend uses `MCP_SERVERS_CONFIG["default"]`; set it to your external URL and keep `ENABLE_MCP_TOOLS = True`. The frontend does not send MCP URL.
+- **Next.js UI**: Open **Settings**, add an MCP server with a stable key such as `external`, set the URL, and keep it enabled.
+- **Preset in config**: Add an entry to `MCP_SERVERS_CONFIG` (e.g. `"external": { "transport": "streamable-http", "url": "http://YOUR_HOST:PORT/mcp/" }`) if you want it to appear before any UI-managed override exists.
+- **Next.js**: Keep `ENABLE_MCP_TOOLS = True`. The frontend manages MCP entries through backend config endpoints; chat requests still choose `mode="mcp"` or `mode="mixed"`.
 - **Cursor IDE**: To use an external MCP from Cursor, add it in Cursor Settings → MCP (HTTP URL or stdio command). That is independent of this app’s config.
 
 ### OAuth-protected MCP servers

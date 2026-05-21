@@ -173,7 +173,7 @@ The frontend gets most config from the backend via `GET /api/config`. These opti
 | ------------------------------- | ----------------------- | -------------------------------------------------------------------- |
 | `NEXT_PUBLIC_API_BASE`          | `http://localhost:3002` | Browser-visible backend base URL for direct frontend API calls.      |
 | `FASTAPI_BACKEND_URL`           | `http://localhost:3002` | Optional server-side fallback for config/bootstrap fetches.          |
-| `NEXT_PUBLIC_DEFAULT_FLOW_MODE` | `rag`                   | Default flow when the app loads: `rag`, `mcp`, `mixed`, or `direct`. |
+| `NEXT_PUBLIC_DEFAULT_FLOW_MODE` | `mixed`                 | Default flow when the app loads: `rag`, `mcp`, `mixed`, or `direct`. |
 
 ### Default model (browser)
 
@@ -221,6 +221,7 @@ MCP (Model Context Protocol) client and server configuration.
 | `REQUIRE_TOOL_CALL`                 | `false`        | Require a tool call in supported MCP workflow paths. |
 | `MCP_REPEATED_WORKFLOW_CONTROLLER`  | `true`         | Enable repeated-workflow orchestration behavior. |
 | `MCP_WORKFLOW_POLICY`               | `{}`           | JSON object for workflow-controller policy. |
+| `MCP_UI_CONFIG_FILE`                | `.local-data/mcp_servers.json` | Server-side JSON file written by the frontend Settings page after MCP UI edits. |
 | `MCP_SERVERS_CONFIG`                | (see settings) | JSON object; see [MCP-USAGE.md](MCP-USAGE.md).                 |
 
 ### MCP server runtime (`mcp_servers/*.py`)

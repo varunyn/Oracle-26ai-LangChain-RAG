@@ -43,6 +43,18 @@
             "description": "User question",
             "title": "Question",
             "type": "string"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Langfuse trace id for this answer",
+            "title": "Trace Id"
           }
         },
         "required": [
@@ -64,6 +76,91 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "MCPServerConfigResponse": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "transport": {
+            "title": "Transport",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "transport",
+          "url",
+          "enabled"
+        ],
+        "title": "MCPServerConfigResponse",
+        "type": "object"
+      },
+      "MCPServerConfigWrite": {
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "transport": {
+            "default": "streamable-http",
+            "title": "Transport",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "MCPServerConfigWrite",
+        "type": "object"
+      },
+      "MCPServerEnabledWrite": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "MCPServerEnabledWrite",
+        "type": "object"
+      },
+      "MCPServersConfigResponse": {
+        "properties": {
+          "enable_mcp_tools": {
+            "title": "Enable Mcp Tools",
+            "type": "boolean"
+          },
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/MCPServerConfigResponse"
+            },
+            "title": "Servers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "enable_mcp_tools",
+          "servers"
+        ],
+        "title": "MCPServersConfigResponse",
         "type": "object"
       },
       "RunInput": {
@@ -186,6 +283,18 @@
             "title": "Last Message",
             "type": "string"
           },
+          "last_user_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest user question to keep suggestions on-topic",
+            "title": "Last User Message"
+          },
           "model": {
             "anyOf": [
               {
@@ -248,6 +357,58 @@
           "thread_id"
         ],
         "title": "ThreadCreateResponse",
+        "type": "object"
+      },
+      "ThreadHistoryRequest": {
+        "properties": {
+          "before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "checkpoint": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          }
+        },
+        "title": "ThreadHistoryRequest",
         "type": "object"
       },
       "ThreadRunRequest": {
@@ -498,13 +659,184 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Config Api Config Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
           }
         },
         "summary": "Get Config",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/mcp-servers": {
+      "get": {
+        "operationId": "get_mcp_servers_config_api_api_config_mcp_servers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServersConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Mcp Servers Config Api",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/mcp-servers/{key}": {
+      "delete": {
+        "operationId": "delete_mcp_server_config_api_api_config_mcp_servers__key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Mcp Server Config Api Api Config Mcp Servers  Key  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Mcp Server Config Api",
+        "tags": [
+          "config"
+        ]
+      },
+      "put": {
+        "operationId": "put_mcp_server_config_api_api_config_mcp_servers__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPServerConfigWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServerConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Mcp Server Config Api",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/mcp-servers/{key}/enabled": {
+      "patch": {
+        "operationId": "patch_mcp_server_enabled_api_api_config_mcp_servers__key__enabled_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPServerEnabledWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServerConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Mcp Server Enabled Api",
         "tags": [
           "config"
         ]
@@ -551,7 +883,11 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Document Source Api Documents Source Delete",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -598,7 +934,11 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Document Sources Api Documents Sources Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -636,7 +976,11 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Upload Documents Api Documents Upload Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -675,7 +1019,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Post Feedback Api Feedback Post",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"
@@ -733,6 +1083,56 @@
           }
         },
         "summary": "Create Thread",
+        "tags": [
+          "langgraph-runtime"
+        ]
+      }
+    },
+    "/api/langgraph/threads/{thread_id}/history": {
+      "post": {
+        "operationId": "get_thread_history_api_langgraph_threads__thread_id__history_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadHistoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Thread History",
         "tags": [
           "langgraph-runtime"
         ]
@@ -840,9 +1240,49 @@
         ]
       }
     },
+    "/api/langgraph/threads/{thread_id}/state": {
+      "get": {
+        "operationId": "get_thread_state_api_langgraph_threads__thread_id__state_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Thread State",
+        "tags": [
+          "langgraph-runtime"
+        ]
+      }
+    },
     "/api/suggestions": {
       "post": {
-        "description": "Generate 3–6 follow-up question suggestions from the last assistant message.",
+        "description": "Generate 3-6 follow-up question suggestions from the last assistant message.",
         "operationId": "post_suggestions_api_suggestions_post",
         "requestBody": {
           "content": {
@@ -876,7 +1316,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Post Suggestions"
+        "summary": "Post Suggestions",
+        "tags": [
+          "suggestions"
+        ]
       }
     },
     "/api/threads/{thread_id}": {
@@ -894,12 +1337,7 @@
           }
         ],
         "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
+          "204": {
             "description": "Successful Response"
           },
           "422": {
@@ -927,7 +1365,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
               }
             },
             "description": "Successful Response"

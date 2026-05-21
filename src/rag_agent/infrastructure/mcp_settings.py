@@ -15,6 +15,7 @@ import os
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
+from .mcp_config_store import resolve_enabled_mcp_servers_config
 from .mcp_oauth import build_oauth_headers_supplier
 
 logger = logging.getLogger(__name__)
@@ -56,13 +57,18 @@ def get_mcp_servers_config() -> dict[str, dict[str, Any]]:
     try:
         from api.settings import get_settings
 
-        cfg = getattr(get_settings(), "MCP_SERVERS_CONFIG", None)
+        settings = get_settings()
+        cfg = getattr(settings, "MCP_SERVERS_CONFIG", None)
         if not isinstance(cfg, dict):
             logger.debug(
                 "MCP: MCP_SERVERS_CONFIG missing or invalid; expected dict, got %s", type(cfg)
             )
             return {}
-        return _normalize_mcp_server_urls(_normalize_mcp_server_transports(cfg))
+        resolved = resolve_enabled_mcp_servers_config(
+            base_config=cfg,
+            store_path=getattr(settings, "MCP_UI_CONFIG_FILE", None),
+        )
+        return _normalize_mcp_server_urls(_normalize_mcp_server_transports(resolved))
     except Exception as e:
         logger.debug("MCP: settings unavailable; no servers configured: %s", e)
         return {}

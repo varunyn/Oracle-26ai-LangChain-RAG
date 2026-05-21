@@ -1,0 +1,22 @@
+meta {
+  name: Save MCP Server
+  type: http
+  seq: 3
+}
+
+put {
+  url: {baseUrl}/api/config/mcp-servers/{key}
+  body: json
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+{
+  "transport": "streamable-http",
+  "url": "http://localhost:9000/mcp",
+  "enabled": true
+}
+}

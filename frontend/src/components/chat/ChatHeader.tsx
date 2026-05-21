@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { CheckIcon, PanelLeft, PanelLeftClose } from "lucide-react";
+import Link from "next/link";
+import { CheckIcon, PanelLeft, PanelLeftClose, Settings } from "lucide-react";
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -91,53 +92,63 @@ export function ChatHeader({
         </div>
       </div>
 
-      <ModelSelector
-        open={modelSelectorOpen}
-        onOpenChange={onModelSelectorOpenChange}
-      >
-        <ModelSelectorTrigger className="min-w-0 max-w-[12rem] rounded-md border border-input bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring sm:max-w-[15rem] sm:min-w-[12rem]">
-          <span className="flex min-w-0 items-center gap-2">
-            {selectedModelData?.chefSlug ? (
-              <ModelSelectorLogo
-                provider={selectedModelData.chefSlug}
-                className="shrink-0"
-              />
-            ) : null}
-            <ModelSelectorName>
-              {selectedModelData?.name || selectedModel}
-            </ModelSelectorName>
-          </span>
-        </ModelSelectorTrigger>
-        <ModelSelectorContent>
-          <ModelSelectorInput placeholder="Search models..." />
-          <ModelSelectorList>
-            <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-            {modelList.map((m) => (
-              <ModelSelectorItem
-                key={m.id}
-                onSelect={() => {
-                  onSelectModel(m.id);
-                  onModelSelectorOpenChange(false);
-                }}
-                value={m.id}
-              >
-                <ModelSelectorLogo provider={m.chefSlug} />
-                <ModelSelectorName>{m.name}</ModelSelectorName>
-                <ModelSelectorLogoGroup>
-                  {m.providers.map((provider) => (
-                    <ModelSelectorLogo key={provider} provider={provider} />
-                  ))}
-                </ModelSelectorLogoGroup>
-                {selectedModel === m.id ? (
-                  <CheckIcon className="ml-auto size-4" />
-                ) : (
-                  <div className="ml-auto size-4" />
-                )}
-              </ModelSelectorItem>
-            ))}
-          </ModelSelectorList>
-        </ModelSelectorContent>
-      </ModelSelector>
+      <div className="flex shrink-0 items-center gap-2">
+        <ModelSelector
+          open={modelSelectorOpen}
+          onOpenChange={onModelSelectorOpenChange}
+        >
+          <ModelSelectorTrigger className="min-w-0 max-w-[12rem] rounded-md border border-input bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring sm:max-w-[15rem] sm:min-w-[12rem]">
+            <span className="flex min-w-0 items-center gap-2">
+              {selectedModelData?.chefSlug ? (
+                <ModelSelectorLogo
+                  provider={selectedModelData.chefSlug}
+                  className="shrink-0"
+                />
+              ) : null}
+              <ModelSelectorName>
+                {selectedModelData?.name || selectedModel}
+              </ModelSelectorName>
+            </span>
+          </ModelSelectorTrigger>
+          <ModelSelectorContent>
+            <ModelSelectorInput placeholder="Search models..." />
+            <ModelSelectorList>
+              <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+              {modelList.map((m) => (
+                <ModelSelectorItem
+                  key={m.id}
+                  onSelect={() => {
+                    onSelectModel(m.id);
+                    onModelSelectorOpenChange(false);
+                  }}
+                  value={m.id}
+                >
+                  <ModelSelectorLogo provider={m.chefSlug} />
+                  <ModelSelectorName>{m.name}</ModelSelectorName>
+                  <ModelSelectorLogoGroup>
+                    {m.providers.map((provider) => (
+                      <ModelSelectorLogo key={provider} provider={provider} />
+                    ))}
+                  </ModelSelectorLogoGroup>
+                  {selectedModel === m.id ? (
+                    <CheckIcon className="ml-auto size-4" />
+                  ) : (
+                    <div className="ml-auto size-4" />
+                  )}
+                </ModelSelectorItem>
+              ))}
+            </ModelSelectorList>
+          </ModelSelectorContent>
+        </ModelSelector>
+        <Link
+          href="/settings"
+          className="inline-flex size-10 items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          aria-label="Open settings"
+          title="Settings"
+        >
+          <Settings className="size-4" aria-hidden />
+        </Link>
+      </div>
     </header>
   );
 }

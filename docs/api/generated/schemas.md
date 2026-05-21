@@ -22,6 +22,7 @@ Do not edit manually.
 - `answer`: `string` Assistant answer
 - `feedback`: `integer` Star rating 1-5
 - `question`: `string` User question
+- `trace_id`: `complex` Langfuse trace id for this answer
 
 ## `HTTPValidationError`
 
@@ -30,6 +31,48 @@ Do not edit manually.
 ### Properties
 
 - `detail`: `array`
+
+## `MCPServerConfigResponse`
+
+- type: `object`
+- required: `key`, `transport`, `url`, `enabled`
+
+### Properties
+
+- `enabled`: `boolean`
+- `key`: `string`
+- `transport`: `string`
+- `url`: `string`
+
+## `MCPServerConfigWrite`
+
+- type: `object`
+- required: `url`
+
+### Properties
+
+- `enabled`: `boolean`
+- `transport`: `string`
+- `url`: `string`
+
+## `MCPServerEnabledWrite`
+
+- type: `object`
+- required: `enabled`
+
+### Properties
+
+- `enabled`: `boolean`
+
+## `MCPServersConfigResponse`
+
+- type: `object`
+- required: `enable_mcp_tools`, `servers`
+
+### Properties
+
+- `enable_mcp_tools`: `boolean`
+- `servers`: `array`
 
 ## `RunInput`
 

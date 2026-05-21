@@ -43,6 +43,18 @@
             "description": "User question",
             "title": "Question",
             "type": "string"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Langfuse trace id for this answer",
+            "title": "Trace Id"
           }
         },
         "required": [
@@ -64,6 +76,91 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "MCPServerConfigResponse": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "transport": {
+            "title": "Transport",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "transport",
+          "url",
+          "enabled"
+        ],
+        "title": "MCPServerConfigResponse",
+        "type": "object"
+      },
+      "MCPServerConfigWrite": {
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "transport": {
+            "default": "streamable-http",
+            "title": "Transport",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "MCPServerConfigWrite",
+        "type": "object"
+      },
+      "MCPServerEnabledWrite": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "MCPServerEnabledWrite",
+        "type": "object"
+      },
+      "MCPServersConfigResponse": {
+        "properties": {
+          "enable_mcp_tools": {
+            "title": "Enable Mcp Tools",
+            "type": "boolean"
+          },
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/MCPServerConfigResponse"
+            },
+            "title": "Servers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "enable_mcp_tools",
+          "servers"
+        ],
+        "title": "MCPServersConfigResponse",
         "type": "object"
       },
       "RunInput": {
@@ -573,6 +670,173 @@
           }
         },
         "summary": "Get Config",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/mcp-servers": {
+      "get": {
+        "operationId": "get_mcp_servers_config_api_api_config_mcp_servers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServersConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Mcp Servers Config Api",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/mcp-servers/{key}": {
+      "delete": {
+        "operationId": "delete_mcp_server_config_api_api_config_mcp_servers__key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Mcp Server Config Api Api Config Mcp Servers  Key  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Mcp Server Config Api",
+        "tags": [
+          "config"
+        ]
+      },
+      "put": {
+        "operationId": "put_mcp_server_config_api_api_config_mcp_servers__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPServerConfigWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServerConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Mcp Server Config Api",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/config/mcp-servers/{key}/enabled": {
+      "patch": {
+        "operationId": "patch_mcp_server_enabled_api_api_config_mcp_servers__key__enabled_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPServerEnabledWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPServerConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Mcp Server Enabled Api",
         "tags": [
           "config"
         ]

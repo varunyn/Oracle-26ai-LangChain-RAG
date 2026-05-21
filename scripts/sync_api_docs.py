@@ -115,6 +115,16 @@ def default_body_for_operation(path: str) -> dict[str, Any] | None:
             "last_message": "Oracle vector search combines embeddings with document retrieval.",
             "model": None,
         }
+    if path == "/api/langgraph/threads/{thread_id}/history":
+        return {"limit": 20}
+    if path == "/api/config/mcp-servers/{key}":
+        return {
+            "transport": "streamable-http",
+            "url": "http://localhost:9000/mcp",
+            "enabled": True,
+        }
+    if path == "/api/config/mcp-servers/{key}/enabled":
+        return {"enabled": True}
     return None
 
 

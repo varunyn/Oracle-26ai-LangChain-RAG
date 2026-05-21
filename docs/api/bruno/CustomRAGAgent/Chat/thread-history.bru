@@ -1,0 +1,20 @@
+meta {
+  name: Thread History
+  type: http
+  seq: 6
+}
+
+post {
+  url: {baseUrl}/api/langgraph/threads/{thread_id}/history
+  body: json
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+{
+  "limit": 20
+}
+}

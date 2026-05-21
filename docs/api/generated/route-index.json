@@ -10,6 +10,42 @@
       ]
     },
     {
+      "method": "GET",
+      "operationId": "get_mcp_servers_config_api_api_config_mcp_servers_get",
+      "path": "/api/config/mcp-servers",
+      "summary": "Get Mcp Servers Config Api",
+      "tags": [
+        "config"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "operationId": "delete_mcp_server_config_api_api_config_mcp_servers__key__delete",
+      "path": "/api/config/mcp-servers/{key}",
+      "summary": "Delete Mcp Server Config Api",
+      "tags": [
+        "config"
+      ]
+    },
+    {
+      "method": "PUT",
+      "operationId": "put_mcp_server_config_api_api_config_mcp_servers__key__put",
+      "path": "/api/config/mcp-servers/{key}",
+      "summary": "Put Mcp Server Config Api",
+      "tags": [
+        "config"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "operationId": "patch_mcp_server_enabled_api_api_config_mcp_servers__key__enabled_patch",
+      "path": "/api/config/mcp-servers/{key}/enabled",
+      "summary": "Patch Mcp Server Enabled Api",
+      "tags": [
+        "config"
+      ]
+    },
+    {
       "method": "DELETE",
       "operationId": "delete_document_source_api_documents_source_delete",
       "path": "/api/documents/source",

@@ -31,6 +31,24 @@
       "output": "bruno/CustomRAGAgent/Chat/chat-stream.bru"
     },
     {
+      "method": "GET",
+      "path": "/api/langgraph/threads/{thread_id}/state",
+      "mode": "generated",
+      "name": "Thread State",
+      "bodyKind": "none",
+      "output": "bruno/CustomRAGAgent/Chat/thread-state.bru",
+      "seq": 5
+    },
+    {
+      "method": "POST",
+      "path": "/api/langgraph/threads/{thread_id}/history",
+      "mode": "generated",
+      "name": "Thread History",
+      "bodyKind": "json",
+      "output": "bruno/CustomRAGAgent/Chat/thread-history.bru",
+      "seq": 6
+    },
+    {
       "method": "POST",
       "path": "/api/suggestions",
       "mode": "generated",
@@ -47,6 +65,42 @@
       "bodyKind": "none",
       "output": "bruno/CustomRAGAgent/Config/config.bru",
       "seq": 1
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/mcp-servers",
+      "mode": "generated",
+      "name": "List MCP Servers",
+      "bodyKind": "none",
+      "output": "bruno/CustomRAGAgent/Config/list-mcp-servers.bru",
+      "seq": 2
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/mcp-servers/{key}",
+      "mode": "generated",
+      "name": "Save MCP Server",
+      "bodyKind": "json",
+      "output": "bruno/CustomRAGAgent/Config/save-mcp-server.bru",
+      "seq": 3
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/config/mcp-servers/{key}/enabled",
+      "mode": "generated",
+      "name": "Toggle MCP Server",
+      "bodyKind": "json",
+      "output": "bruno/CustomRAGAgent/Config/toggle-mcp-server.bru",
+      "seq": 4
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/config/mcp-servers/{key}",
+      "mode": "generated",
+      "name": "Delete MCP Server",
+      "bodyKind": "none",
+      "output": "bruno/CustomRAGAgent/Config/delete-mcp-server.bru",
+      "seq": 5
     },
     {
       "method": "POST",
