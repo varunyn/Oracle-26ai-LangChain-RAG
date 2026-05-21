@@ -525,7 +525,7 @@ function ChatMessageItemInner({
         </div>
       ) : null}
       {enableUserFeedback &&
-      isLastMessage &&
+      showActions &&
       message.role === "assistant" &&
       !feedbackSubmitted ? (
         <div className="mt-2 flex flex-wrap items-center gap-2">

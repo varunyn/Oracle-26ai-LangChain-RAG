@@ -199,7 +199,7 @@ function ChatPageContent({
               onRecoverDirect={chat.handleRecoverDirect}
               onRecoverRagOnly={chat.handleRecoverRagOnly}
               onFeedback={chat.handleFeedback}
-              feedbackSubmitted={chat.feedbackSubmitted}
+              feedbackSubmittedMessageIndexes={chat.feedbackSubmittedMessageIndexes}
               enableUserFeedback={appConfig?.enable_user_feedback}
               pendingSuggestion={chat.pendingSuggestion}
               showOptimisticSuggestion={chat.showOptimisticSuggestion}

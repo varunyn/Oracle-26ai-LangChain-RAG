@@ -21,8 +21,8 @@ type ChatMessageListProps = {
   onRetry: () => void;
   onRecoverDirect: () => void;
   onRecoverRagOnly: () => void;
-  onFeedback: (stars: number) => void;
-  feedbackSubmitted: boolean;
+  onFeedback: (stars: number, messageIndex: number) => void;
+  feedbackSubmittedMessageIndexes: ReadonlySet<number>;
   enableUserFeedback?: boolean;
   pendingSuggestion: string | null;
   showOptimisticSuggestion: boolean;
@@ -73,7 +73,7 @@ export function ChatMessageList({
   onRecoverDirect,
   onRecoverRagOnly,
   onFeedback,
-  feedbackSubmitted,
+  feedbackSubmittedMessageIndexes,
   enableUserFeedback,
   pendingSuggestion,
   showOptimisticSuggestion,
@@ -219,8 +219,8 @@ export function ChatMessageList({
             onRetry={onRetry}
             onRecoverDirect={onRecoverDirect}
             onRecoverRagOnly={onRecoverRagOnly}
-            onFeedback={onFeedback}
-            feedbackSubmitted={feedbackSubmitted}
+            onFeedback={(stars) => onFeedback(stars, index)}
+            feedbackSubmitted={feedbackSubmittedMessageIndexes.has(index)}
             enableUserFeedback={enableUserFeedback}
           />
         );

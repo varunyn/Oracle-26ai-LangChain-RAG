@@ -265,7 +265,10 @@ export function useChatController({
 }: UseChatControllerArgs) {
   const [input, setInput] = useState("");
   const [maxCitationsToShow, setMaxCitationsToShow] = useState(10);
-  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [, setFeedbackSubmitted] = useState(false);
+  const [feedbackSubmittedMessageIndexes, setFeedbackSubmittedMessageIndexes] = useState<
+    Set<number>
+  >(() => new Set());
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const lastErrorToastKeyRef = useRef<string | null>(null);
 
@@ -463,11 +466,13 @@ export function useChatController({
   }, [messages, sendUserMessage]);
 
   const handleFeedback = useCallback(
-    async (stars: number) => {
-      if (messages.length < 2) return;
-      const lastUser = messages[messages.length - 2] as MessageLike | undefined;
-      const lastAssistant = messages[messages.length - 1] as MessageLike | undefined;
-      if (lastUser?.role !== "user" || lastAssistant?.role !== "assistant") return;
+    async (stars: number, messageIndex: number) => {
+      const lastAssistant = messages[messageIndex] as MessageLike | undefined;
+      if (lastAssistant?.role !== "assistant") return;
+      const lastUser = [...messages.slice(0, messageIndex)]
+        .reverse()
+        .find((message) => message.role === "user");
+      if (!lastUser) return;
 
       const question = getMessageContent(lastUser);
       const answer = getMessageContent(lastAssistant);
@@ -479,7 +484,14 @@ export function useChatController({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ question, answer, feedback: stars, trace_id: traceId }),
         });
-        if (res.ok) setFeedbackSubmitted(true);
+        if (res.ok) {
+          setFeedbackSubmitted(true);
+          setFeedbackSubmittedMessageIndexes((previous) => {
+            const next = new Set(previous);
+            next.add(messageIndex);
+            return next;
+          });
+        }
       } catch (error) {
         console.error("Feedback submission failed:", error);
         toast.error("Failed to submit feedback");
@@ -505,6 +517,7 @@ export function useChatController({
       setFeedbackSubmitted,
       setContextUsage,
     });
+    setFeedbackSubmittedMessageIndexes(new Set());
     toast.success("Chat cleared");
   }, [clearSessionChat, threadId, toast, stream]);
 
@@ -528,7 +541,7 @@ export function useChatController({
     handleRetry,
     handleFeedback,
     handleClearChat,
-    feedbackSubmitted,
+    feedbackSubmittedMessageIndexes,
     contextUsage,
     dynamicSuggestions,
     pendingSuggestion,
