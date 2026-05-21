@@ -501,12 +501,14 @@ class ChatRuntimeService:
                     retrieval_docs,
                     enable_reranker=enable_reranker,
                 )
-            # Guardrail: if no MCP tools were used at all, fall back to direct
-            # RAG retrieval+synthesis so doc-grounded questions don't bypass DB.
-            # Do not override successful non-retrieval MCP tool answers (e.g. calculator).
+            # Guardrail: if the agent produced no usable answer and no MCP tools
+            # were used, fall back to direct RAG retrieval+synthesis.
+            # Do not override a substantive answer generated from available tool
+            # metadata, even when no external tool invocation was needed.
             if (
                 latest_user_message
                 and not tools_used
+                and not final_answer.strip()
                 and not explicit_mcp_required
                 and not policy_applied
             ):

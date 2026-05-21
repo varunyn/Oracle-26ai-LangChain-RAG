@@ -14,6 +14,7 @@ from uuid import UUID
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
+    LLMToolSelectorMiddleware,
     ModelRetryMiddleware,
     ToolCallLimitMiddleware,
     ToolRetryMiddleware,
@@ -122,12 +123,20 @@ def _build_messages(chat_history: Sequence[object] | None, question: str) -> lis
     return messages
 
 
-def _build_middleware(settings: object, llm_model: object) -> list[object]:
-    _ = llm_model
+def _tool_names_to_always_include(tools: Sequence[BaseTool]) -> list[str] | None:
+    names = [str(getattr(tool, "name", "") or "").strip() for tool in tools]
+    always_include = [name for name in names if name == "oracle_retrieval"]
+    return always_include or None
+
+
+def _build_middleware(settings: object, tools: Sequence[BaseTool]) -> list[object]:
     middleware: list[object] = []
 
     middleware.append(ModelRetryMiddleware(max_retries=1))
     middleware.append(ToolRetryMiddleware(max_retries=1))
+    middleware.append(
+        LLMToolSelectorMiddleware(always_include=_tool_names_to_always_include(tools))
+    )
 
     max_rounds = int(getattr(settings, "MCP_MAX_ROUNDS", 0) or 0)
     if max_rounds > 0:
@@ -643,7 +652,7 @@ async def get_mcp_answer_with_langchain_agent_async(
             model=cast(Any, llm_model),
             tools=list(tools),
             system_prompt=_build_system_prompt(question, tools, run_config),
-            middleware=cast(Any, _build_middleware(settings, llm_model)),
+            middleware=cast(Any, _build_middleware(settings, tools)),
             name="mcp_agent_executor",
         )
         current_messages: list[object] = cast(list[object], _build_messages(chat_history, question))
@@ -689,7 +698,7 @@ async def get_mcp_answer_with_langchain_agent_async(
                 HumanMessage(_LITERAL_TOOL_CALL_RETRY_INSTRUCTION),
             ]
 
-        if require_tool_call and not tools_used:
+        if require_tool_call and not tools_used and not answer.strip():
             return "MCP tool call required but none was produced after retry. Please try again.", [], []
         return answer, tools_used, tool_invocations
     finally:

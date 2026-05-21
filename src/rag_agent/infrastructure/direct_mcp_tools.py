@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import logging
 import threading
 from collections.abc import Coroutine, Mapping, Sequence
@@ -117,82 +116,6 @@ def _schema_from_tool(tool: BaseTool) -> dict[str, Any]:
     return {}
 
 
-def _sanitize_oci_tool_schema_value(value: object) -> object:
-    if isinstance(value, Mapping):
-        sanitized: dict[str, object] = {}
-        const_value: object = None
-        has_const = False
-
-        for raw_key, raw_value in value.items():
-            key = str(raw_key)
-            if key.startswith("x-"):
-                continue
-            if key == "const":
-                const_value = raw_value
-                has_const = True
-                continue
-            sanitized[key] = _sanitize_oci_tool_schema_value(raw_value)
-
-        if has_const and "enum" not in sanitized:
-            const_literal = _sanitize_oci_enum_literal(
-                value=sanitized.get("type"),
-                const_value=const_value,
-            )
-            if const_literal is not None:
-                sanitized["enum"] = [const_literal]
-        return sanitized
-
-    if isinstance(value, list):
-        return [_sanitize_oci_tool_schema_value(item) for item in value]
-
-    return value
-
-
-def _sanitize_oci_tool_schema(schema: object) -> object:
-    return _sanitize_oci_tool_schema_value(schema)
-
-
-def _sanitize_oci_enum_literal(*, value: object, const_value: object) -> str | None:
-    schema_type = str(value).strip().lower() if value is not None else ""
-    normalized = _sanitize_oci_tool_schema_value(const_value)
-
-    if not isinstance(normalized, str):
-        return None
-
-    if isinstance(normalized, str):
-        if schema_type and schema_type != "string":
-            return None
-        return normalized
-
-    return None
-
-
-def _sanitize_tool_for_oci(tool: BaseTool) -> BaseTool:
-    args_schema = getattr(tool, "args_schema", None)
-    if not isinstance(args_schema, Mapping):
-        return tool
-
-    sanitized = _sanitize_oci_tool_schema(args_schema)
-    if sanitized == args_schema:
-        return tool
-
-    model_copy = getattr(tool, "model_copy", None)
-    if callable(model_copy):
-        return cast(BaseTool, model_copy(update={"args_schema": sanitized}))
-
-    copied = copy.copy(tool)
-    try:
-        setattr(copied, "args_schema", sanitized)
-    except Exception:  # noqa: BLE001
-        logger.debug("MCP: could not sanitize tool schema for %s", getattr(tool, "name", ""))
-        return tool
-    return cast(BaseTool, copied)
-
-
-def _sanitize_tools_for_oci(tools: Sequence[BaseTool]) -> list[BaseTool]:
-    return [_sanitize_tool_for_oci(tool) for tool in tools]
-
-
 def _metadata_from_tools(tools: Sequence[BaseTool]) -> list[dict[str, Any]]:
     metadata: list[dict[str, Any]] = []
     for tool in tools:
@@ -227,7 +150,7 @@ async def get_mcp_tools_async(
 
     try:
         loaded_tools = await load_adapter_tools(server_keys=server_keys, run_config=run_config)
-        return _sanitize_tools_for_oci(loaded_tools)
+        return loaded_tools
     except Exception:  # noqa: BLE001
         logger.exception("Direct MCP tools: failed loading adapter tools (all servers)")
         if len(target_keys) <= 1:
@@ -247,7 +170,7 @@ async def get_mcp_tools_async(
                 if not tool_name or tool_name in seen_names:
                     continue
                 seen_names.add(tool_name)
-                tools.append(_sanitize_tool_for_oci(tool))
+                tools.append(tool)
 
         if tools:
             logger.warning(

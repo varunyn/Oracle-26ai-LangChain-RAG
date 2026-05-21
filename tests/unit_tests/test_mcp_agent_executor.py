@@ -103,7 +103,7 @@ def test_langchain_executor_closes_async_llm_client(monkeypatch) -> None:
     assert fake_llm.close_calls == 1
 
 
-def test_langchain_executor_enforces_require_tool_call(monkeypatch) -> None:
+def test_langchain_executor_keeps_substantive_answer_when_no_tool_call(monkeypatch) -> None:
     fake_agent = _FakeAgent({"messages": [AIMessage(content="No tools needed")]})
 
     monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
@@ -123,31 +123,63 @@ def test_langchain_executor_enforces_require_tool_call(monkeypatch) -> None:
         )
     )
 
+    assert answer == "No tools needed"
+    assert tools_used == []
+    assert invocations == []
+
+
+def test_langchain_executor_enforces_require_tool_call_when_answer_empty(monkeypatch) -> None:
+    fake_agent = _FakeAgent({"messages": [AIMessage(content="")]})
+
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
+    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
+    import asyncio
+
+    answer, tools_used, invocations = asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="2+2?",
+            chat_history=None,
+            model_id=None,
+            tools=[SimpleNamespace(name="calculator.add", description="add")],
+            run_config=None,
+            require_tool_call=True,
+        )
+    )
+
     assert answer == "MCP tool call required but none was produced after retry. Please try again."
     assert tools_used == []
     assert invocations == []
 
 
-def test_build_middleware_uses_retry_and_tool_limit_controls_for_oci_models() -> None:
-    class FakeOCIModel:
-        __module__ = "langchain_oci.chat_models.oci_generative_ai"
-
+def test_build_middleware_uses_retry_tool_selector_and_tool_limit_controls() -> None:
     settings = SimpleNamespace(MCP_MAX_ROUNDS=2)
-    middleware = mod._build_middleware(settings, FakeOCIModel())
+    middleware = mod._build_middleware(
+        settings,
+        [SimpleNamespace(name="calculator.add", description="add")],
+    )
     names = [type(m).__name__ for m in middleware]
-    assert "LLMToolSelectorMiddleware" not in names
-    assert names == ["ModelRetryMiddleware", "ToolRetryMiddleware", "ToolCallLimitMiddleware"]
+    assert names == [
+        "ModelRetryMiddleware",
+        "ToolRetryMiddleware",
+        "LLMToolSelectorMiddleware",
+        "ToolCallLimitMiddleware",
+    ]
 
 
-def test_build_middleware_does_not_add_llm_tool_selector() -> None:
-    class FakeNonOCIModel:
-        __module__ = "langchain_openai.chat_models.base"
+def test_build_middleware_keeps_oracle_retrieval_available_for_selector() -> None:
+    settings = SimpleNamespace(MCP_MAX_ROUNDS=0)
+    middleware = mod._build_middleware(
+        settings,
+        [
+            SimpleNamespace(name="oracle_retrieval", description="retrieve"),
+            SimpleNamespace(name="calculator.add", description="add"),
+        ],
+    )
 
-    settings = SimpleNamespace(MCP_MAX_ROUNDS=2)
-    middleware = mod._build_middleware(settings, FakeNonOCIModel())
-    names = [type(m).__name__ for m in middleware]
-    assert "LLMToolSelectorMiddleware" not in names
-    assert names == ["ModelRetryMiddleware", "ToolRetryMiddleware", "ToolCallLimitMiddleware"]
+    selector = middleware[2]
+    assert type(selector).__name__ == "LLMToolSelectorMiddleware"
+    assert selector.always_include == ["oracle_retrieval"]
 
 
 def test_build_system_prompt_uses_mixed_prompt_when_oracle_retrieval_tool_present() -> None:
