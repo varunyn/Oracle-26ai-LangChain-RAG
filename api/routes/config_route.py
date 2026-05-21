@@ -35,6 +35,30 @@ class MCPServersConfigResponse(BaseModel):
     servers: list[MCPServerConfigResponse]
 
 
+class ObservabilityLinkResponse(BaseModel):
+    key: str
+    label: str
+    enabled: bool
+    configured: bool
+    url: str | None = None
+    status: str
+    details: str
+
+
+class ObservabilityConfigResponse(BaseModel):
+    links: list[ObservabilityLinkResponse]
+
+
+class AppConfigResponse(BaseModel):
+    region: str
+    embed_model_id: str
+    model_list: list[str]
+    model_display_names: dict[str, str]
+    collection_list: list[str]
+    enable_user_feedback: bool
+    observability: ObservabilityConfigResponse
+
+
 class MCPServerConfigWrite(BaseModel):
     transport: str = Field(default="streamable-http")
     url: str
@@ -76,17 +100,106 @@ class MCPConnectionTestResponse(BaseModel):
     error: str | None
 
 
-@router.get("/config")
-async def get_config(request: Request) -> dict[str, object]:
+def _is_placeholder_value(value: str | None) -> bool:
+    if not value:
+        return True
+    normalized = value.strip().lower()
+    return not normalized or normalized.startswith(("pk-lf-your-", "sk-lf-your-"))
+
+
+def _observability_links(settings: Settings) -> ObservabilityConfigResponse:
+    langfuse_enabled = bool(getattr(settings, "ENABLE_LANGFUSE_TRACING", False))
+    langfuse_host = (getattr(settings, "LANGFUSE_HOST", "") or "").strip() or None
+    langfuse_ui_url = (
+        getattr(settings, "LANGFUSE_UI_URL", None) or langfuse_host or ""
+    ).strip() or None
+    langfuse_has_keys = not _is_placeholder_value(
+        getattr(settings, "LANGFUSE_PUBLIC_KEY", None)
+    ) and not _is_placeholder_value(getattr(settings, "LANGFUSE_SECRET_KEY", None))
+    langfuse_configured = langfuse_enabled and bool(langfuse_host) and langfuse_has_keys
+
+    grafana_enabled = bool(getattr(settings, "ENABLE_OBSERVABILITY_STACK", False))
+    grafana_url = (getattr(settings, "GRAFANA_URL", "") or "").strip() or None
+
+    logging_enabled = bool(getattr(settings, "ENABLE_OCI_LOGGING_ANALYTICS", False))
+    logging_namespace = (getattr(settings, "LOGGING_ANALYTICS_NAMESPACE", None) or "").strip()
+    logging_group = (getattr(settings, "LOGGING_ANALYTICS_LOG_GROUP_ID", None) or "").strip()
+    logging_url = (
+        getattr(settings, "LOGGING_ANALYTICS_CONSOLE_URL", None) or ""
+    ).strip() or None
+    logging_configured = logging_enabled and bool(logging_namespace and logging_group)
+
+    return ObservabilityConfigResponse(
+        links=[
+            ObservabilityLinkResponse(
+                key="langfuse",
+                label="Langfuse",
+                enabled=langfuse_enabled,
+                configured=langfuse_configured,
+                url=langfuse_ui_url if langfuse_configured else None,
+                status="Ready" if langfuse_configured else "Disabled" if not langfuse_enabled else "Needs keys",
+                details=(
+                    "Tracing is enabled and the Langfuse host is configured."
+                    if langfuse_configured
+                    else "Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY in .env."
+                    if langfuse_enabled
+                    else "Set ENABLE_LANGFUSE_TRACING=true to send traces."
+                ),
+            ),
+            ObservabilityLinkResponse(
+                key="grafana",
+                label="Grafana",
+                enabled=grafana_enabled,
+                configured=grafana_enabled and bool(grafana_url),
+                url=grafana_url if grafana_enabled and grafana_url else None,
+                status="Ready" if grafana_enabled and grafana_url else "Disabled",
+                details=(
+                    "Local observability stack is enabled."
+                    if grafana_enabled
+                    else "Set ENABLE_OBSERVABILITY_STACK=true to run local Grafana."
+                ),
+            ),
+            ObservabilityLinkResponse(
+                key="oracle_logging_analytics",
+                label="Oracle Logging Analytics",
+                enabled=logging_enabled,
+                configured=logging_configured,
+                url=logging_url if logging_configured else None,
+                status=(
+                    "Ready"
+                    if logging_configured and logging_url
+                    else "Configured"
+                    if logging_configured
+                    else "Disabled"
+                    if not logging_enabled
+                    else "Needs config"
+                ),
+                details=(
+                    "Logging Analytics is configured. Add LOGGING_ANALYTICS_CONSOLE_URL for a direct link."
+                    if logging_configured and not logging_url
+                    else "Logs are configured for OCI Logging Analytics."
+                    if logging_configured
+                    else "Set namespace and log group in .env."
+                    if logging_enabled
+                    else "Set ENABLE_OCI_LOGGING_ANALYTICS=true to send logs."
+                ),
+            ),
+        ]
+    )
+
+
+@router.get("/config", response_model=AppConfigResponse)
+async def get_config(request: Request) -> AppConfigResponse:
     settings: Settings = get_settings_dep(request)
-    return {
-        "region": settings.REGION,
-        "embed_model_id": settings.EMBED_MODEL_ID,
-        "model_list": settings.MODEL_LIST,
-        "model_display_names": settings.MODEL_DISPLAY_NAMES,
-        "collection_list": settings.COLLECTION_LIST or [settings.DEFAULT_COLLECTION],
-        "enable_user_feedback": settings.ENABLE_USER_FEEDBACK,
-    }
+    return AppConfigResponse(
+        region=settings.REGION,
+        embed_model_id=settings.EMBED_MODEL_ID,
+        model_list=settings.MODEL_LIST,
+        model_display_names=settings.MODEL_DISPLAY_NAMES,
+        collection_list=settings.COLLECTION_LIST or [settings.DEFAULT_COLLECTION],
+        enable_user_feedback=settings.ENABLE_USER_FEEDBACK,
+        observability=_observability_links(settings),
+    )
 
 
 def _settings_mcp_config(settings: Settings) -> dict[str, dict[str, str]]:

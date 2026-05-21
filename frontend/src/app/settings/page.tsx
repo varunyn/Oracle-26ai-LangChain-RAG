@@ -3,8 +3,10 @@
 import Link from "next/link";
 import {
   ArrowLeft,
+  BarChart3,
   CircleCheck,
   CircleX,
+  ExternalLink,
   Plus,
   RefreshCw,
   Save,
@@ -15,6 +17,11 @@ import {
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/toaster";
+import {
+  fetchAppConfig,
+  type AppConfig,
+  type ObservabilityLink,
+} from "@/lib/config";
 import {
   deleteMcpServer,
   fetchMcpServers,
@@ -37,8 +44,30 @@ const emptyDraft: DraftServer = {
   isNew: true,
 };
 
+const observabilityIconClass =
+  "inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground";
+
+const iconByObservabilityKey: Record<string, typeof BarChart3> = {
+  grafana: BarChart3,
+  langfuse: SquareActivity,
+  oracle_logging_analytics: Server,
+};
+
 function cloneServer(server: McpServerConfig): DraftServer {
   return { ...server };
+}
+
+function observabilityStatusClass(link: ObservabilityLink): string {
+  if (link.configured && link.url) {
+    return "border-primary/25 bg-primary/[0.08] text-primary";
+  }
+  if (link.configured) {
+    return "border-foreground/15 bg-muted text-foreground";
+  }
+  if (link.enabled) {
+    return "border-destructive/30 bg-destructive/10 text-destructive";
+  }
+  return "border-border bg-muted text-muted-foreground";
 }
 
 type ServerListItemProps = {
@@ -58,9 +87,9 @@ const ServerListItem = memo(function ServerListItem({
 }: ServerListItemProps): React.ReactElement {
   return (
     <div
-      className={`grid grid-cols-[minmax(0,1fr)_3rem] items-center gap-3 px-3 py-3 ${
+      className={`grid grid-cols-[minmax(0,1fr)_3.25rem] items-center gap-3 px-3 py-3 ${
         active
-          ? "bg-primary/[0.08] shadow-[inset_3px_0_0_hsl(var(--primary))]"
+          ? "bg-primary/[0.08] ring-1 ring-inset ring-primary/25"
           : "bg-card"
       }`}
     >
@@ -94,7 +123,7 @@ const ServerListItem = memo(function ServerListItem({
         type="button"
         onClick={() => void onToggle(server)}
         disabled={pending}
-        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+        className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
           server.enabled ? "border-foreground bg-foreground" : "border-border bg-muted"
         }`}
         aria-label={server.enabled ? "Disable MCP server" : "Enable MCP server"}
@@ -102,7 +131,7 @@ const ServerListItem = memo(function ServerListItem({
       >
         <span
           className={`absolute left-0.5 top-1/2 size-5 -translate-y-1/2 rounded-full bg-background shadow-sm transition-transform ${
-            server.enabled ? "translate-x-5" : "translate-x-0"
+            server.enabled ? "translate-x-6" : "translate-x-0"
           }`}
         />
       </button>
@@ -110,13 +139,62 @@ const ServerListItem = memo(function ServerListItem({
   );
 });
 
+type ObservabilityLinkItemProps = {
+  link: ObservabilityLink;
+};
+
+const ObservabilityLinkItem = memo(function ObservabilityLinkItem({
+  link,
+}: ObservabilityLinkItemProps): React.ReactElement {
+  const Icon = iconByObservabilityKey[link.key] ?? BarChart3;
+  return (
+    <div className="grid min-h-[11rem] content-between gap-4 px-5 py-5">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className={observabilityIconClass}>
+          <Icon className="size-4" aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold text-foreground">
+            {link.label}
+          </h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{link.details}</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span
+          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${observabilityStatusClass(
+            link,
+          )}`}
+        >
+          {link.status}
+        </span>
+        {link.url ? (
+          <a
+            href={link.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            Open
+            <ExternalLink className="size-4" aria-hidden />
+          </a>
+        ) : (
+          <span className="text-xs text-muted-foreground">No link</span>
+        )}
+      </div>
+    </div>
+  );
+});
+
 export default function SettingsPage(): React.ReactElement {
   const { toast } = useToast();
   const [servers, setServers] = useState<McpServerConfig[]>([]);
+  const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [draft, setDraft] = useState<DraftServer>(emptyDraft);
   const [selectedKey, setSelectedKey] = useState<string>("");
   const [mcpGloballyEnabled, setMcpGloballyEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [configLoading, setConfigLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<McpConnectionTestResponse | null>(null);
@@ -131,11 +209,16 @@ export default function SettingsPage(): React.ReactElement {
 
   const loadServers = useCallback(async () => {
     setLoading(true);
-    try {
-      const data = await fetchMcpServers();
-      setServers(data.servers);
-      setMcpGloballyEnabled(data.enable_mcp_tools);
-      const first = data.servers[0];
+    setConfigLoading(true);
+    const [mcpResult, configResult] = await Promise.allSettled([
+      fetchMcpServers(),
+      fetchAppConfig(),
+    ]);
+
+    if (mcpResult.status === "fulfilled") {
+      setServers(mcpResult.value.servers);
+      setMcpGloballyEnabled(mcpResult.value.enable_mcp_tools);
+      const first = mcpResult.value.servers[0];
       if (first) {
         setSelectedKey(first.key);
         setDraft(cloneServer(first));
@@ -143,12 +226,20 @@ export default function SettingsPage(): React.ReactElement {
         setSelectedKey("");
         setDraft(emptyDraft);
       }
-    } catch (error) {
-      console.error(error);
+    } else {
+      console.error(mcpResult.reason);
       toast.error("Could not load MCP settings");
-    } finally {
-      setLoading(false);
     }
+
+    if (configResult.status === "fulfilled") {
+      setAppConfig(configResult.value);
+    } else {
+      console.error(configResult.reason);
+      toast.error("Could not load observability settings");
+    }
+
+    setLoading(false);
+    setConfigLoading(false);
   }, [toast]);
 
   useEffect(() => {
@@ -276,6 +367,8 @@ export default function SettingsPage(): React.ReactElement {
     }
   }, [draft, toast]);
 
+  const observabilityLinks = appConfig?.observability?.links ?? [];
+
   return (
     <main className="flex h-screen min-h-0 flex-col overflow-hidden bg-muted/20">
       <header className="shrink-0 border-b border-border bg-card px-5 py-4 shadow-sm sm:px-8">
@@ -283,7 +376,7 @@ export default function SettingsPage(): React.ReactElement {
           <div className="flex min-w-0 items-center gap-3">
             <Link
               href="/"
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               aria-label="Back to chat"
               title="Back to chat"
             >
@@ -294,14 +387,14 @@ export default function SettingsPage(): React.ReactElement {
                 Settings
               </h1>
               <p className="truncate text-sm text-muted-foreground">
-                MCP server configuration
+                MCP servers and observability
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => void loadServers()}
-            className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <RefreshCw className="size-4" aria-hidden />
             Refresh
@@ -322,7 +415,7 @@ export default function SettingsPage(): React.ReactElement {
               <button
                 type="button"
                 onClick={startNewServer}
-                className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="inline-flex size-10 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 aria-label="Add MCP server"
                 title="Add MCP server"
               >
@@ -331,7 +424,17 @@ export default function SettingsPage(): React.ReactElement {
             </div>
             <div className="divide-y divide-border">
               {loading ? (
-                <div className="px-4 py-8 text-sm text-muted-foreground">Loading servers...</div>
+                <div className="grid gap-3 px-4 py-5" aria-busy="true">
+                  {[0, 1, 2].map((item) => (
+                    <div key={item} className="flex items-center gap-3">
+                      <span className="size-8 rounded-md bg-muted" />
+                      <span className="min-w-0 flex-1">
+                        <span className="mb-2 block h-3 w-24 rounded bg-muted" />
+                        <span className="block h-3 w-full max-w-52 rounded bg-muted" />
+                      </span>
+                    </div>
+                  ))}
+                </div>
               ) : servers.length === 0 ? (
                 <div className="px-4 py-8 text-sm text-muted-foreground">
                   No MCP servers configured.
@@ -454,7 +557,7 @@ export default function SettingsPage(): React.ReactElement {
                 type="button"
                 onClick={() => void handleDelete(draft.key)}
                 disabled={!selectedServer}
-                className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Trash2 className="size-4" aria-hidden />
                 Delete
@@ -464,7 +567,7 @@ export default function SettingsPage(): React.ReactElement {
                   type="button"
                   onClick={() => void handleTestConnection()}
                   disabled={testing || saving}
-                  className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <SquareActivity className="size-4" aria-hidden />
                   {testing ? "Testing..." : "Test connection"}
@@ -473,13 +576,55 @@ export default function SettingsPage(): React.ReactElement {
                   type="button"
                   onClick={() => void handleSave()}
                   disabled={saving || pendingToggleKeys.size > 0}
-                  className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-10 items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Save className="size-4" aria-hidden />
                   {saving ? "Saving..." : "Save server"}
                 </button>
               </div>
             </div>
+          </section>
+
+          <section className="rounded-lg border border-border bg-card lg:col-span-2">
+            <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Observability</h2>
+                <p className="text-xs text-muted-foreground">
+                  Links are shown only from non-secret runtime configuration.
+                </p>
+              </div>
+              <BarChart3 className="size-5 text-muted-foreground" aria-hidden />
+            </div>
+            {configLoading ? (
+              <div className="grid gap-0 divide-y divide-border lg:grid-cols-3 lg:divide-x lg:divide-y-0" aria-busy="true">
+                {[0, 1, 2].map((item) => (
+                  <div key={item} className="grid min-h-[11rem] content-between gap-4 px-5 py-5">
+                    <div className="flex items-start gap-3">
+                      <span className="size-9 rounded-md bg-muted" />
+                      <span className="min-w-0 flex-1">
+                        <span className="mb-3 block h-3 w-28 rounded bg-muted" />
+                        <span className="mb-2 block h-3 w-full rounded bg-muted" />
+                        <span className="block h-3 w-3/4 rounded bg-muted" />
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="h-6 w-20 rounded-full bg-muted" />
+                      <span className="h-10 w-20 rounded-md bg-muted" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : observabilityLinks.length === 0 ? (
+              <div className="px-5 py-8 text-sm text-muted-foreground">
+                No observability destinations configured.
+              </div>
+            ) : (
+              <div className="grid divide-y divide-border lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+                {observabilityLinks.map((link) => (
+                  <ObservabilityLinkItem key={link.key} link={link} />
+                ))}
+              </div>
+            )}
           </section>
         </div>
       </div>

@@ -1,6 +1,57 @@
 {
   "components": {
     "schemas": {
+      "AppConfigResponse": {
+        "properties": {
+          "collection_list": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Collection List",
+            "type": "array"
+          },
+          "embed_model_id": {
+            "title": "Embed Model Id",
+            "type": "string"
+          },
+          "enable_user_feedback": {
+            "title": "Enable User Feedback",
+            "type": "boolean"
+          },
+          "model_display_names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Model Display Names",
+            "type": "object"
+          },
+          "model_list": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Model List",
+            "type": "array"
+          },
+          "observability": {
+            "$ref": "#/components/schemas/ObservabilityConfigResponse"
+          },
+          "region": {
+            "title": "Region",
+            "type": "string"
+          }
+        },
+        "required": [
+          "region",
+          "embed_model_id",
+          "model_list",
+          "model_display_names",
+          "collection_list",
+          "enable_user_feedback",
+          "observability"
+        ],
+        "title": "AppConfigResponse",
+        "type": "object"
+      },
       "Body_upload_documents_api_documents_upload_post": {
         "properties": {
           "collection_name": {
@@ -222,6 +273,71 @@
           "servers"
         ],
         "title": "MCPServersConfigResponse",
+        "type": "object"
+      },
+      "ObservabilityConfigResponse": {
+        "properties": {
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/ObservabilityLinkResponse"
+            },
+            "title": "Links",
+            "type": "array"
+          }
+        },
+        "required": [
+          "links"
+        ],
+        "title": "ObservabilityConfigResponse",
+        "type": "object"
+      },
+      "ObservabilityLinkResponse": {
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "details": {
+            "title": "Details",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "enabled",
+          "configured",
+          "status",
+          "details"
+        ],
+        "title": "ObservabilityLinkResponse",
         "type": "object"
       },
       "RunInput": {
@@ -721,9 +837,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Config Api Config Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/AppConfigResponse"
                 }
               }
             },

@@ -3,6 +3,21 @@
 This file is generated from FastAPI OpenAPI via `scripts/sync_api_docs.py`.
 Do not edit manually.
 
+## `AppConfigResponse`
+
+- type: `object`
+- required: `region`, `embed_model_id`, `model_list`, `model_display_names`, `collection_list`, `enable_user_feedback`, `observability`
+
+### Properties
+
+- `collection_list`: `array`
+- `embed_model_id`: `string`
+- `enable_user_feedback`: `boolean`
+- `model_display_names`: `object`
+- `model_list`: `array`
+- `observability`: `complex`
+- `region`: `string`
+
 ## `Body_upload_documents_api_documents_upload_post`
 
 - type: `object`
@@ -96,6 +111,30 @@ Do not edit manually.
 
 - `enable_mcp_tools`: `boolean`
 - `servers`: `array`
+
+## `ObservabilityConfigResponse`
+
+- type: `object`
+- required: `links`
+
+### Properties
+
+- `links`: `array`
+
+## `ObservabilityLinkResponse`
+
+- type: `object`
+- required: `key`, `label`, `enabled`, `configured`, `status`, `details`
+
+### Properties
+
+- `configured`: `boolean`
+- `details`: `string`
+- `enabled`: `boolean`
+- `key`: `string`
+- `label`: `string`
+- `status`: `string`
+- `url`: `complex`
 
 ## `RunInput`
 

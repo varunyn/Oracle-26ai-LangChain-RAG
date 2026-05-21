@@ -29,6 +29,8 @@ services:
       - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://otel-collector:4318/v1/traces
       # Langfuse: when Langfuse stack uses same network (rag-network), use service name; internal port is 3000
       - LANGFUSE_HOST=http://langfuse-web:3000
+      - LANGFUSE_UI_URL=http://localhost:3300
+      - GRAFANA_URL=http://localhost:3051
       - MCP_USE_ANONYMIZED_TELEMETRY=false
       - SCARF_NO_ANALYTICS=true
       - DO_NOT_TRACK=true

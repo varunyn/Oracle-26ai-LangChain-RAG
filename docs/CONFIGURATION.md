@@ -247,8 +247,10 @@ Optional tracing, logging, and local Docker stacks.
 | `OTEL_LOGS_ENDPOINT`           | —                       | OTLP logs endpoint.                                     |
 | `OTEL_LOGS_BATCH_DELAY_MILLIS` | `1000`                  | OpenTelemetry log export batch delay in milliseconds.   |
 | `ENABLE_OBSERVABILITY_STACK`   | `false`                 | Start local observability stack (Grafana, Tempo, etc.). |
+| `GRAFANA_URL`                  | `http://localhost:3051` | Grafana UI link shown on the Settings page.             |
 | `ENABLE_LANGFUSE_TRACING`      | `false`                 | Send traces to Langfuse.                                |
 | `LANGFUSE_HOST`                | `http://localhost:3300` | Langfuse server URL.                                    |
+| `LANGFUSE_UI_URL`              | —                       | Optional browser-facing Langfuse link for Settings.     |
 | `LANGFUSE_PUBLIC_KEY`          | —                       | Langfuse public key.                                    |
 | `LANGFUSE_SECRET_KEY`          | —                       | Langfuse secret key.                                    |
 | `LANGFUSE_TRACING_ENVIRONMENT` | `development`           | Langfuse tracing environment name.                      |
@@ -293,6 +295,7 @@ See [OBSERVABILITY.md](OBSERVABILITY.md) and [OBSERVABILITY_ROUTING.md](OBSERVAB
 | `LOGGING_ANALYTICS_LOG_SET`           | —         | Optional log set name.              |
 | `LOGGING_ANALYTICS_RESOURCE_CATEGORY` | `rag-api` | Resource category metadata.         |
 | `LOGGING_ANALYTICS_META_PROPERTIES`   | —         | Optional extra metadata properties. |
+| `LOGGING_ANALYTICS_CONSOLE_URL`       | —         | Optional console link shown on the Settings page. |
 
 ---
 

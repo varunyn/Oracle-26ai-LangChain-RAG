@@ -294,9 +294,11 @@ class Settings(BaseSettings):
     OTEL_LOGS_ENDPOINT: str | None = None
     OTEL_LOGS_BATCH_DELAY_MILLIS: int = 1000
     ENABLE_OBSERVABILITY_STACK: bool = False
+    GRAFANA_URL: str = "http://localhost:3051"
 
     ENABLE_LANGFUSE_TRACING: bool = False
     LANGFUSE_HOST: str = "http://localhost:3300"
+    LANGFUSE_UI_URL: str | None = None
     LANGFUSE_PUBLIC_KEY: str = "pk-lf-your-project-key"
     LANGFUSE_SECRET_KEY: str = "sk-lf-your-secret-key"
     LANGFUSE_TRACING_ENVIRONMENT: str = "development"
@@ -340,6 +342,7 @@ class Settings(BaseSettings):
     LOGGING_ANALYTICS_LOG_SET: str | None = None
     LOGGING_ANALYTICS_RESOURCE_CATEGORY: str = "rag-api"
     LOGGING_ANALYTICS_META_PROPERTIES: str | None = None
+    LOGGING_ANALYTICS_CONSOLE_URL: str | None = None
 
     @classmethod
     @override
