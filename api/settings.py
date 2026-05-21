@@ -231,9 +231,8 @@ class Settings(BaseSettings):
     @field_validator("RAG_SEARCH_MODE", "MCP_SEARCH_MODE", mode="before")
     @classmethod
     def _parse_search_mode(cls, v: object) -> str:
-        allowed = {"vector", "hybrid", "text"}
         mode = str(v or "vector").strip().lower()
-        return mode if mode in allowed else "vector"
+        return mode if mode == "vector" else "vector"
 
     MCP_SERVERS_CONFIG: dict[str, dict[str, str]] = Field(
         default_factory=lambda: {

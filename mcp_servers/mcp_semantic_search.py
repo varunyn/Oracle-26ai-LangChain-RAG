@@ -67,7 +67,7 @@ def semantic_search(
     ] = None,
     search_mode: Annotated[
         str | None,
-        Field(description="Retrieval mode: vector, hybrid, or text."),
+        Field(description="Retrieval mode. Only vector is supported."),
     ] = None,
 ) -> Mapping[str, object]:
     """Return retrieval results for the given query."""

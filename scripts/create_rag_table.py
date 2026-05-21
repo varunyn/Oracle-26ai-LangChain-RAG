@@ -21,6 +21,7 @@ offline or dry-run workflows.
 Run from project root:
   uv run scripts/create_rag_table.py [--table NAME] [--embedding-dim N] [--dry-run] [--yes]
   uv run scripts/create_rag_table.py [--table NAME] --yes --drop-existing  # recreate with new dim
+  uv run scripts/create_rag_table.py [--table NAME] --yes --create-index    # add HNSW vector index
 """
 
 import sys
@@ -29,12 +30,16 @@ from pathlib import Path
 from typing import cast
 
 import oracledb
+from langchain_community.vectorstores.utils import DistanceStrategy
+from langchain_oracledb import OracleVS
+from langchain_oracledb.vectorstores.oraclevs import create_index
 
 script_dir = Path(__file__).resolve().parent
 project_root = script_dir.parent
 sys.path.insert(0, str(project_root))
 
 from api.settings import get_settings
+from src.rag_agent.infrastructure.oci_models import get_embedding_model
 
 
 def get_table_ddl(table_name: str, embedding_dim: int) -> str:
@@ -53,8 +58,6 @@ def get_table_ddl(table_name: str, embedding_dim: int) -> str:
 
 def get_embedding_dimension_from_model() -> int:
     """Resolve embedding dimension from the app's embedding model (config)."""
-    from src.rag_agent.infrastructure.oci_models import get_embedding_model
-
     embed_model_type = getattr(get_settings(), "EMBED_MODEL_TYPE", "OCI")
     embed_model = get_embedding_model(embed_model_type)
     vec = embed_model.embed_query("test")
@@ -111,6 +114,48 @@ def create_table(
         cursor.close()
 
 
+def _vector_index_exists(conn: oracledb.Connection, index_name: str) -> bool:
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT COUNT(*) FROM user_indexes WHERE UPPER(index_name) = UPPER(:1)",
+            [index_name],
+        )
+        (exists,) = cursor.fetchone()
+        return bool(exists)
+    finally:
+        cursor.close()
+
+
+def create_vector_index(
+    conn: oracledb.Connection,
+    table_name: str,
+    index_name: str,
+    index_type: str = "HNSW",
+) -> None:
+    """Create an OracleVS vector index using langchain-oracledb helpers."""
+    table_name_upper = table_name.upper()
+    index_name_upper = index_name.upper()
+    index_type_upper = index_type.upper()
+    if _vector_index_exists(conn, index_name_upper):
+        print(f"Vector index {index_name_upper} already exists; no change.")
+        return
+    embed_model_type = getattr(get_settings(), "EMBED_MODEL_TYPE", "OCI")
+    embeddings = get_embedding_model(embed_model_type)
+    vector_store = OracleVS(
+        client=conn,
+        embedding_function=embeddings,
+        table_name=table_name_upper,
+        distance_strategy=DistanceStrategy.COSINE,
+    )
+    create_index(
+        conn,
+        vector_store,
+        params={"idx_name": index_name_upper, "idx_type": index_type_upper},
+    )
+    print(f"Vector index {index_name_upper} created on {table_name_upper} ({index_type_upper}).")
+
+
 def main() -> int:
     """Run create-table: parse args, resolve embedding dim, create or dry-run."""
     import argparse
@@ -124,6 +169,7 @@ Examples:
   uv run scripts/create_rag_table.py --embedding-dim 1536 --yes
   uv run scripts/create_rag_table.py --table RAG_KNOWLEDGE_BASE --yes
   uv run scripts/create_rag_table.py --table RAG_KNOWLEDGE_BASE --yes --drop-existing
+  uv run scripts/create_rag_table.py --table RAG_KNOWLEDGE_BASE --yes --create-index
         """,
     )
     parser.add_argument(
@@ -153,6 +199,22 @@ Examples:
         action="store_true",
         help="Confirm table creation (required to run without --dry-run)",
     )
+    parser.add_argument(
+        "--create-index",
+        action="store_true",
+        help="Create an OracleVS vector index after table creation/check.",
+    )
+    parser.add_argument(
+        "--index-name",
+        default=None,
+        help="Vector index name (default: <table>_HNSW_IDX).",
+    )
+    parser.add_argument(
+        "--index-type",
+        default="HNSW",
+        choices=["HNSW", "IVF"],
+        help="Oracle vector index type for --create-index.",
+    )
     args = parser.parse_args()
 
     table_name = (
@@ -181,6 +243,12 @@ Examples:
 
     if args.dry_run:
         print(get_table_ddl(table_name, embedding_dim))
+        if args.create_index:
+            index_name = args.index_name or f"{table_name}_HNSW_IDX"
+            print(
+                "OracleVS vector index: "
+                f"idx_name={index_name.upper()}, idx_type={args.index_type.upper()}"
+            )
         return 0
 
     if not args.yes:
@@ -191,6 +259,14 @@ Examples:
     conn = oracledb.connect(**connect_args)
     try:
         create_table(conn, table_name, embedding_dim, drop_existing=args.drop_existing)
+        if args.create_index:
+            index_name = args.index_name or f"{table_name}_HNSW_IDX"
+            create_vector_index(
+                conn,
+                table_name=table_name,
+                index_name=index_name,
+                index_type=args.index_type,
+            )
     finally:
         conn.close()
 

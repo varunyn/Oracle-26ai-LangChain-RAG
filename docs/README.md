@@ -71,7 +71,7 @@ graph TD;
 ### 1. **Semantic Search**
 
 - Performed via `langchain-oracledb` vector store in `ChatRuntimeService`
-- Supports `vector`, `hybrid`, or `text` modes through settings
+- Uses OracleVS vector similarity search through `langchain-oracledb`
 - Returns relevant chunks and normalized citations
 
 ### 2. **MCP Adapter Runtime**
@@ -355,7 +355,7 @@ sequenceDiagram
 The MCP server exposes three main tools:
 
 1. **`semantic_search`** - Search for relevant documents
-   - Parameters: `query`, `top_k`, `collection_name` (optional), `search_mode` (optional: `vector`/`hybrid`/`text`)
+   - Parameters: `query`, `top_k`, `collection_name` (optional), `search_mode` (optional; only `vector` is currently supported)
    - Returns: Relevant document chunks with metadata
 
 2. **`get_collections`** - List available collections

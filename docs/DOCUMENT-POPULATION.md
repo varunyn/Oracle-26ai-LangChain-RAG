@@ -78,6 +78,7 @@ Relevant settings in `.env` (see .env.example):
 
 - `CONNECT_ARGS`: Database connection for OracleVS.
 - `EMBED_MODEL_ID`, `COMPARTMENT_ID`, OCI settings: Used by `get_embedding_model()` from `oci_models`.
+- OracleVS vector index: use `uv run scripts/create_rag_table.py --table RAG_KNOWLEDGE_BASE --yes --create-index` after table creation or ingestion to ensure vector search uses a database-native index.
 
 ## Notes
 

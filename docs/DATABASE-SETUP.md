@@ -51,6 +51,13 @@ uv run scripts/create_rag_table.py --table RAG_KNOWLEDGE_BASE --yes
 ```
 
 If you need a custom embedding dimension, pass `--embedding-dim` (see script header for examples).
+For production-sized collections, create the OracleVS vector index with the same helper:
+
+```bash
+uv run scripts/create_rag_table.py --table RAG_KNOWLEDGE_BASE --yes --create-index
+```
+
+This delegates index creation to `langchain-oracledb`'s `create_index` helper, uses an HNSW index by default, and skips creation if the named index already exists. Use `--index-type IVF` only when you intentionally want Oracle's IVF index instead of HNSW.
 
 ### 4. Collections used by the app
 
@@ -88,7 +95,7 @@ See [DOCUMENT-POPULATION.md](DOCUMENT-POPULATION.md) for details.
 The app will:
 
 1. **List collections** using tables with `VECTOR` columns
-2. **Search** in those collections with vector similarity
+2. **Search** in those collections with OracleVS vector similarity, including OracleVS-native metadata filters when filters are supplied
 3. **Read metadata** from the JSON column for citations and source labels
 
 ## Troubleshooting

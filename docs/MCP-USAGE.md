@@ -25,7 +25,7 @@ You can run MCP servers from this repo so that the RAG app (or any MCP client) c
 ### Tools exposed by the semantic search server
 
 1. **`semantic_search`** – Search for relevant documents
-   - Parameters: `query` (required), `top_k` (default: 5), `collection_name` (optional), `search_mode` (optional: `vector`/`hybrid`/`text`)
+   - Parameters: `query` (required), `top_k` (default: 5), `collection_name` (optional), `search_mode` (optional; only `vector` is currently supported)
 2. **`get_collections`** – List all available collections
 3. **`list_documents_in_collection`** – List documents in a collection
    - Parameters: `collection_name` (optional)
@@ -55,7 +55,7 @@ async def test():
     async with client:
         result = await client.call_tool(
             "semantic_search",
-            {"query": "Oracle 23AI", "top_k": 5, "search_mode": "hybrid"}
+            {"query": "Oracle 23AI", "top_k": 5, "search_mode": "vector"}
         )
         print(result)
 
@@ -161,7 +161,7 @@ The backend fetches and refreshes the bearer token automatically and injects it 
 | `MCP_SERVERS_CONFIG` | **Consuming** | Dict of MCP server names → `{ "transport", "url" }`. Backend and UI connect to these URLs. |
 | `MCP_SERVER_KEYS`    | **Consuming** | Optional list of keys from `MCP_SERVERS_CONFIG` to load (default: only `"default"`).       |
 | `ENABLE_MCP_TOOLS`   | **Consuming** | If True, RAG chat attaches MCP tools from config; if False, MCP is disabled for chat.      |
-| `MCP_SEARCH_MODE`    | **Consuming** | Default semantic-search mode for MCP servers in this repo: `vector`, `hybrid`, or `text`.  |
+| `MCP_SEARCH_MODE`    | **Consuming** | Default semantic-search mode for MCP servers in this repo. Only `vector` is currently supported. |
 | `PORT`               | **Exposing**  | Port for this project’s MCP server (e.g. `mcp_semantic_search.py`).                        |
 | `HOST`               | **Exposing**  | Listen address for this project’s MCP server.                                              |
 | `TRANSPORT`          | **Exposing**  | `"streamable-http"` or `"stdio"` for the server.                                           |

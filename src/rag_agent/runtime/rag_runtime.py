@@ -79,12 +79,7 @@ def retrieve_oracle_docs(*, query: str, collection_name: str | None, k: int) -> 
     collection = collection_name or "RAG_KNOWLEDGE_BASE"
     from api.settings import get_settings
 
-    primary_mode = str(get_settings().RAG_SEARCH_MODE or "vector").strip().lower()
-    fallback_modes: list[str] = []
-    if primary_mode != "hybrid":
-        fallback_modes.append("hybrid")
-    if primary_mode != "text":
-        fallback_modes.append("text")
+    search_mode = str(get_settings().RAG_SEARCH_MODE or "vector").strip().lower()
 
     with _compat_dependency("get_pooled_connection", get_pooled_connection)() as conn:
         embed_model = _compat_dependency("get_embedding_model", get_embedding_model)()
@@ -96,37 +91,17 @@ def retrieve_oracle_docs(*, query: str, collection_name: str | None, k: int) -> 
                 embed_model=embed_model,
                 query=query,
                 top_k=k,
-                search_mode=primary_mode,
+                search_mode=search_mode,
             ),
         )
         if docs:
             logger.info(
                 "rag_retrieval mode=%s collection=%s docs=%d",
-                primary_mode,
+                search_mode,
                 collection,
                 len(docs),
             )
             return docs
-        for mode in fallback_modes:
-            docs = cast(
-                list[Document],
-                _compat_dependency("search_documents", search_documents)(
-                    conn=conn,
-                    collection_name=collection,
-                    embed_model=embed_model,
-                    query=query,
-                    top_k=k,
-                    search_mode=mode,
-                ),
-            )
-            if docs:
-                logger.info(
-                    "rag_retrieval_fallback mode=%s collection=%s docs=%d",
-                    mode,
-                    collection,
-                    len(docs),
-                )
-                return docs
 
     logger.warning("rag_retrieval_no_docs collection=%s query_len=%d", collection, len(query or ""))
     return []
