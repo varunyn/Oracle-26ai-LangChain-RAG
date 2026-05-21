@@ -15,6 +15,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 # Install dependencies only (no project install; package = false in pyproject.toml)
 COPY pyproject.toml uv.lock ./
+COPY --from=langchain_oci . /langchain-oracle/libs/oci
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project
 
@@ -27,6 +28,8 @@ COPY mcp_servers ./mcp_servers
 # Full sync so env is complete (lockfile already satisfied)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --python .venv/bin/python --no-deps /langchain-oracle/libs/oci
 
 # -----------------------------------------------------------------------------
 # Runner: minimal image, non-root user, run uvicorn

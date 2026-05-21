@@ -92,6 +92,7 @@ package = false  # This is an application, not a package to be installed
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
 torchvision = { index = "pytorch-cpu" }
+langchain-oci = { path = "../langchain-oracle/libs/oci", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"

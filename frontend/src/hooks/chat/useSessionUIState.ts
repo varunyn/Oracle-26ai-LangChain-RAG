@@ -19,7 +19,7 @@ function isValidFlowMode(value: unknown): value is FlowMode {
 
 function getInitialFlowMode(): FlowMode {
   const defaultFlowEnv = process.env.NEXT_PUBLIC_DEFAULT_FLOW_MODE;
-  return isValidFlowMode(defaultFlowEnv) ? defaultFlowEnv : "rag";
+  return isValidFlowMode(defaultFlowEnv) ? defaultFlowEnv : "mixed";
 }
 
 export function useSessionUIState(appConfig: AppConfig | null) {

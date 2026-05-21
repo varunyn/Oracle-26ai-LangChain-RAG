@@ -1758,7 +1758,7 @@ wheels = [
 [[package]]
 name = "langchain-oci"
 version = "0.2.6"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "../langchain-oracle/libs/oci" }
 dependencies = [
     { name = "aiohttp" },
     { name = "langchain" },
@@ -1770,10 +1770,26 @@ dependencies = [
     { name = "openai" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9e/c7/a43f7b3b5a5b542bc17972bc9a95ee40fd7029aab98c9504ff2bf456b6ef/langchain_oci-0.2.6.tar.gz", hash = "sha256:92538d3ee45e3323290fcc672e3f6618b13878b464abd8692ade9b7441b5863b", size = 85514, upload-time = "2026-05-13T21:22:42.244Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/22/92cc0ac1194ea285668b02ef2bcc39d04a846dc6e2e943b2a1f1e968d777/langchain_oci-0.2.6-py3-none-any.whl", hash = "sha256:3451385da788926d5cffd19de8afb912e15bdb28fb76f3844d3d88a5683142b0", size = 107591, upload-time = "2026-05-13T21:22:41.056Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.12.14" },
+    { name = "deepagents", marker = "python_full_version >= '3.11' and python_full_version < '3.14' and extra == 'deep-research'", specifier = ">=0.4.0" },
+    { name = "langchain", marker = "python_full_version < '3.10'", specifier = ">=0.3.20,<1.0.0" },
+    { name = "langchain", marker = "python_full_version >= '3.10'", specifier = ">=1.0.0,<2.0.0" },
+    { name = "langchain-core", marker = "python_full_version < '3.10'", specifier = ">=0.3.78,<1.0.0" },
+    { name = "langchain-core", marker = "python_full_version >= '3.10'", specifier = ">=1.1.0,<2.0.0" },
+    { name = "langchain-openai", marker = "python_full_version < '3.10'", specifier = ">=0.3.35,<1.0.0" },
+    { name = "langchain-openai", marker = "python_full_version >= '3.10'", specifier = ">=1.1.0,<2.0.0" },
+    { name = "langchain-oracledb", marker = "extra == 'deep-research'", specifier = ">=1.2.0" },
+    { name = "langgraph", specifier = ">=0.2.0,<2.0.0" },
+    { name = "oci", specifier = ">=2.173.0" },
+    { name = "oci-openai", specifier = ">=1.0.0" },
+    { name = "openai", specifier = ">=2.6.1" },
+    { name = "opensearch-py", marker = "extra == 'deep-research'", specifier = ">=2.4.0" },
+    { name = "pydantic", specifier = ">=2,<3" },
 ]
+provides-extras = ["deep-research"]
 
 [[package]]
 name = "langchain-openai"
@@ -3004,7 +3020,7 @@ requires-dist = [
     { name = "langchain-community", specifier = "==0.4.1" },
     { name = "langchain-core", specifier = "==1.4.0" },
     { name = "langchain-mcp-adapters", specifier = ">=0.2.2" },
-    { name = "langchain-oci", specifier = ">=0.2.6" },
+    { name = "langchain-oci", editable = "../langchain-oracle/libs/oci" },
     { name = "langchain-openai", specifier = ">=1.2.1" },
     { name = "langchain-oracledb", specifier = ">=1.4.0" },
     { name = "langchain-text-splitters", specifier = ">=1.1.0" },

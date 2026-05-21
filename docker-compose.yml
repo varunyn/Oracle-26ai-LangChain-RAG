@@ -8,6 +8,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      additional_contexts:
+        langchain_oci: ../langchain-oracle/libs/oci
     image: custom-rag-agent-backend:latest
     container_name: rag-backend
     networks:
@@ -57,6 +59,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_DEFAULT_FLOW_MODE: ${NEXT_PUBLIC_DEFAULT_FLOW_MODE:-mixed}
     image: custom-rag-agent-frontend:latest
     container_name: rag-frontend
     networks:
@@ -65,6 +69,7 @@ services:
       - "4000:3000"
     environment:
       - FASTAPI_BACKEND_URL=http://backend:3002
+      - NEXT_PUBLIC_DEFAULT_FLOW_MODE=${NEXT_PUBLIC_DEFAULT_FLOW_MODE:-mixed}
       - NODE_ENV=production
     depends_on:
       backend:
