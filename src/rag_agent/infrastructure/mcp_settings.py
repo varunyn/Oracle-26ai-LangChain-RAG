@@ -6,8 +6,9 @@ Use this only for: RAG Answer node calling external MCP servers to get tools.
 When this app **runs as** an MCP server (mcp_servers/*.py), TRANSPORT and PORT
 come from .env / get_settings().
 
-Settings (env or .env): ENABLE_MCP_TOOLS, MCP_SERVER_KEYS (e.g. default,context7),
-ENABLE_MCP_CLIENT_JWT. See docs/CONFIGURATION.md and .env.example.
+Settings (env or .env): ENABLE_MCP_TOOLS, optional MCP_SERVER_KEYS, optional
+MCP_SERVERS_CONFIG seed config, and legacy global MCP auth. UI-managed MCP
+server config is stored at MCP_UI_CONFIG_FILE. See docs/CONFIGURATION.md.
 """
 
 import logging
@@ -53,7 +54,7 @@ def _get_app_settings() -> Any | None:
 
 
 def get_mcp_servers_config() -> dict[str, dict[str, Any]]:
-    """Return MCP server config from settings (single source of truth)."""
+    """Return enabled MCP server config from UI store, or optional env seed."""
     try:
         from api.settings import get_settings
 

@@ -55,6 +55,107 @@ def test_build_adapter_server_configs_applies_jwt_headers_when_enabled(monkeypat
     }
 
 
+def test_build_adapter_server_configs_applies_bearer_auth(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_settings",
+        lambda: SimpleNamespace(enable_mcp_tools=True, enable_mcp_client_jwt=False),
+    )
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_servers_config",
+        lambda: {
+            "secure": {
+                "transport": "streamable-http",
+                "url": "https://mcp.example.com/mcp",
+                "auth": {
+                    "type": "bearer",
+                    "bearer_token": "server-token",
+                },
+            }
+        },
+    )
+
+    out = mod.build_adapter_server_configs(server_keys=None, run_config=None)
+
+    assert out["secure"]["headers"] == {"Authorization": "Bearer server-token"}
+    assert "auth" not in out["secure"]
+
+
+def test_per_server_auth_overrides_global_jwt(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_settings",
+        lambda: SimpleNamespace(
+            enable_mcp_tools=True,
+            enable_mcp_client_jwt=True,
+            jwt_headers_supplier=lambda: {"Authorization": "Bearer global-token"},
+        ),
+    )
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_servers_config",
+        lambda: {
+            "secure": {
+                "transport": "streamable-http",
+                "url": "https://mcp.example.com/mcp",
+                "auth": {
+                    "type": "bearer",
+                    "bearer_token": "server-token",
+                },
+            }
+        },
+    )
+
+    out = mod.build_adapter_server_configs(server_keys=None, run_config=None)
+
+    assert out["secure"]["headers"] == {"Authorization": "Bearer server-token"}
+
+
+def test_build_adapter_server_configs_applies_per_server_oauth(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_settings",
+        lambda: SimpleNamespace(enable_mcp_tools=True, enable_mcp_client_jwt=False),
+    )
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_servers_config",
+        lambda: {
+            "secure": {
+                "transport": "streamable-http",
+                "url": "https://mcp.example.com/mcp",
+                "auth": {
+                    "type": "oauth_client_credentials",
+                    "token_url": "https://auth.example.com/oauth/token",
+                    "client_id": "client-id",
+                    "client_secret": "client-secret",
+                    "scope": "read:mcp",
+                    "audience": "mcp-api",
+                    "grant_type": "client_credentials",
+                    "refresh_skew_seconds": 30,
+                },
+            }
+        },
+    )
+    captured: dict[str, object] = {}
+
+    def fake_build_oauth_headers_supplier(**kwargs: object):
+        captured.update(kwargs)
+        return lambda: {"Authorization": "Bearer oauth-token"}
+
+    monkeypatch.setattr(mod, "build_oauth_headers_supplier", fake_build_oauth_headers_supplier)
+
+    out = mod.build_adapter_server_configs(server_keys=None, run_config=None)
+
+    assert captured["client_id"] == "client-id"
+    assert captured["client_secret"] == "client-secret"
+    assert captured["scope"] == "read:mcp"
+    assert captured["audience"] == "mcp-api"
+    assert out["secure"]["headers"] == {"Authorization": "Bearer oauth-token"}
+    assert "auth" not in out["secure"]
+
+
 def test_build_adapter_server_configs_uses_run_config_override(monkeypatch) -> None:
     monkeypatch.setattr(
         mod,

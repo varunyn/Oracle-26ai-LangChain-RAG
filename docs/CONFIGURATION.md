@@ -41,7 +41,7 @@ The project reads settings from (in order of precedence):
 
 The **frontend** also uses:
 
-- **`frontend/.env.local`** — For `NEXT_PUBLIC_API_BASE`, `FASTAPI_BACKEND_URL` (optional fallback), and `NEXT_PUBLIC_DEFAULT_FLOW_MODE`. See `frontend/env.example`.
+- **`frontend/.env.local`** — For `NEXT_PUBLIC_API_BASE` and `NEXT_PUBLIC_DEFAULT_FLOW_MODE`. See `frontend/env.example`.
 
 ---
 
@@ -139,7 +139,7 @@ Control retrieval breadth and context shaping.
 
 | Variable                           | Default                    | Description                                        |
 | ---------------------------------- | -------------------------- | -------------------------------------------------- |
-| `RAG_SEARCH_MODE`                  | `vector`                   | Retrieval mode for RAG: `vector`, `hybrid`, or `text`. |
+| `RAG_SEARCH_MODE`                  | `vector`                   | Retrieval mode for RAG. Only `vector` is currently supported. |
 | `COLLECTION_LIST`                  | `RAG_KNOWLEDGE_BASE`       | Comma-separated or JSON array of collection names. |
 | `DEFAULT_COLLECTION`               | `RAG_KNOWLEDGE_BASE`       | Default collection when not specified.             |
 | `CHUNK_SIZE`                       | `4000`                     | Chunk size for splitting.                          |
@@ -172,8 +172,9 @@ The frontend gets most config from the backend via `GET /api/config`. These opti
 | Variable                        | Default                 | Description                                                          |
 | ------------------------------- | ----------------------- | -------------------------------------------------------------------- |
 | `NEXT_PUBLIC_API_BASE`          | `http://localhost:3002` | Browser-visible backend base URL for direct frontend API calls.      |
-| `FASTAPI_BACKEND_URL`           | `http://localhost:3002` | Optional server-side fallback for config/bootstrap fetches.          |
 | `NEXT_PUBLIC_DEFAULT_FLOW_MODE` | `mixed`                 | Default flow when the app loads: `rag`, `mcp`, `mixed`, or `direct`. |
+
+`FASTAPI_BACKEND_URL` is still supported for server-side config/bootstrap fetches when the Next.js server cannot use the browser-visible API base. The Docker Compose frontend service sets it to `http://backend:3002`; local `frontend/.env.local` usually does not need it.
 
 ### Default model (browser)
 
@@ -207,23 +208,25 @@ MCP (Model Context Protocol) client and server configuration.
 | ----------------------------------- | -------------- | -------------------------------------------------------------- |
 | `ENABLE_MCP_TOOLS`                  | `true`         | Enable MCP tool use.                                           |
 | `MCP_SERVER_KEYS`                   | (none)         | Comma-separated list of configured MCP server keys to load tools from (e.g. `default,context7`). This does not choose the default chat mode. |
-| `MCP_SEARCH_MODE`                   | `vector`       | Default retrieval mode for semantic-search MCP tools: `vector`, `hybrid`, or `text`. |
+| `MCP_SEARCH_MODE`                   | `vector`       | Default retrieval mode for semantic-search MCP tools. Only `vector` is currently supported. |
 | `MCP_MAX_ROUNDS`                    | `2`            | Maximum MCP tool-call rounds passed into chat runtime config. |
-| `ENABLE_MCP_CLIENT_JWT`             | `false`        | Enable JWT auth for MCP client.                                |
-| `ENABLE_MCP_OAUTH`                  | `false`        | Enable OAuth client-credentials auth for MCP clients. |
-| `MCP_OAUTH_CLIENT_ID`               | —              | OAuth client ID. |
-| `MCP_OAUTH_CLIENT_SECRET`           | —              | OAuth client secret. |
-| `MCP_OAUTH_TOKEN_URL`               | —              | OAuth token endpoint URL. |
-| `MCP_OAUTH_SCOPE`                   | —              | Optional OAuth scope. |
-| `MCP_OAUTH_GRANT_TYPE`              | `client_credentials` | OAuth grant type. |
-| `MCP_OAUTH_AUDIENCE`                | —              | Optional OAuth audience. |
-| `MCP_OAUTH_REFRESH_SKEW_SECONDS`    | `30`           | Refresh OAuth tokens this many seconds before expiry. |
+| `ENABLE_MCP_CLIENT_JWT`             | `false`        | Legacy global MCP auth toggle. Prefer per-server auth in Settings. |
+| `ENABLE_MCP_OAUTH`                  | `false`        | Legacy global OAuth client-credentials auth toggle. Prefer per-server auth in Settings. |
+| `MCP_OAUTH_CLIENT_ID`               | —              | Legacy global OAuth client ID. |
+| `MCP_OAUTH_CLIENT_SECRET`           | —              | Legacy global OAuth client secret. |
+| `MCP_OAUTH_TOKEN_URL`               | —              | Legacy global OAuth token endpoint URL. |
+| `MCP_OAUTH_SCOPE`                   | —              | Legacy global optional OAuth scope. |
+| `MCP_OAUTH_GRANT_TYPE`              | `client_credentials` | Legacy global OAuth grant type. |
+| `MCP_OAUTH_AUDIENCE`                | —              | Legacy global optional OAuth audience. |
+| `MCP_OAUTH_REFRESH_SKEW_SECONDS`    | `30`           | Legacy global OAuth token refresh skew. |
 | `REQUIRE_TOOL_CALL`                 | `false`        | Require a tool call in supported MCP workflow paths. |
 | `MCP_REPEATED_WORKFLOW_CONTROLLER`  | `true`         | Enable repeated-workflow orchestration behavior. |
 | `MCP_WORKFLOW_POLICY`               | `{}`           | JSON object for workflow-controller policy. |
 | `MCP_UI_CONFIG_FILE`                | `.local-data/mcp_servers.json` | Server-side JSON file written by the frontend Settings page after MCP UI edits. |
 | `MCP_CONNECTION_TEST_TIMEOUT_SECONDS` | `8`          | Max seconds the Settings page MCP connection test waits before returning a failure. |
-| `MCP_SERVERS_CONFIG`                | (see settings) | JSON object; see [MCP-USAGE.md](MCP-USAGE.md).                 |
+| `MCP_SERVERS_CONFIG`                | `{}`           | Optional seed/headless JSON object; Settings is the primary source. See [MCP-USAGE.md](MCP-USAGE.md). |
+
+The Settings page is the primary MCP configuration surface. It supports per-server auth mechanisms: none, bearer token, and OAuth client credentials. Secrets are write-only in API responses: the backend reports whether a token or client secret is set, but does not echo secret values back to the browser.
 
 ### MCP server runtime (`mcp_servers/*.py`)
 

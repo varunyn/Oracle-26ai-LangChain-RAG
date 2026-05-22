@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from api.routes.config_route import router
 from src.rag_agent.infrastructure import mcp_adapter_runtime
 from src.rag_agent.infrastructure.mcp_config_store import (
+    MCPServerAuthConfig,
     MCPServerConfig,
     delete_mcp_server_config,
     list_mcp_server_configs,
@@ -77,6 +78,43 @@ def test_store_delete_persists_removal_from_ui_managed_list(tmp_path) -> None:
     }
 
 
+def test_store_preserves_auth_config_for_runtime(tmp_path) -> None:
+    store_path = tmp_path / "mcp_servers.json"
+    server = MCPServerConfig(
+        key="secure",
+        transport="streamable-http",
+        url="https://mcp.example.com/mcp",
+        auth=MCPServerAuthConfig(
+            type="oauth_client_credentials",
+            token_url="https://auth.example.com/oauth/token",
+            client_id="client-id",
+            client_secret="client-secret",
+            scope="read:mcp",
+            audience="mcp-api",
+        ),
+    )
+
+    upsert_mcp_server_config(server, base_config={}, store_path=store_path)
+
+    assert list_mcp_server_configs(base_config={}, store_path=store_path) == [server]
+    assert resolve_enabled_mcp_servers_config(base_config={}, store_path=store_path) == {
+        "secure": {
+            "transport": "streamable-http",
+            "url": "https://mcp.example.com/mcp",
+            "auth": {
+                "type": "oauth_client_credentials",
+                "token_url": "https://auth.example.com/oauth/token",
+                "client_id": "client-id",
+                "client_secret": "client-secret",
+                "scope": "read:mcp",
+                "audience": "mcp-api",
+                "grant_type": "client_credentials",
+                "refresh_skew_seconds": 30,
+            },
+        }
+    }
+
+
 def test_mcp_config_routes_list_upsert_toggle_and_delete(tmp_path) -> None:
     settings = SimpleNamespace(
         ENABLE_MCP_TOOLS=True,
@@ -105,6 +143,17 @@ def test_mcp_config_routes_list_upsert_toggle_and_delete(tmp_path) -> None:
             "transport": "streamable-http",
             "url": "http://localhost:9000/mcp",
             "enabled": True,
+            "auth": {
+                "type": "none",
+                "bearer_token_set": False,
+                "token_url": None,
+                "client_id": None,
+                "client_secret_set": False,
+                "scope": None,
+                "audience": None,
+                "grant_type": "client_credentials",
+                "refresh_skew_seconds": 30,
+            },
         }
     ]
 
@@ -134,8 +183,92 @@ def test_mcp_config_routes_list_upsert_toggle_and_delete(tmp_path) -> None:
             "transport": "streamable-http",
             "url": "http://localhost:9000/mcp",
             "enabled": False,
+            "auth": {
+                "type": "none",
+                "bearer_token_set": False,
+                "token_url": None,
+                "client_id": None,
+                "client_secret_set": False,
+                "scope": None,
+                "audience": None,
+                "grant_type": "client_credentials",
+                "refresh_skew_seconds": 30,
+            },
         }
     ]
+
+
+def test_mcp_config_route_stores_oauth_without_echoing_secret(tmp_path) -> None:
+    settings = SimpleNamespace(
+        ENABLE_MCP_TOOLS=True,
+        MCP_UI_CONFIG_FILE=str(tmp_path / "mcp_servers.json"),
+        MCP_SERVERS_CONFIG={},
+        REGION="us-chicago-1",
+        EMBED_MODEL_ID="embed",
+        MODEL_LIST=[],
+        MODEL_DISPLAY_NAMES={},
+        COLLECTION_LIST=[],
+        DEFAULT_COLLECTION="RAG_KNOWLEDGE_BASE",
+        ENABLE_USER_FEEDBACK=False,
+    )
+    app = FastAPI()
+    app.state.resources = SimpleNamespace(settings=settings)
+    app.include_router(router)
+    client = TestClient(app)
+
+    response = client.put(
+        "/api/config/mcp-servers/secure",
+        json={
+            "transport": "streamable-http",
+            "url": "https://mcp.example.com/mcp",
+            "enabled": True,
+            "auth": {
+                "type": "oauth_client_credentials",
+                "token_url": "https://auth.example.com/oauth/token",
+                "client_id": "client-id",
+                "client_secret": "client-secret",
+                "scope": "read:mcp",
+                "audience": "mcp-api",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["auth"] == {
+        "type": "oauth_client_credentials",
+        "bearer_token_set": False,
+        "token_url": "https://auth.example.com/oauth/token",
+        "client_id": "client-id",
+        "client_secret_set": True,
+        "scope": "read:mcp",
+        "audience": "mcp-api",
+        "grant_type": "client_credentials",
+        "refresh_skew_seconds": 30,
+    }
+    assert "client-secret" not in response.text
+
+    response = client.put(
+        "/api/config/mcp-servers/secure",
+        json={
+            "transport": "streamable-http",
+            "url": "https://mcp.example.com/mcp",
+            "enabled": True,
+            "auth": {
+                "type": "oauth_client_credentials",
+                "token_url": "https://auth.example.com/oauth/token",
+                "client_id": "client-id",
+                "scope": "write:mcp",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    stored = list_mcp_server_configs(
+        base_config={},
+        store_path=str(tmp_path / "mcp_servers.json"),
+    )[0]
+    assert stored.auth.client_secret == "client-secret"
+    assert stored.auth.scope == "write:mcp"
 
 
 def test_config_route_exposes_observability_links_without_secrets(tmp_path) -> None:
@@ -231,6 +364,10 @@ def test_mcp_config_route_tests_draft_connection_without_persisting(
             "transport": "streamable-http",
             "url": "http://localhost:9100/mcp",
             "enabled": False,
+            "auth": {
+                "type": "bearer",
+                "bearer_token": "draft-token",
+            },
         },
     )
 
@@ -254,6 +391,10 @@ def test_mcp_config_route_tests_draft_connection_without_persisting(
                 "draft": {
                     "transport": "streamable-http",
                     "url": "http://localhost:9100/mcp",
+                    "auth": {
+                        "type": "bearer",
+                        "bearer_token": "draft-token",
+                    },
                 }
             }
         }

@@ -67,7 +67,7 @@ cp env.example .env.local
 
 Set `NEXT_PUBLIC_API_BASE` if your API is not on `http://localhost:3002`.
 
-`FASTAPI_BACKEND_URL` can be kept as a server-side fallback, but browser chat calls use `NEXT_PUBLIC_API_BASE`.
+Docker Compose injects `FASTAPI_BACKEND_URL` for the frontend container. Local `.env.local` normally only needs the browser-visible `NEXT_PUBLIC_*` settings.
 
 ## 4. Create the vector table (once)
 
@@ -123,7 +123,7 @@ If you want MCP tools available in the chat, start an MCP server in a separate t
 uv run python mcp_servers/mcp_semantic_search.py
 ```
 
-Then ensure `ENABLE_MCP_TOOLS=true` and `MCP_SERVERS_CONFIG` are set in `.env` (see [MCP-USAGE.md](MCP-USAGE.md)). For a local standalone MCP server from this repo, the canonical default URL is `http://localhost:9000/mcp`.
+Then open **Settings** in the frontend, add an MCP server with URL `http://localhost:9000/mcp`, and use **Test connection** before saving. `MCP_SERVERS_CONFIG` is optional seed/headless config; normal UI-managed setup does not need it in `.env`.
 
 ## Troubleshooting
 

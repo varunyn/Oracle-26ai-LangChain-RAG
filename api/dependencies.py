@@ -91,7 +91,7 @@ def build_chat_config(
         mcp_server_keys is not None or getattr(settings, "MCP_SERVER_KEYS", None) is not None
     ) and not _warned_about_mcp_server_keys:
         logger.warning(
-            "MCP_SERVER_KEYS/mcp_server_keys does not choose the default mode. Mode is determined by ENABLE_MCP_TOOLS and MCP_SERVERS_CONFIG, while MCP_SERVER_KEYS still limits which configured MCP servers/tools are loaded."
+            "MCP_SERVER_KEYS/mcp_server_keys does not choose the default mode. Mode is determined by ENABLE_MCP_TOOLS and the configured MCP server list, while MCP_SERVER_KEYS still limits which configured MCP servers/tools are loaded."
         )
         _warned_about_mcp_server_keys = True
 

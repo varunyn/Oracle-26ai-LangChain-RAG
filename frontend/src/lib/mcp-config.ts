@@ -5,6 +5,23 @@ export type McpServerConfig = {
   transport: "streamable-http" | "sse" | "stdio";
   url: string;
   enabled: boolean;
+  auth: McpServerAuthConfig;
+};
+
+export type McpAuthType = "none" | "bearer" | "oauth_client_credentials";
+
+export type McpServerAuthConfig = {
+  type: McpAuthType;
+  bearer_token?: string | null;
+  bearer_token_set?: boolean;
+  token_url?: string | null;
+  client_id?: string | null;
+  client_secret?: string | null;
+  client_secret_set?: boolean;
+  scope?: string | null;
+  audience?: string | null;
+  grant_type?: string | null;
+  refresh_skew_seconds?: number;
 };
 
 export type McpServersResponse = {
@@ -43,6 +60,7 @@ export async function saveMcpServer(server: McpServerConfig): Promise<McpServerC
         transport: server.transport,
         url: server.url,
         enabled: server.enabled,
+        auth: server.auth,
       }),
     },
   );
@@ -94,6 +112,7 @@ export async function testMcpServerConnection(
         transport: server.transport,
         url: server.url,
         enabled: server.enabled,
+        auth: server.auth,
       }),
     },
   );

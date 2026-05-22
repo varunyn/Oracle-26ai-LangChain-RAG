@@ -31,7 +31,7 @@ class TestBuildChatConfig:
     def test_default_mixed_when_mcp_enabled_and_config_nonempty(
         self, mock_mcp_config, mock_settings
     ):
-        """Test default mode is 'mixed' when ENABLE_MCP_TOOLS=True and MCP_SERVERS_CONFIG non-empty."""
+        """Test default mode is 'mixed' when MCP tools are enabled and servers are configured."""
         mock_settings.return_value.ENABLE_MCP_TOOLS = True
         mock_mcp_config.return_value = {"server1": {"url": "http://example.com"}}
 
@@ -53,7 +53,7 @@ class TestBuildChatConfig:
     @patch("api.dependencies.get_settings")
     @patch("api.dependencies.get_mcp_servers_config")
     def test_default_rag_when_config_empty(self, mock_mcp_config, mock_settings):
-        """Test default mode is 'rag' when MCP_SERVERS_CONFIG is empty."""
+        """Test default mode is 'rag' when no MCP servers are configured."""
         mock_settings.return_value.ENABLE_MCP_TOOLS = True
         mock_mcp_config.return_value = {}
 
@@ -64,7 +64,7 @@ class TestBuildChatConfig:
     @patch("api.dependencies.get_settings")
     @patch("api.dependencies.get_mcp_servers_config")
     def test_default_rag_when_config_none(self, mock_mcp_config, mock_settings):
-        """Test default mode is 'rag' when MCP_SERVERS_CONFIG is None."""
+        """Test default mode is 'rag' when MCP server config is None."""
         mock_settings.return_value.ENABLE_MCP_TOOLS = True
         mock_mcp_config.return_value = None
 
@@ -85,7 +85,7 @@ class TestBuildChatConfig:
         # First call should log warning
         build_chat_config(mcp_server_keys=["server1"])
         mock_logger.warning.assert_called_once_with(
-            "MCP_SERVER_KEYS/mcp_server_keys does not choose the default mode. Mode is determined by ENABLE_MCP_TOOLS and MCP_SERVERS_CONFIG, while MCP_SERVER_KEYS still limits which configured MCP servers/tools are loaded."
+            "MCP_SERVER_KEYS/mcp_server_keys does not choose the default mode. Mode is determined by ENABLE_MCP_TOOLS and the configured MCP server list, while MCP_SERVER_KEYS still limits which configured MCP servers/tools are loaded."
         )
 
         # Reset mock
@@ -108,7 +108,7 @@ class TestBuildChatConfig:
         # First call should log warning
         build_chat_config()
         mock_logger.warning.assert_called_once_with(
-            "MCP_SERVER_KEYS/mcp_server_keys does not choose the default mode. Mode is determined by ENABLE_MCP_TOOLS and MCP_SERVERS_CONFIG, while MCP_SERVER_KEYS still limits which configured MCP servers/tools are loaded."
+            "MCP_SERVER_KEYS/mcp_server_keys does not choose the default mode. Mode is determined by ENABLE_MCP_TOOLS and the configured MCP server list, while MCP_SERVER_KEYS still limits which configured MCP servers/tools are loaded."
         )
 
         # Reset mock

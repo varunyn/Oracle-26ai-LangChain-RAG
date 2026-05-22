@@ -190,8 +190,174 @@
         "title": "MCPConnectionToolResponse",
         "type": "object"
       },
+      "MCPServerAuthResponse": {
+        "properties": {
+          "audience": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audience"
+          },
+          "bearer_token_set": {
+            "default": false,
+            "title": "Bearer Token Set",
+            "type": "boolean"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_secret_set": {
+            "default": false,
+            "title": "Client Secret Set",
+            "type": "boolean"
+          },
+          "grant_type": {
+            "default": "client_credentials",
+            "title": "Grant Type",
+            "type": "string"
+          },
+          "refresh_skew_seconds": {
+            "default": 30,
+            "title": "Refresh Skew Seconds",
+            "type": "integer"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "token_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Url"
+          },
+          "type": {
+            "default": "none",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "MCPServerAuthResponse",
+        "type": "object"
+      },
+      "MCPServerAuthWrite": {
+        "properties": {
+          "audience": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audience"
+          },
+          "bearer_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bearer Token"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Secret"
+          },
+          "grant_type": {
+            "default": "client_credentials",
+            "title": "Grant Type",
+            "type": "string"
+          },
+          "refresh_skew_seconds": {
+            "default": 30,
+            "exclusiveMinimum": 0.0,
+            "title": "Refresh Skew Seconds",
+            "type": "integer"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "token_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Url"
+          },
+          "type": {
+            "default": "none",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "MCPServerAuthWrite",
+        "type": "object"
+      },
       "MCPServerConfigResponse": {
         "properties": {
+          "auth": {
+            "$ref": "#/components/schemas/MCPServerAuthResponse"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -213,13 +379,17 @@
           "key",
           "transport",
           "url",
-          "enabled"
+          "enabled",
+          "auth"
         ],
         "title": "MCPServerConfigResponse",
         "type": "object"
       },
       "MCPServerConfigWrite": {
         "properties": {
+          "auth": {
+            "$ref": "#/components/schemas/MCPServerAuthWrite"
+          },
           "enabled": {
             "default": true,
             "title": "Enabled",

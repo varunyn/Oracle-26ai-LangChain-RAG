@@ -70,13 +70,46 @@ Do not edit manually.
 - `description`: `string`
 - `name`: `string`
 
-## `MCPServerConfigResponse`
+## `MCPServerAuthResponse`
 
 - type: `object`
-- required: `key`, `transport`, `url`, `enabled`
 
 ### Properties
 
+- `audience`: `complex`
+- `bearer_token_set`: `boolean`
+- `client_id`: `complex`
+- `client_secret_set`: `boolean`
+- `grant_type`: `string`
+- `refresh_skew_seconds`: `integer`
+- `scope`: `complex`
+- `token_url`: `complex`
+- `type`: `string`
+
+## `MCPServerAuthWrite`
+
+- type: `object`
+
+### Properties
+
+- `audience`: `complex`
+- `bearer_token`: `complex`
+- `client_id`: `complex`
+- `client_secret`: `complex`
+- `grant_type`: `string`
+- `refresh_skew_seconds`: `integer`
+- `scope`: `complex`
+- `token_url`: `complex`
+- `type`: `string`
+
+## `MCPServerConfigResponse`
+
+- type: `object`
+- required: `key`, `transport`, `url`, `enabled`, `auth`
+
+### Properties
+
+- `auth`: `complex`
 - `enabled`: `boolean`
 - `key`: `string`
 - `transport`: `string`
@@ -89,6 +122,7 @@ Do not edit manually.
 
 ### Properties
 
+- `auth`: `complex`
 - `enabled`: `boolean`
 - `transport`: `string`
 - `url`: `string`

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import (
@@ -234,17 +234,13 @@ class Settings(BaseSettings):
         mode = str(v or "vector").strip().lower()
         return mode if mode == "vector" else "vector"
 
-    MCP_SERVERS_CONFIG: dict[str, dict[str, str]] = Field(
-        default_factory=lambda: {
-            "default": {"transport": "streamable-http", "url": "http://localhost:9000/mcp"},
-            "context7": {"transport": "streamable-http", "url": "http://localhost:9000/mcp"},
-            "calculator": {"transport": "streamable-http", "url": "http://localhost:9000/mcp"},
-        }
+    MCP_SERVERS_CONFIG: dict[str, dict[str, Any]] = Field(
+        default_factory=dict
     )
 
     @field_validator("MCP_SERVERS_CONFIG", mode="before")
     @classmethod
-    def _parse_mcp_servers_config(cls, v: object) -> dict[str, dict[str, str]]:
+    def _parse_mcp_servers_config(cls, v: object) -> dict[str, dict[str, Any]]:
         if v is None:
             return {}
         if isinstance(v, dict):

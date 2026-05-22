@@ -12,7 +12,9 @@ from api.deps.request import get_settings as get_settings_dep
 from api.settings import Settings
 from src.rag_agent.infrastructure import mcp_adapter_runtime
 from src.rag_agent.infrastructure.mcp_config_store import (
+    SUPPORTED_AUTH_TYPES,
     SUPPORTED_TRANSPORTS,
+    MCPServerAuthConfig,
     MCPServerConfig,
     delete_mcp_server_config,
     list_mcp_server_configs,
@@ -23,11 +25,24 @@ router = APIRouter(prefix="/api", tags=["config"])
 _MCP_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
+class MCPServerAuthResponse(BaseModel):
+    type: str = "none"
+    bearer_token_set: bool = False
+    token_url: str | None = None
+    client_id: str | None = None
+    client_secret_set: bool = False
+    scope: str | None = None
+    audience: str | None = None
+    grant_type: str = "client_credentials"
+    refresh_skew_seconds: int = 30
+
+
 class MCPServerConfigResponse(BaseModel):
     key: str
     transport: str
     url: str
     enabled: bool
+    auth: MCPServerAuthResponse
 
 
 class MCPServersConfigResponse(BaseModel):
@@ -59,10 +74,50 @@ class AppConfigResponse(BaseModel):
     observability: ObservabilityConfigResponse
 
 
+class MCPServerAuthWrite(BaseModel):
+    type: str = Field(default="none")
+    bearer_token: str | None = None
+    token_url: str | None = None
+    client_id: str | None = None
+    client_secret: str | None = None
+    scope: str | None = None
+    audience: str | None = None
+    grant_type: str = "client_credentials"
+    refresh_skew_seconds: int = Field(default=30, gt=0)
+
+    @field_validator("type")
+    @classmethod
+    def _validate_type(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in SUPPORTED_AUTH_TYPES:
+            raise ValueError(
+                "auth type must be one of: " + ", ".join(sorted(SUPPORTED_AUTH_TYPES))
+            )
+        return normalized
+
+    @field_validator(
+        "bearer_token",
+        "token_url",
+        "client_id",
+        "client_secret",
+        "scope",
+        "audience",
+        "grant_type",
+        mode="before",
+    )
+    @classmethod
+    def _strip_optional_string(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+
 class MCPServerConfigWrite(BaseModel):
     transport: str = Field(default="streamable-http")
     url: str
     enabled: bool = True
+    auth: MCPServerAuthWrite = Field(default_factory=MCPServerAuthWrite)
 
     @field_validator("transport")
     @classmethod
@@ -202,7 +257,7 @@ async def get_config(request: Request) -> AppConfigResponse:
     )
 
 
-def _settings_mcp_config(settings: Settings) -> dict[str, dict[str, str]]:
+def _settings_mcp_config(settings: Settings) -> dict[str, dict[str, object]]:
     raw_config = getattr(settings, "MCP_SERVERS_CONFIG", None)
     if not isinstance(raw_config, dict):
         return {}
@@ -227,13 +282,93 @@ def _validate_mcp_key(key: str) -> str:
     return normalized
 
 
+def _to_auth_response(auth: MCPServerAuthConfig) -> MCPServerAuthResponse:
+    return MCPServerAuthResponse(
+        type=auth.type,
+        bearer_token_set=bool(auth.bearer_token),
+        token_url=auth.token_url,
+        client_id=auth.client_id,
+        client_secret_set=bool(auth.client_secret),
+        scope=auth.scope,
+        audience=auth.audience,
+        grant_type=auth.grant_type,
+        refresh_skew_seconds=auth.refresh_skew_seconds,
+    )
+
+
 def _to_response(server: MCPServerConfig) -> MCPServerConfigResponse:
     return MCPServerConfigResponse(
         key=server.key,
         transport=server.transport,
         url=server.url,
         enabled=server.enabled,
+        auth=_to_auth_response(server.auth),
     )
+
+
+def _auth_from_write(
+    payload: MCPServerAuthWrite,
+    *,
+    existing: MCPServerAuthConfig | None,
+) -> MCPServerAuthConfig:
+    if payload.type == "bearer":
+        bearer_token = payload.bearer_token
+        if not bearer_token and existing and existing.type == "bearer":
+            bearer_token = existing.bearer_token
+        return MCPServerAuthConfig(type="bearer", bearer_token=bearer_token)
+
+    if payload.type == "oauth_client_credentials":
+        client_secret = payload.client_secret
+        if not client_secret and existing and existing.type == "oauth_client_credentials":
+            client_secret = existing.client_secret
+        return MCPServerAuthConfig(
+            type="oauth_client_credentials",
+            token_url=payload.token_url,
+            client_id=payload.client_id,
+            client_secret=client_secret,
+            scope=payload.scope,
+            audience=payload.audience,
+            grant_type=payload.grant_type or "client_credentials",
+            refresh_skew_seconds=payload.refresh_skew_seconds,
+        )
+
+    return MCPServerAuthConfig()
+
+
+def _runtime_auth_config(auth: MCPServerAuthConfig) -> dict[str, object] | None:
+    if auth.type == "bearer":
+        return {"type": "bearer", "bearer_token": auth.bearer_token}
+    if auth.type == "oauth_client_credentials":
+        return {
+            "type": "oauth_client_credentials",
+            "token_url": auth.token_url,
+            "client_id": auth.client_id,
+            "client_secret": auth.client_secret,
+            "scope": auth.scope,
+            "audience": auth.audience,
+            "grant_type": auth.grant_type,
+            "refresh_skew_seconds": auth.refresh_skew_seconds,
+        }
+    return None
+
+
+def _server_runtime_config(server: MCPServerConfig) -> dict[str, object]:
+    config: dict[str, object] = {
+        "transport": server.transport,
+        "url": server.url,
+    }
+    auth = _runtime_auth_config(server.auth)
+    if auth is not None:
+        config["auth"] = auth
+    return config
+
+
+def _current_server(settings: Settings, key: str) -> MCPServerConfig | None:
+    servers = list_mcp_server_configs(
+        base_config=_settings_mcp_config(settings),
+        store_path=_store_path(settings),
+    )
+    return next((server for server in servers if server.key == key), None)
 
 
 def _server_config_for_test(
@@ -242,19 +377,16 @@ def _server_config_for_test(
     payload: MCPServerConfigWrite | None,
     settings: Settings,
 ) -> MCPServerConfig:
+    current = _current_server(settings, key)
     if payload is not None:
         return MCPServerConfig(
             key=key,
             transport=payload.transport,
             url=payload.url,
             enabled=True,
+            auth=_auth_from_write(payload.auth, existing=current.auth if current else None),
         )
 
-    servers = list_mcp_server_configs(
-        base_config=_settings_mcp_config(settings),
-        store_path=_store_path(settings),
-    )
-    current = next((server for server in servers if server.key == key), None)
     if current is None:
         raise HTTPException(status_code=404, detail="MCP server not found")
     return MCPServerConfig(
@@ -262,6 +394,7 @@ def _server_config_for_test(
         transport=current.transport,
         url=current.url,
         enabled=True,
+        auth=current.auth,
     )
 
 
@@ -269,10 +402,7 @@ def _test_run_config(server: MCPServerConfig) -> dict[str, object]:
     return {
         "configurable": {
             "mcp_servers_config_override": {
-                server.key: {
-                    "transport": server.transport,
-                    "url": server.url,
-                }
+                server.key: _server_runtime_config(server)
             }
         }
     }
@@ -307,12 +437,15 @@ async def put_mcp_server_config_api(
     request: Request,
 ) -> MCPServerConfigResponse:
     settings: Settings = get_settings_dep(request)
+    normalized_key = _validate_mcp_key(key)
+    current = _current_server(settings, normalized_key)
     server = upsert_mcp_server_config(
         MCPServerConfig(
-            key=_validate_mcp_key(key),
+            key=normalized_key,
             transport=payload.transport,
             url=payload.url,
             enabled=payload.enabled,
+            auth=_auth_from_write(payload.auth, existing=current.auth if current else None),
         ),
         base_config=_settings_mcp_config(settings),
         store_path=_store_path(settings),
@@ -340,6 +473,7 @@ async def patch_mcp_server_enabled_api(
         transport=current.transport,
         url=current.url,
         enabled=payload.enabled,
+        auth=current.auth,
     )
     return _to_response(
         upsert_mcp_server_config(

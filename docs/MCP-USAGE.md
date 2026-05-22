@@ -5,7 +5,7 @@ This project supports MCP in two ways:
 | Role                       | Description                                                                                                                                                                                                                     |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Exposing an MCP server** | This repo runs MCP servers (e.g. `mcp_servers/mcp_semantic_search.py`) that expose tools (semantic search, list collections). Other clients—Next.js UI or external apps—call these servers.                                     |
-| **Consuming MCP**          | The FastAPI backend (called by the Next.js UI) acts as an **MCP client**: it connects to one or more MCP server URLs (from `config.MCP_SERVERS_CONFIG`), loads tools from those servers, and lets the LLM use them during chat. |
+| **Consuming MCP**          | The FastAPI backend (called by the Next.js UI) acts as an **MCP client**: it connects to one or more configured MCP server URLs, loads tools from those servers, and lets the LLM use them during chat. |
 
 The sections below are split by **exposing** vs **consuming**.
 
@@ -38,7 +38,7 @@ You can run MCP servers from this repo so that the RAG app (or any MCP client) c
     uv run python mcp_servers/mcp_semantic_search.py
    ```
 
-   Server listens on `http://localhost:9000` by default (or `PORT` from config). This is the standalone MCP server runtime. The backend's MCP client configuration is separate and comes from `MCP_SERVERS_CONFIG`, which may point to other preset MCP endpoints unless you override it.
+   Server listens on `http://localhost:9000` by default (or `PORT` from config). This is the standalone MCP server runtime. The backend's MCP client configuration is separate and is normally managed from the frontend Settings page.
 
 2. **Start the FastAPI backend** (which consumes MCP servers on behalf of the UI) via `./run_api.sh`, then use the Next.js frontend to chat with MCP tools (see below).
 
@@ -79,43 +79,31 @@ curl -X POST http://localhost:9000/mcp \
 
 ## Part 2: Consuming MCP (RAG backend and UIs)
 
-The RAG backend and UIs **consume** MCP: they connect to MCP server(s) and attach their tools to the LLM. Initial/default configuration comes from `.env` (or environment) via `MCP_SERVERS_CONFIG` and related options; see `.env.example`. The Next.js Settings page can then create a server-side override file at `MCP_UI_CONFIG_FILE` so configured MCPs can be added, edited, disabled, or deleted without editing `.env`.
+The RAG backend and UIs **consume** MCP: they connect to MCP server(s) and attach their tools to the LLM. The Next.js Settings page is the primary configuration surface. It writes a server-side config file at `MCP_UI_CONFIG_FILE` so MCPs can be added, edited, disabled, tested, or deleted without editing `.env`.
 
 ### 1. Use one MCP in RAG chat (Next.js app)
 
-- In `.env` (or environment), set `MCP_SERVERS_CONFIG` (JSON) with a `"default"` server URL. Example:
-
-  ```python
-  MCP_SERVERS_CONFIG = {
-      "default": {
-          "transport": "streamable-http",
-          "url": "http://localhost:9000/mcp",   # MCP server URL to consume
-      },
-  }
-  ```
-
 - Set `ENABLE_MCP_TOOLS = True`.
-- Restart the backend. The Next.js Settings page shows this server as the initial/default entry until you make a UI edit.
+- Open **Settings** from the chat header.
+- Add a server with a stable key such as `default`.
+- Set the transport and URL, for example `http://localhost:9000/mcp`.
+- Use **Test connection** before saving when possible.
 
-### 2. Add another MCP as a preset (Next.js / API)
+### 2. Optional seed config for headless or first-run setups
 
-- In `MCP_SERVERS_CONFIG`, add another entry, e.g.:
+`MCP_SERVERS_CONFIG` is still supported as an optional seed or headless deployment config. If the UI config file does not exist yet, servers from this JSON object appear in Settings. After the first UI edit, the backend reads the UI-managed server list from `MCP_UI_CONFIG_FILE`.
 
-  ```python
-  MCP_SERVERS_CONFIG = {
-      "default": { "transport": "streamable-http", "url": "http://localhost:9000/mcp" },
-      "context7": { "transport": "streamable-http", "url": "http://localhost:9000/mcp" },
-  }
-  ```
+```env
+MCP_SERVERS_CONFIG={"default":{"transport":"streamable-http","url":"http://localhost:9000/mcp"}}
+```
 
-- **Next.js UI**: Open **Settings** from the chat header, add or edit the MCP server entry, and save it. After the first UI edit, the backend reads the UI-managed server list from `MCP_UI_CONFIG_FILE`.
 - **API note**: MCP-enabled chat is supported through `POST /api/langgraph/threads/{thread_id}/runs` with `mode="mcp"` or `mode="mixed"`.
 
 ### 3. Use multiple MCPs in RAG chat at once
 
 #### Which servers and tools load
 
-- **Servers**: `MCP_SERVER_KEYS` (optional) limits which keys from `MCP_SERVERS_CONFIG` are connected when loading tools. The request may also pass `mcp_server_keys` (same idea). This does not choose `mode`; it only filters which MCP endpoints are used.
+- **Servers**: `MCP_SERVER_KEYS` (optional) limits which configured server keys are connected when loading tools. The request may also pass `mcp_server_keys` (same idea). This does not choose `mode`; it only filters which MCP endpoints are used.
 - **Tools**: Tools come from `langchain_mcp_adapters.MultiServerMCPClient.get_tools()` (see `src/rag_agent/infrastructure/mcp_adapter_runtime.py`). Server names are prefixed on tool names when `tool_name_prefix=True` (e.g. `default.semantic_search`).
 
 - Set which configured servers to load via `MCP_SERVER_KEYS` (optional; if unset, defaults follow `mcp_adapter_runtime._select_server_keys`, typically `"default"` when present).
@@ -124,30 +112,26 @@ The RAG backend and UIs **consume** MCP: they connect to MCP server(s) and attac
   MCP_SERVER_KEYS = ["default", "context7"]
   ```
 
-- Ensure each key exists in `MCP_SERVERS_CONFIG`. Restart the backend.
+- Ensure each key exists in Settings or in optional seed config. Restart the backend only after changing `.env`.
 
 ### 4. Use an external MCP server (outside this project)
 
 You can point this app at any HTTP MCP server (different repo or machine).
 
 - **Next.js UI**: Open **Settings**, add an MCP server with a stable key such as `external`, set the URL, and keep it enabled.
-- **Preset in config**: Add an entry to `MCP_SERVERS_CONFIG` (e.g. `"external": { "transport": "streamable-http", "url": "http://YOUR_HOST:PORT/mcp/" }`) if you want it to appear before any UI-managed override exists.
+- **Preset in config**: Add an entry to `MCP_SERVERS_CONFIG` only if you want it to appear before any UI-managed override exists or you run without the frontend.
 - **Next.js**: Keep `ENABLE_MCP_TOOLS = True`. The frontend manages MCP entries through backend config endpoints; chat requests still choose `mode="mcp"` or `mode="mixed"`.
 - **Cursor IDE**: To use an external MCP from Cursor, add it in Cursor Settings → MCP (HTTP URL or stdio command). That is independent of this app’s config.
 
 ### OAuth-protected MCP servers
 
-If your MCP server uses OAuth client credentials, configure:
+If your MCP server uses OAuth client credentials, configure it in **Settings** by selecting the server's **Auth mechanism** and entering the token URL, client ID, client secret, scope, audience, and grant type as needed. The client secret is stored server-side and is not returned to the browser after save.
+
+You can also seed the same auth configuration from `.env` for headless or first-run setups:
 
 ```env
 ENABLE_MCP_TOOLS=true
-ENABLE_MCP_CLIENT_JWT=true
-ENABLE_MCP_OAUTH=true
-MCP_OAUTH_CLIENT_ID=your-client-id
-MCP_OAUTH_CLIENT_SECRET=your-client-secret
-MCP_OAUTH_TOKEN_URL=https://auth.example.com/oauth/token
-MCP_OAUTH_SCOPE=read:mcp
-MCP_SERVERS_CONFIG={"default":{"transport":"streamable-http","url":"https://your-mcp-host/mcp"}}
+MCP_SERVERS_CONFIG={"default":{"transport":"streamable-http","url":"https://your-mcp-host/mcp","auth":{"type":"oauth_client_credentials","token_url":"https://auth.example.com/oauth/token","client_id":"your-client-id","client_secret":"your-client-secret","scope":"read:mcp"}}}
 ```
 
 The backend fetches and refreshes the bearer token automatically and injects it into MCP requests.
@@ -158,8 +142,8 @@ The backend fetches and refreshes the bearer token automatically and injects it 
 
 | Variable             | Used when     | Meaning                                                                                    |
 | -------------------- | ------------- | ------------------------------------------------------------------------------------------ |
-| `MCP_SERVERS_CONFIG` | **Consuming** | Dict of MCP server names → `{ "transport", "url" }`. Backend and UI connect to these URLs. |
-| `MCP_SERVER_KEYS`    | **Consuming** | Optional list of keys from `MCP_SERVERS_CONFIG` to load (default: only `"default"`).       |
+| `MCP_SERVERS_CONFIG` | **Consuming** | Optional seed/headless dict of MCP server names → `{ "transport", "url", "auth" }`. Settings is the primary UI-managed source. |
+| `MCP_SERVER_KEYS`    | **Consuming** | Optional list of configured server keys to load.       |
 | `ENABLE_MCP_TOOLS`   | **Consuming** | If True, RAG chat attaches MCP tools from config; if False, MCP is disabled for chat.      |
 | `MCP_SEARCH_MODE`    | **Consuming** | Default semantic-search mode for MCP servers in this repo. Only `vector` is currently supported. |
 | `PORT`               | **Exposing**  | Port for this project’s MCP server (e.g. `mcp_semantic_search.py`).                        |
@@ -181,8 +165,8 @@ Chat is handled by `ChatRuntimeService` in `src/rag_agent/runtime/chat_service.p
 
 **Follow-up transform:** Before mode dispatch, the service may detect a follow-up that should **reformat** the previous assistant answer (LLM JSON `kind: transform`) and return that answer without running RAG or MCP.
 
-- **Default `mode`** (when not sent): `build_chat_config` in `api/dependencies.py` sets `mixed` when `ENABLE_MCP_TOOLS` is true and `MCP_SERVERS_CONFIG` is non-empty; otherwise `rag`.
-- **API**: Send `mode` and optional `mcp_server_keys` to limit which MCP servers load (must match keys in `MCP_SERVERS_CONFIG`).
+- **Default `mode`** (when not sent): `build_chat_config` in `api/dependencies.py` sets `mixed` when `ENABLE_MCP_TOOLS` is true and at least one MCP server is configured; otherwise `rag`.
+- **API**: Send `mode` and optional `mcp_server_keys` to limit which MCP servers load.
 - **RAG path**: Uses Oracle vector similarity search and a single answer prompt in `ChatRuntimeService`.
 - **MCP rounds**: `MCP_MAX_ROUNDS` (default 2) is passed in config; the tool loop in `mcp_agent.py` respects the configured max rounds.
 
@@ -192,7 +176,7 @@ Chat is handled by `ChatRuntimeService` in `src/rag_agent/runtime/chat_service.p
 
 **With curl:** `curl -s -X POST http://localhost:3002/api/langgraph/threads/demo-thread/runs -H "Content-Type: application/json" -d '{"assistant_id":"mcp_agent_executor","input":{"messages":[{"type":"human","content":"What is OCI CLI? Then compute 2+2."}],"mode":"mixed"}}'`
 
-Use `"mode": "mcp"` for MCP tools only, `"mode": "rag"` for retrieval-only, `"mode": "direct"` for no retrieval and no MCP tools. Optionally send `"mcp_server_keys": ["default", "calculator"]` (keys must exist in `MCP_SERVERS_CONFIG`).
+Use `"mode": "mcp"` for MCP tools only, `"mode": "rag"` for retrieval-only, `"mode": "direct"` for no retrieval and no MCP tools. Optionally send `"mcp_server_keys": ["default", "calculator"]` for configured server keys.
 
 ---
 
@@ -227,8 +211,8 @@ flowchart TD
 ## Common issues
 
 - **404 in browser**: MCP servers are APIs, not web pages. Use the UI or test scripts.
-- **Connection refused**: Ensure the MCP server you are **consuming** is running and the URL in `MCP_SERVERS_CONFIG` (or the UI) is correct. If you are **exposing**, check `PORT` and `HOST` in config.
-- **Tools not appearing**: Restart the backend after changing `.env`, and confirm `ENABLE_MCP_TOOLS=true`.
+- **Connection refused**: Ensure the MCP server you are **consuming** is running and the URL in Settings or optional seed config is correct. If you are **exposing**, check `PORT` and `HOST` in config.
+- **Tools not appearing**: Confirm `ENABLE_MCP_TOOLS=true`, add or enable the server in Settings, and use **Test connection**. Restart the backend only after changing `.env`.
 - **Wrong URL path**: MCP HTTP servers use the `/mcp` path (example: `http://localhost:9000/mcp`).
 - **Import errors**: Activate the virtual environment and install dependencies (e.g. `uv sync`).
 - **Database errors**: Check database connection settings in `.env` (used by the semantic search MCP server).

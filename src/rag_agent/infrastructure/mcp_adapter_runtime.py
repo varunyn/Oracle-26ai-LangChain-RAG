@@ -1,8 +1,8 @@
 """App-side MCP client wiring around ``langchain_mcp_adapters``.
 
 ``MultiServerMCPClient`` owns MCP sessions, transports, and LangChain tool wrapping.
-This module maps ``MCP_SERVERS_CONFIG`` + per-run ``RunnableConfig`` to connection
-dicts, caches clients/tools, and must not reimplement MCP wire protocol.
+This module maps UI-managed or seed MCP server config + per-run ``RunnableConfig``
+to connection dicts, caches clients/tools, and must not reimplement MCP wire protocol.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.interceptors import MCPToolCallRequest, MCPToolCallResult
 from mcp.types import CallToolResult
 
+from .mcp_oauth import build_oauth_headers_supplier
 from .mcp_settings import get_mcp_servers_config, get_mcp_settings
 
 logger = logging.getLogger(__name__)
@@ -128,6 +129,36 @@ def _coerce_headers(raw_headers: object) -> dict[str, Any]:
     }
 
 
+def _resolve_server_auth_headers(server_config: Mapping[str, Any]) -> dict[str, str]:
+    raw_auth = server_config.get("auth")
+    if not isinstance(raw_auth, Mapping):
+        return {}
+
+    auth_type = str(raw_auth.get("type") or "none").strip().lower()
+    if auth_type == "bearer":
+        token = str(raw_auth.get("bearer_token") or "").strip()
+        return {"Authorization": f"Bearer {token}"} if token else {}
+
+    if auth_type == "oauth_client_credentials":
+        try:
+            refresh_skew_seconds = int(raw_auth.get("refresh_skew_seconds") or 30)
+        except (TypeError, ValueError):
+            refresh_skew_seconds = 30
+        supplier = build_oauth_headers_supplier(
+            token_url=str(raw_auth.get("token_url") or "").strip() or None,
+            client_id=str(raw_auth.get("client_id") or "").strip() or None,
+            client_secret=str(raw_auth.get("client_secret") or "").strip() or None,
+            scope=str(raw_auth.get("scope") or "").strip() or None,
+            audience=str(raw_auth.get("audience") or "").strip() or None,
+            grant_type=str(raw_auth.get("grant_type") or "").strip()
+            or "client_credentials",
+            refresh_skew_seconds=refresh_skew_seconds,
+        )
+        return _coerce_headers(supplier())
+
+    return {}
+
+
 def _resolve_jwt_headers(settings: object) -> dict[str, str]:
     if not bool(getattr(settings, "enable_mcp_client_jwt", False)):
         return {}
@@ -180,6 +211,10 @@ def _normalize_connection_config(server_config: Mapping[str, Any]) -> AdapterCon
     )
     for key in passthrough_keys:
         if key in server_config and server_config[key] is not None:
+            if key == "auth" and isinstance(server_config[key], Mapping):
+                auth_type = str(server_config[key].get("type") or "").strip().lower()
+                if auth_type in {"none", "bearer", "oauth_client_credentials"}:
+                    continue
             cast(dict[str, Any], connection)[key] = server_config[key]
 
     return connection
@@ -329,10 +364,15 @@ def build_adapter_server_configs(
     for key in selected_keys:
         if not isinstance(configured.get(key), Mapping):
             continue
-        normalized = _normalize_connection_config(cast(Mapping[str, Any], configured[key]))
+        server_config = cast(Mapping[str, Any], configured[key])
+        normalized = _normalize_connection_config(server_config)
         if jwt_headers:
             existing_headers = normalized.get("headers", {})
             normalized["headers"] = {**existing_headers, **jwt_headers}
+        auth_headers = _resolve_server_auth_headers(server_config)
+        if auth_headers:
+            existing_headers = normalized.get("headers", {})
+            normalized["headers"] = {**existing_headers, **auth_headers}
         resolved[key] = normalized
     return resolved
 

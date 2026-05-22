@@ -28,7 +28,9 @@ import {
   saveMcpServer,
   setMcpServerEnabled,
   testMcpServerConnection,
+  type McpAuthType,
   type McpConnectionTestResponse,
+  type McpServerAuthConfig,
   type McpServerConfig,
 } from "@/lib/mcp-config";
 
@@ -41,6 +43,11 @@ const emptyDraft: DraftServer = {
   transport: "streamable-http",
   url: "",
   enabled: true,
+  auth: {
+    type: "none",
+    grant_type: "client_credentials",
+    refresh_skew_seconds: 30,
+  },
   isNew: true,
 };
 
@@ -54,7 +61,29 @@ const iconByObservabilityKey: Record<string, typeof BarChart3> = {
 };
 
 function cloneServer(server: McpServerConfig): DraftServer {
-  return { ...server };
+  return {
+    ...server,
+    auth: {
+      ...server.auth,
+      type: server.auth?.type ?? "none",
+      grant_type: server.auth?.grant_type ?? "client_credentials",
+      refresh_skew_seconds: server.auth?.refresh_skew_seconds ?? 30,
+    },
+  };
+}
+
+function normalizeDraftAuth(auth: Partial<McpServerAuthConfig>): McpServerAuthConfig {
+  return {
+    type: auth.type ?? "none",
+    grant_type: auth.grant_type ?? "client_credentials",
+    refresh_skew_seconds: auth.refresh_skew_seconds ?? 30,
+    bearer_token: auth.bearer_token ?? null,
+    token_url: auth.token_url ?? null,
+    client_id: auth.client_id ?? null,
+    client_secret: auth.client_secret ?? null,
+    scope: auth.scope ?? null,
+    audience: auth.audience ?? null,
+  };
 }
 
 function observabilityStatusClass(link: ObservabilityLink): string {
@@ -262,6 +291,21 @@ export default function SettingsPage(): React.ReactElement {
     setDraft((current) => ({ ...current, ...patch }));
     setTestResult(null);
   }, []);
+
+  const updateDraftAuth = useCallback((patch: Partial<McpServerAuthConfig>) => {
+    setDraft((current) => ({
+      ...current,
+      auth: normalizeDraftAuth({ ...current.auth, ...patch }),
+    }));
+    setTestResult(null);
+  }, []);
+
+  const updateAuthType = useCallback(
+    (type: McpAuthType) => {
+      updateDraftAuth({ type });
+    },
+    [updateDraftAuth],
+  );
 
   const handleSave = useCallback(async () => {
     if (pendingToggleKeys.size > 0) {
@@ -500,6 +544,159 @@ export default function SettingsPage(): React.ReactElement {
                   placeholder="http://localhost:9000/mcp"
                 />
               </label>
+              <div className="grid gap-4 rounded-md border border-border bg-muted/20 px-3 py-3">
+                <label className="grid gap-1.5">
+                  <span className="text-sm font-medium text-foreground">Auth mechanism</span>
+                  <select
+                    value={draft.auth.type}
+                    onChange={(event) => updateAuthType(event.target.value as McpAuthType)}
+                    className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="none">None</option>
+                    <option value="bearer">Bearer token</option>
+                    <option value="oauth_client_credentials">
+                      OAuth client credentials
+                    </option>
+                  </select>
+                </label>
+
+                {draft.auth.type === "bearer" ? (
+                  <label className="grid gap-1.5">
+                    <span className="text-sm font-medium text-foreground">
+                      Bearer token
+                    </span>
+                    <input
+                      type="password"
+                      value={draft.auth.bearer_token ?? ""}
+                      onChange={(event) =>
+                        updateDraftAuth({ bearer_token: event.target.value })
+                      }
+                      className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder={
+                        draft.auth.bearer_token_set
+                          ? "Stored token unchanged"
+                          : "Paste bearer token"
+                      }
+                      autoComplete="off"
+                    />
+                  </label>
+                ) : null}
+
+                {draft.auth.type === "oauth_client_credentials" ? (
+                  <div className="grid gap-4">
+                    <label className="grid gap-1.5">
+                      <span className="text-sm font-medium text-foreground">
+                        Token URL
+                      </span>
+                      <input
+                        type="text"
+                        value={draft.auth.token_url ?? ""}
+                        onChange={(event) =>
+                          updateDraftAuth({ token_url: event.target.value })
+                        }
+                        className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        placeholder="https://auth.example.com/oauth/token"
+                      />
+                    </label>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="grid gap-1.5">
+                        <span className="text-sm font-medium text-foreground">
+                          Client ID
+                        </span>
+                        <input
+                          type="text"
+                          value={draft.auth.client_id ?? ""}
+                          onChange={(event) =>
+                            updateDraftAuth({ client_id: event.target.value })
+                          }
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label className="grid gap-1.5">
+                        <span className="text-sm font-medium text-foreground">
+                          Client secret
+                        </span>
+                        <input
+                          type="password"
+                          value={draft.auth.client_secret ?? ""}
+                          onChange={(event) =>
+                            updateDraftAuth({ client_secret: event.target.value })
+                          }
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          placeholder={
+                            draft.auth.client_secret_set
+                              ? "Stored secret unchanged"
+                              : "Client secret"
+                          }
+                          autoComplete="off"
+                        />
+                      </label>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="grid gap-1.5">
+                        <span className="text-sm font-medium text-foreground">
+                          Scope
+                        </span>
+                        <input
+                          type="text"
+                          value={draft.auth.scope ?? ""}
+                          onChange={(event) =>
+                            updateDraftAuth({ scope: event.target.value })
+                          }
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          placeholder="read:mcp"
+                        />
+                      </label>
+                      <label className="grid gap-1.5">
+                        <span className="text-sm font-medium text-foreground">
+                          Audience
+                        </span>
+                        <input
+                          type="text"
+                          value={draft.auth.audience ?? ""}
+                          onChange={(event) =>
+                            updateDraftAuth({ audience: event.target.value })
+                          }
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          placeholder="Optional"
+                        />
+                      </label>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="grid gap-1.5">
+                        <span className="text-sm font-medium text-foreground">
+                          Grant type
+                        </span>
+                        <input
+                          type="text"
+                          value={draft.auth.grant_type ?? "client_credentials"}
+                          onChange={(event) =>
+                            updateDraftAuth({ grant_type: event.target.value })
+                          }
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                      </label>
+                      <label className="grid gap-1.5">
+                        <span className="text-sm font-medium text-foreground">
+                          Refresh skew seconds
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={draft.auth.refresh_skew_seconds ?? 30}
+                          onChange={(event) =>
+                            updateDraftAuth({
+                              refresh_skew_seconds: Number(event.target.value) || 30,
+                            })
+                          }
+                          className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
               <label className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/30 px-3 py-3">
                 <span>
                   <span className="block text-sm font-medium text-foreground">Enabled</span>
