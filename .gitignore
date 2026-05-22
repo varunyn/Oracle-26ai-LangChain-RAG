@@ -55,3 +55,4 @@ local-data/*
 .impeccable.md
 skills-lock.json
 .worktrees/
+.codegraph/

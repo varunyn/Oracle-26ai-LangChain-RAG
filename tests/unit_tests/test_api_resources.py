@@ -2,13 +2,14 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from api.dependencies import messages_to_runtime_state
 from api.resources import create_app_resources, shutdown_app_resources
-from api.schemas import ChatMessage
 
 
 def test_create_app_resources_wires_settings_and_chat_runtime_service(monkeypatch) -> None:
-    fake_settings = SimpleNamespace()
+    fake_settings = SimpleNamespace(
+        ENABLE_PERSISTENT_MEMORY=False,
+        LANGGRAPH_SQLITE_PATH=":memory:",
+    )
     mock_graph = SimpleNamespace()
     mock_graph_cls = MagicMock(return_value=mock_graph)
 
@@ -19,24 +20,7 @@ def test_create_app_resources_wires_settings_and_chat_runtime_service(monkeypatc
 
     assert resources.settings is fake_settings
     assert resources.chat_runtime_service is mock_graph
-    mock_graph_cls.assert_called_once_with()
-
-
-def test_messages_to_runtime_state_drops_internal_mcp_assistant_traces() -> None:
-    user_request, chat_history = messages_to_runtime_state(
-        [
-            ChatMessage(role="user", content="what's the namespace of my tenancy?"),
-            ChatMessage(
-                role="assistant",
-                content='oci-mcp-server_run_oci_command(command="os ns get")',
-            ),
-            ChatMessage(role="user", content="what's the namespace of my tenancy?"),
-        ]
-    )
-
-    assert user_request == "what's the namespace of my tenancy?"
-    assert len(chat_history) == 1
-    assert chat_history[0].content == "what's the namespace of my tenancy?"
+    mock_graph_cls.assert_called_once_with(thread_state_store=None)
 
 
 def test_shutdown_app_resources_calls_langfuse_shutdown_and_adapter_cleanup(monkeypatch) -> None:

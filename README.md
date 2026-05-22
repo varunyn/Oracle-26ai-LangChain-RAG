@@ -374,9 +374,7 @@ The **RAG MCP server** (`mcp_rag_server.py`) exposes **`rag_ask`** for full RAG 
 This repo supports MCP in two distinct ways:
 
 1. **Expose standalone MCP servers** from `mcp_servers/` such as `mcp_semantic_search.py` and `mcp_rag_server.py`.
-2. **Consume MCP servers inside the app** through the main `/api/chat` flow with `mode="mcp"` or `mode="mixed"`.
-
-The legacy `/api/mcp/chat` route still exists for compatibility, but it is not the primary supported MCP integration path in the current repo state.
+2. **Consume MCP servers inside the app** through the LangGraph-compatible chat routes with `mode="mcp"` or `mode="mixed"`.
 
 See [`docs/MCP-USAGE.md`](docs/MCP-USAGE.md) for the detailed usage guide.
 
