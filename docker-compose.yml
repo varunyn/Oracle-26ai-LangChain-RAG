@@ -63,6 +63,7 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_DEFAULT_FLOW_MODE: ${NEXT_PUBLIC_DEFAULT_FLOW_MODE:-mixed}
+        FASTAPI_BACKEND_URL: http://backend:3002
     image: custom-rag-agent-frontend:latest
     container_name: rag-frontend
     networks:

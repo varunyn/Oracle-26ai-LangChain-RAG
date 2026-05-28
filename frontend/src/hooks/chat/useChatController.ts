@@ -101,6 +101,9 @@ function isSameContextUsage(a: ContextUsage | null, b: ContextUsage): boolean {
 
 function resolveLanggraphApiUrl(): string {
   const base = getClientApiBase();
+  if (!base && typeof window !== "undefined") {
+    return `${window.location.origin}/api/langgraph`;
+  }
   return `${base}/api/langgraph`;
 }
 

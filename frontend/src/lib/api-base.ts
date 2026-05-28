@@ -9,15 +9,18 @@ export function getClientApiBase(): string {
   }
 
   if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:3002`;
+    return "";
   }
 
-  return "http://localhost:3002";
+  return normalizeBase(process.env.FASTAPI_BACKEND_URL || "http://localhost:3002");
 }
 
 export function toApiUrl(path: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const base = getClientApiBase();
+  if (!base) {
+    return normalizedPath;
+  }
   const withSlash = base.endsWith("/") ? base : `${base}/`;
   return new URL(normalizedPath, withSlash).toString();
 }
