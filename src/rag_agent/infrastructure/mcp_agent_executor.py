@@ -129,16 +129,29 @@ def _tool_names_to_always_include(tools: Sequence[BaseTool]) -> list[str] | None
     return always_include or None
 
 
-def _build_middleware(settings: object, tools: Sequence[BaseTool]) -> list[object]:
+def _build_middleware(
+    settings: object,
+    tools: Sequence[BaseTool],
+    *,
+    use_tool_selector: bool = True,
+    use_tool_retry: bool = False,
+    tool_call_run_limit: int | None = None,
+) -> list[object]:
     middleware: list[object] = []
 
     middleware.append(ModelRetryMiddleware(max_retries=1))
-    middleware.append(ToolRetryMiddleware(max_retries=1))
-    middleware.append(
-        LLMToolSelectorMiddleware(always_include=_tool_names_to_always_include(tools))
-    )
+    if use_tool_retry:
+        middleware.append(ToolRetryMiddleware(max_retries=1))
+    if use_tool_selector:
+        middleware.append(
+            LLMToolSelectorMiddleware(always_include=_tool_names_to_always_include(tools))
+        )
 
-    max_rounds = int(getattr(settings, "MCP_MAX_ROUNDS", 0) or 0)
+    max_rounds = (
+        tool_call_run_limit
+        if tool_call_run_limit is not None
+        else int(getattr(settings, "MCP_MAX_ROUNDS", 0) or 0)
+    )
     if max_rounds > 0:
         middleware.append(ToolCallLimitMiddleware(run_limit=max_rounds))
 
@@ -585,6 +598,57 @@ def _should_retry_for_literal_tool_text(
     return any(name not in used for name in mentioned_tools)
 
 
+def _tool_message_has_error(msg: object) -> bool:
+    status = str(getattr(msg, "status", "") or "").strip().lower()
+    if status == "error":
+        return True
+
+    artifact = getattr(msg, "artifact", None)
+    if isinstance(artifact, Mapping):
+        structured_content = artifact.get("structured_content")
+        if isinstance(structured_content, Mapping) and "error" in structured_content:
+            return True
+        if "error" in artifact:
+            return True
+
+    content = _normalize_message_content(getattr(msg, "content", ""))
+    stripped = content.strip()
+    if not stripped:
+        return False
+    try:
+        parsed = json.loads(stripped)
+    except Exception:  # noqa: BLE001
+        return "tool call limit exceeded" in stripped.lower()
+    return isinstance(parsed, Mapping) and "error" in parsed
+
+
+def _agent_state_has_tool_error(agent_state: Mapping[str, object]) -> bool:
+    messages_raw = agent_state.get("messages")
+    if not isinstance(messages_raw, Sequence) or isinstance(messages_raw, (str, bytes)):
+        return False
+
+    for msg in cast(Sequence[object], messages_raw):
+        if isinstance(msg, ToolMessage) and _tool_message_has_error(msg):
+            return True
+        if isinstance(msg, Mapping):
+            msg_type = str(msg.get("type") or msg.get("role") or "").strip().lower()
+            if msg_type != "tool":
+                continue
+            status = str(msg.get("status") or "").strip().lower()
+            if status == "error":
+                return True
+            content = _normalize_message_content(msg.get("content", ""))
+            try:
+                parsed = json.loads(content)
+            except Exception:  # noqa: BLE001
+                if "tool call limit exceeded" in content.lower():
+                    return True
+                continue
+            if isinstance(parsed, Mapping) and "error" in parsed:
+                return True
+    return False
+
+
 def _normalize_ai_tool_call_ids(agent_state: Mapping[str, object]) -> None:
     messages_raw = agent_state.get("messages")
     if not isinstance(messages_raw, Sequence) or isinstance(messages_raw, (str, bytes)):
@@ -647,19 +711,42 @@ async def get_mcp_answer_with_langchain_agent_async(
 
     settings = get_settings()
     llm_model = get_llm(model_id=model_id)
-    try:
-        agent = create_agent(
+
+    def _create_mcp_agent(
+        *,
+        use_tool_selector: bool,
+        use_tool_retry: bool,
+        tool_call_run_limit: int | None = None,
+    ) -> Any:
+        return create_agent(
             model=cast(Any, llm_model),
             tools=list(tools),
             system_prompt=_build_system_prompt(question, tools, run_config),
-            middleware=cast(Any, _build_middleware(settings, tools)),
+            middleware=cast(
+                Any,
+                _build_middleware(
+                    settings,
+                    tools,
+                    use_tool_selector=use_tool_selector,
+                    use_tool_retry=use_tool_retry,
+                    tool_call_run_limit=tool_call_run_limit,
+                ),
+            ),
             name="mcp_agent_executor",
+        )
+
+    try:
+        agent = _create_mcp_agent(
+            use_tool_selector=True,
+            use_tool_retry=False,
+            tool_call_run_limit=1,
         )
         current_messages: list[object] = cast(list[object], _build_messages(chat_history, question))
         response_state: Mapping[str, object] | None = None
         answer = ""
         tools_used: list[str] = []
         tool_invocations: list[dict[str, object]] = []
+        retried_with_full_tool_catalog = False
 
         invoke_config_map: dict[str, object] = dict(run_config or {})
         raw_callbacks = invoke_config_map.get("callbacks")
@@ -683,6 +770,32 @@ async def get_mcp_answer_with_langchain_agent_async(
             answer = _clean_leaked_tool_syntax(answer, tools_used)
             if retry_idx >= 1:
                 break
+            if (
+                tools_used
+                and not retried_with_full_tool_catalog
+                and _agent_state_has_tool_error(response_state)
+            ):
+                agent = _create_mcp_agent(
+                    use_tool_selector=False,
+                    use_tool_retry=True,
+                    tool_call_run_limit=None,
+                )
+                retried_with_full_tool_catalog = True
+                state_messages = response_state.get("messages")
+                current_messages = (
+                    cast(list[object], list(state_messages))
+                    if isinstance(state_messages, Sequence)
+                    and not isinstance(state_messages, (str, bytes))
+                    else cast(list[object], _build_messages(chat_history, question))
+                )
+                current_messages.append(
+                    HumanMessage(
+                        "The prior tool attempt returned an error. Re-evaluate the "
+                        "request using the full available tool catalog and choose the "
+                        "best tool based on its name, description, and schema."
+                    )
+                )
+                continue
             if not _should_retry_for_literal_tool_text(
                 answer=answer,
                 tools_used=tools_used,

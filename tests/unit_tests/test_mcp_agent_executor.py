@@ -157,14 +157,15 @@ def test_build_middleware_uses_retry_tool_selector_and_tool_limit_controls() -> 
     middleware = mod._build_middleware(
         settings,
         [SimpleNamespace(name="calculator.add", description="add")],
+        tool_call_run_limit=1,
     )
     names = [type(m).__name__ for m in middleware]
     assert names == [
         "ModelRetryMiddleware",
-        "ToolRetryMiddleware",
         "LLMToolSelectorMiddleware",
         "ToolCallLimitMiddleware",
     ]
+    assert middleware[-1].run_limit == 1
 
 
 def test_build_middleware_keeps_oracle_retrieval_available_for_selector() -> None:
@@ -177,9 +178,113 @@ def test_build_middleware_keeps_oracle_retrieval_available_for_selector() -> Non
         ],
     )
 
-    selector = middleware[2]
+    selector = middleware[1]
     assert type(selector).__name__ == "LLMToolSelectorMiddleware"
     assert selector.always_include == ["oracle_retrieval"]
+
+
+def test_build_middleware_can_disable_tool_selector_for_full_catalog_retry() -> None:
+    settings = SimpleNamespace(MCP_MAX_ROUNDS=0)
+    middleware = mod._build_middleware(
+        settings,
+        [SimpleNamespace(name="calculator.add", description="add")],
+        use_tool_selector=False,
+        use_tool_retry=True,
+    )
+
+    names = [type(m).__name__ for m in middleware]
+    assert names == ["ModelRetryMiddleware", "ToolRetryMiddleware"]
+
+
+def test_langchain_executor_retries_with_full_tool_catalog_after_tool_error(
+    monkeypatch,
+) -> None:
+    first_agent = _FakeAgent(
+        {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "Calculator_calculate",
+                            "args": {"expression": "x**2 - 5*x + 6"},
+                            "id": "bad-tool",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    content='{"error":"name x is not defined"}',
+                    tool_call_id="bad-tool",
+                    name="Calculator_calculate",
+                ),
+            ]
+        }
+    )
+    second_agent = _FakeAgent(
+        {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "Calculator_solve_equation",
+                            "args": {"equation": "x**2 - 5*x + 6 = 0"},
+                            "id": "good-tool",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    content='{"solutions":["2","3"]}',
+                    tool_call_id="good-tool",
+                    name="Calculator_solve_equation",
+                ),
+                AIMessage(content="x = 2 and x = 3"),
+            ]
+        }
+    )
+    created_agents: list[dict[str, Any]] = []
+
+    def fake_create_agent(**kwargs: Any) -> _FakeAgent:
+        created_agents.append(kwargs)
+        return first_agent if len(created_agents) == 1 else second_agent
+
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
+    monkeypatch.setattr(mod, "create_agent", fake_create_agent)
+
+    import asyncio
+
+    answer, tools_used, invocations = asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="Solve the following equation: x^2 - 5x + 6 = 0 using tools",
+            chat_history=None,
+            model_id=None,
+            tools=[
+                SimpleNamespace(name="Calculator_calculate", description="evaluate expression"),
+                SimpleNamespace(name="Calculator_solve_equation", description="solve equation"),
+            ],
+            run_config=None,
+            require_tool_call=True,
+        )
+    )
+
+    assert answer == "x = 2 and x = 3"
+    assert tools_used == ["Calculator_solve_equation"]
+    assert invocations == [
+        {
+            "tool_name": "Calculator_solve_equation",
+            "args": {"equation": "x**2 - 5*x + 6 = 0"},
+            "result": '{"solutions":["2","3"]}',
+        }
+    ]
+    first_middleware = [type(m).__name__ for m in created_agents[0]["middleware"]]
+    second_middleware = [type(m).__name__ for m in created_agents[1]["middleware"]]
+    assert "LLMToolSelectorMiddleware" in first_middleware
+    assert "ToolRetryMiddleware" not in first_middleware
+    assert "LLMToolSelectorMiddleware" not in second_middleware
+    assert "ToolRetryMiddleware" in second_middleware
+    assert created_agents[0]["middleware"][-1].run_limit == 1
+    assert created_agents[1]["middleware"][-1].run_limit == 2
 
 
 def test_build_system_prompt_uses_mixed_prompt_when_oracle_retrieval_tool_present() -> None:
