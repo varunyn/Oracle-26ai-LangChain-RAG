@@ -41,60 +41,135 @@ class FakeOracleVS:
 
 
 def test_process_file_paths_returns_error_when_no_documents(monkeypatch) -> None:
-    monkeypatch.setattr(ingestion, "load_documents_from_files", lambda files: [])
+    monkeypatch.setattr(ingestion, "load_document_with_docling", lambda file_path: [])
+    monkeypatch.setattr(ingestion, "_release_docling_converter", lambda: None)
 
     success, num_chunks, error = ingestion.process_file_paths(["missing.txt"])
 
     assert success is False
     assert num_chunks == 0
-    assert error == "No documents loaded (unsupported type or empty)."
+    assert error == "missing.txt: no document loaded"
 
 
 def test_process_file_paths_uses_default_table_when_missing(monkeypatch) -> None:
     monkeypatch.setattr(
         ingestion,
-        "load_documents_from_files",
-        lambda files: [SimpleNamespace(page_content="hello", metadata={})],
+        "load_document_with_docling",
+        lambda file_path: [SimpleNamespace(page_content=f"hello {file_path}", metadata={})],
     )
-    monkeypatch.setattr(ingestion, "_split_and_store", lambda docs, table_name: 5)
+    calls: list[tuple[list[object], str]] = []
 
-    success, num_chunks, error = ingestion.process_file_paths(["doc.txt"])
+    def fake_split_and_store(docs, table_name):
+        calls.append((docs, table_name))
+        return 5
+
+    monkeypatch.setattr(ingestion, "_split_and_store", fake_split_and_store)
+    monkeypatch.setattr(ingestion, "_release_docling_converter", lambda: None)
+
+    success, num_chunks, error = ingestion.process_file_paths(["doc-a.txt", "doc-b.txt"])
 
     assert success is True
-    assert num_chunks == 5
+    assert num_chunks == 10
     assert error is None
+    assert len(calls) == 2
+    assert calls[0][1] == ingestion.DEFAULT_TABLE_NAME
+    assert calls[1][1] == ingestion.DEFAULT_TABLE_NAME
+
+
+def test_process_file_paths_keeps_prior_file_when_later_file_fails(monkeypatch) -> None:
+    def fake_load_document(file_path):
+        if str(file_path) == "bad.pdf":
+            raise RuntimeError("conversion failed")
+        return [SimpleNamespace(page_content="hello", metadata={"source": str(file_path)})]
+
+    stored_sources: list[str] = []
+    release_count = 0
+
+    def fake_split_and_store(docs, table_name):
+        stored_sources.append(docs[0].metadata["source"])
+        return 3
+
+    def fake_release() -> None:
+        nonlocal release_count
+        release_count += 1
+
+    monkeypatch.setattr(ingestion, "load_document_with_docling", fake_load_document)
+    monkeypatch.setattr(ingestion, "_split_and_store", fake_split_and_store)
+    monkeypatch.setattr(ingestion, "_release_docling_converter", fake_release)
+
+    success, num_chunks, error = ingestion.process_file_paths(["good.pdf", "bad.pdf"])
+
+    assert success is True
+    assert num_chunks == 3
+    assert error is None
+    assert stored_sources == ["good.pdf"]
+    assert release_count == 2
+
+
+def test_process_file_paths_reports_file_progress(monkeypatch) -> None:
+    monkeypatch.setattr(
+        ingestion,
+        "load_document_with_docling",
+        lambda file_path: [SimpleNamespace(page_content="hello", metadata={"source": str(file_path)})],
+    )
+    monkeypatch.setattr(ingestion, "_split_and_store", lambda docs, table_name: 4)
+    monkeypatch.setattr(ingestion, "_release_docling_converter", lambda: None)
+    events: list[tuple[str, str, dict[str, object] | None]] = []
+
+    def progress_callback(
+        file_path: str | Path,
+        status: str,
+        payload: dict[str, object] | None,
+    ) -> None:
+        events.append((Path(file_path).name, status, payload))
+
+    success, num_chunks, error = ingestion.process_file_paths(
+        ["doc.txt"],
+        progress_callback=progress_callback,
+    )
+
+    assert success is True
+    assert num_chunks == 4
+    assert error is None
+    assert events == [
+        ("doc.txt", "parsing", None),
+        ("doc.txt", "embedding", None),
+        ("doc.txt", "indexed", {"chunks_added": 4}),
+    ]
 
 
 def test_process_file_paths_returns_error_when_documents_have_no_text(monkeypatch) -> None:
     monkeypatch.setattr(
         ingestion,
-        "load_documents_from_files",
-        lambda files: [
+        "load_document_with_docling",
+        lambda file_path: [
             SimpleNamespace(page_content="   ", metadata={"source": "scan.pdf"}),
             SimpleNamespace(page_content="", metadata={"source": "scan.pdf"}),
         ],
     )
+    monkeypatch.setattr(ingestion, "_release_docling_converter", lambda: None)
 
     success, num_chunks, error = ingestion.process_file_paths(["scan.pdf"])
 
     assert success is False
     assert num_chunks == 0
-    assert error == "No text content could be extracted from the uploaded documents."
+    assert error == "scan.pdf: no text content extracted"
 
 
 def test_process_file_paths_returns_error_when_no_chunks_inserted(monkeypatch) -> None:
     monkeypatch.setattr(
         ingestion,
-        "load_documents_from_files",
-        lambda files: [SimpleNamespace(page_content="hello", metadata={"source": "doc.txt"})],
+        "load_document_with_docling",
+        lambda file_path: [SimpleNamespace(page_content="hello", metadata={"source": "doc.txt"})],
     )
     monkeypatch.setattr(ingestion, "_split_and_store", lambda docs, table_name: 0)
+    monkeypatch.setattr(ingestion, "_release_docling_converter", lambda: None)
 
     success, num_chunks, error = ingestion.process_file_paths(["doc.txt"])
 
     assert success is False
     assert num_chunks == 0
-    assert error == "No chunks were inserted into the vector store."
+    assert error == "doc.txt: no chunks inserted"
 
 
 def test_split_and_store_delegates_chunking_and_ids_to_oraclevs(monkeypatch) -> None:

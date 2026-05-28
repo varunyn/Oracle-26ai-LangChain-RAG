@@ -3,6 +3,16 @@ from types import SimpleNamespace
 from scripts import create_rag_table
 
 
+def test_get_table_ddl_uses_query_safe_text_column() -> None:
+    ddl = create_rag_table.get_table_ddl("rag_knowledge_base", 1536)
+    ddl_upper = ddl.upper()
+
+    assert "TEXT VARCHAR2(4000)" in ddl_upper
+    assert "METADATA JSON" in ddl_upper
+    assert "EMBEDDING VECTOR(1536, FLOAT32)" in ddl_upper
+    assert "TEXT CLOB" not in ddl_upper
+
+
 def test_create_vector_index_delegates_to_oraclevs_create_index(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

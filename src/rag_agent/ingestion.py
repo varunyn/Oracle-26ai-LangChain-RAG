@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import gc
 import shutil
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
@@ -27,6 +28,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TABLE_NAME = getattr(get_settings(), "DEFAULT_COLLECTION", "RAG_KNOWLEDGE_BASE")
 UPLOADED_FILES_DIR = "uploaded_files"
 SUPPORTED_EXTENSIONS = {"pdf", "html", "htm", "txt", "md", "markdown"}
+IngestionProgressCallback = Callable[[str | Path, str, dict[str, object] | None], None]
 
 
 def get_project_root() -> Path:
@@ -64,12 +66,13 @@ def _build_docling_converter() -> DocumentConverter:
     from docling.document_converter import DocumentConverter, PdfFormatOption
 
     pdf_options = PdfPipelineOptions()
-    pdf_options.do_ocr = True
+    settings = get_settings()
+    pdf_options.do_ocr = bool(getattr(settings, "DOCLING_DO_OCR", True))
     pdf_options.do_table_structure = False
-    pdf_options.document_timeout = 90
+    pdf_options.document_timeout = int(getattr(settings, "DOCLING_DOCUMENT_TIMEOUT", 90))
     pdf_options.ocr_options = RapidOcrOptions(
         lang=["english"],
-        force_full_page_ocr=True,
+        force_full_page_ocr=bool(getattr(settings, "DOCLING_FORCE_FULL_PAGE_OCR", False)),
     )
 
     return DocumentConverter(
@@ -82,6 +85,11 @@ def _build_docling_converter() -> DocumentConverter:
 def _convert_file_with_docling(file_path: str | Path) -> str:
     result = _build_docling_converter().convert(Path(file_path))
     return result.document.export_to_markdown()
+
+
+def _release_docling_converter() -> None:
+    _build_docling_converter.cache_clear()
+    gc.collect()
 
 
 def load_document_with_docling(file_path: str | Path) -> list[Document]:
@@ -124,9 +132,12 @@ def load_document_with_langchain(file_path: str | Path) -> list[Document]:
 def load_documents_from_files(files: Sequence[str | Path]):
     all_docs = []
     for file_path in files:
-        print(f"Loading: {file_path}")
-        docs = load_document_with_docling(file_path)
-        all_docs.extend(docs)
+        try:
+            print(f"Loading: {file_path}")
+            docs = load_document_with_docling(file_path)
+            all_docs.extend(docs)
+        finally:
+            _release_docling_converter()
     return all_docs
 
 
@@ -217,19 +228,59 @@ def _split_and_store(docs, table_name: str = DEFAULT_TABLE_NAME) -> int:
 
 
 def process_file_paths(
-    file_paths: list[str | Path], table_name: str | None = None
+    file_paths: list[str | Path],
+    table_name: str | None = None,
+    progress_callback: IngestionProgressCallback | None = None,
 ) -> tuple[bool, int, str | None]:
+    tbl = table_name or DEFAULT_TABLE_NAME
+    total_chunks = 0
+    errors: list[str] = []
+
+    def notify(
+        file_path: str | Path,
+        status: str,
+        payload: dict[str, object] | None = None,
+    ) -> None:
+        if progress_callback is None:
+            return
+        progress_callback(file_path, status, payload)
+
     try:
-        docs = load_documents_from_files(file_paths)
-        if not docs:
-            return False, 0, "No documents loaded (unsupported type or empty)."
-        if not _has_extractable_text(docs):
-            return False, 0, "No text content could be extracted from the uploaded documents."
-        tbl = table_name or DEFAULT_TABLE_NAME
-        num_chunks = _split_and_store(docs, table_name=tbl)
-        if num_chunks == 0:
-            return False, 0, "No chunks were inserted into the vector store."
-        return True, num_chunks, None
+        for file_path in file_paths:
+            try:
+                print(f"Loading: {file_path}")
+                notify(file_path, "parsing", None)
+                docs = load_document_with_docling(file_path)
+                if not docs:
+                    message = "no document loaded"
+                    errors.append(f"{Path(file_path).name}: {message}")
+                    notify(file_path, "failed", {"message": message})
+                    continue
+                if not _has_extractable_text(docs):
+                    message = "no text content extracted"
+                    errors.append(f"{Path(file_path).name}: {message}")
+                    notify(file_path, "failed", {"message": message})
+                    continue
+                notify(file_path, "embedding", None)
+                num_chunks = _split_and_store(docs, table_name=tbl)
+                if num_chunks == 0:
+                    message = "no chunks inserted"
+                    errors.append(f"{Path(file_path).name}: {message}")
+                    notify(file_path, "failed", {"message": message})
+                    continue
+                total_chunks += num_chunks
+                notify(file_path, "indexed", {"chunks_added": num_chunks})
+            except Exception as exc:
+                errors.append(f"{Path(file_path).name}: {exc}")
+                notify(file_path, "failed", {"message": str(exc)})
+                logger.error("process_file_paths file error %s: %s", file_path, exc)
+            finally:
+                _release_docling_converter()
+        if total_chunks > 0:
+            return True, total_chunks, None
+        if errors:
+            return False, 0, "; ".join(errors)
+        return False, 0, "No documents loaded (unsupported type or empty)."
     except Exception as e:
         logger.error("process_file_paths error: %s", e)
         return False, 0, str(e)

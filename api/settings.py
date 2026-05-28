@@ -144,6 +144,9 @@ class Settings(BaseSettings):
     DEFAULT_COLLECTION: str = "RAG_KNOWLEDGE_BASE"
     CHUNK_SIZE: int = 4000
     CHUNK_OVERLAP: int = 100
+    DOCLING_DO_OCR: bool = True
+    DOCLING_FORCE_FULL_PAGE_OCR: bool = False
+    DOCLING_DOCUMENT_TIMEOUT: int = 90
     ENABLE_RERANKER: bool = True
     RERANK_MODEL_ID: str = "cohere.rerank-v4.0-fast"
     RERANK_DEDICATED_ENDPOINT_ID: str | None = None

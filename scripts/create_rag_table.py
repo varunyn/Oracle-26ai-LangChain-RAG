@@ -5,13 +5,17 @@ Create an OracleVS-compatible RAG table (default: RAG_KNOWLEDGE_BASE).
 This script creates the table shape used by this repo's OracleVS-based ingestion and
 retrieval paths:
   - id RAW(16) DEFAULT SYS_GUID() PRIMARY KEY
-  - text CLOB
+  - text VARCHAR2(4000)
   - metadata JSON
   - embedding VECTOR(dim, FLOAT32)
 
 Extra columns are fine as long as the OracleVS columns above exist and metadata JSON
 contains the keys the app relies on (especially metadata.source_url for source
 management and citations).
+
+langchain-oracledb's built-in table DDL uses text CLOB. For this app's default
+4000-character chunks, VARCHAR2(4000) is still OracleVS-compatible and avoids
+Oracle CLOB locator failures when vector top-k SQL selects text in the same query.
 
 The embedding dimension must match the embedding model used for both ingestion and
 query. If --embedding-dim is omitted, the script resolves the dimension by making a
@@ -48,7 +52,7 @@ def get_table_ddl(table_name: str, embedding_dim: int) -> str:
     ddl_body = ", ".join(
         [
             "id RAW(16) DEFAULT SYS_GUID() PRIMARY KEY",
-            "text CLOB",
+            "text VARCHAR2(4000)",
             "metadata JSON",
             f"embedding VECTOR({embedding_dim}, FLOAT32)",
         ]
