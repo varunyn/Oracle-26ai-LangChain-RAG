@@ -36,14 +36,37 @@ def test_upload_documents_rejects_unsupported_files() -> None:
 def test_upload_documents_processes_supported_files(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_process_file_paths(
-        file_paths: list[str | Path], table_name: str | None = None
-    ) -> tuple[bool, int, str | None]:
-        captured["file_paths"] = file_paths
-        captured["table_name"] = table_name
-        return True, 7, None
+    def fake_create_ingestion_job(
+        *, collection_name: str, files: list[tuple[str, bytes]]
+    ) -> tuple[dict[str, object], list[Path]]:
+        captured["collection_name"] = collection_name
+        captured["files"] = files
+        return (
+            {
+                "job_id": "job-1",
+                "collection": collection_name,
+                "status": "queued",
+                "chunks_added": 0,
+                "files_processed": 0,
+                "files": [
+                    {
+                        "file_id": "file-1",
+                        "name": "doc.txt",
+                        "status": "queued",
+                        "chunks_added": 0,
+                    }
+                ],
+            },
+            [Path("/tmp/doc.txt")],
+        )
 
-    monkeypatch.setattr(documents, "process_file_paths", fake_process_file_paths)
+    def fake_schedule_ingestion_job(job_id: str, paths: list[Path], table_name: str) -> None:
+        captured["job_id"] = job_id
+        captured["paths"] = paths
+        captured["table_name"] = table_name
+
+    monkeypatch.setattr(documents, "create_ingestion_job", fake_create_ingestion_job)
+    monkeypatch.setattr(documents, "_schedule_ingestion_job", fake_schedule_ingestion_job)
 
     response = client.post(
         "/api/documents/upload",
@@ -52,33 +75,36 @@ def test_upload_documents_processes_supported_files(monkeypatch) -> None:
     )
 
     assert response.status_code == 200
-    assert response.json() == {
-        "chunks_added": 7,
-        "files_processed": 1,
-        "collection": "MY_COLLECTION",
-    }
+    data = response.json()
+    assert data["job_id"] == "job-1"
+    assert data["status"] == "queued"
+    assert data["chunks_added"] == 0
+    assert data["files_processed"] == 0
     assert captured["table_name"] == "MY_COLLECTION"
-    file_paths = captured["file_paths"]
-    assert isinstance(file_paths, list)
-    assert len(file_paths) == 1
-    assert Path(file_paths[0]).name == "doc.txt"
+    assert captured["collection_name"] == "MY_COLLECTION"
+    assert captured["files"] == [("doc.txt", b"hello")]
 
 
-def test_upload_documents_surfaces_ingestion_failures(monkeypatch) -> None:
-    def fake_process_file_paths(
-        file_paths: list[str | Path], table_name: str | None = None
-    ) -> tuple[bool, int, str | None]:
-        return False, 0, "broken"
+def test_get_document_ingestion_job_returns_job(monkeypatch) -> None:
+    def fake_get_ingestion_job(job_id: str) -> dict[str, object] | None:
+        assert job_id == "job-1"
+        return {"job_id": job_id, "status": "failed", "error": "broken"}
 
-    monkeypatch.setattr(documents, "process_file_paths", fake_process_file_paths)
+    monkeypatch.setattr(documents, "get_ingestion_job", fake_get_ingestion_job)
 
-    response = client.post(
-        "/api/documents/upload",
-        files=[("files", ("doc.txt", BytesIO(b"hello"), "text/plain"))],
-    )
+    response = client.get("/api/documents/jobs/job-1")
 
     assert response.status_code == 200
-    assert response.json() == {"error": "broken", "chunks_added": 0}
+    assert response.json() == {"job_id": "job-1", "status": "failed", "error": "broken"}
+
+
+def test_get_document_ingestion_job_returns_404_for_missing_job(monkeypatch) -> None:
+    monkeypatch.setattr(documents, "get_ingestion_job", lambda job_id: None)
+
+    response = client.get("/api/documents/jobs/missing")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "ingestion job not found"}
 
 
 def test_list_document_sources_returns_grouped_sources(monkeypatch) -> None:

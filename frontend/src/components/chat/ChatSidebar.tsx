@@ -28,6 +28,7 @@ type ChatSidebarProps = {
   uploadFiles: File[];
   setUploadFiles: React.Dispatch<React.SetStateAction<File[]>>;
   uploadStatus: string | null;
+  isUploading: boolean;
   onUpload: () => void;
   threadHistory: ChatThreadSummary[];
   activeThreadId: string;
@@ -51,6 +52,7 @@ export function ChatSidebar({
   uploadFiles,
   setUploadFiles,
   uploadStatus,
+  isUploading,
   onUpload,
   threadHistory,
   activeThreadId,
@@ -339,9 +341,10 @@ export function ChatSidebar({
           <button
             type="button"
             onClick={onUpload}
-            className="mt-3 min-h-11 w-full rounded-md bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            disabled={isUploading}
+            className="mt-3 min-h-11 w-full rounded-md bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            Add documents to collection
+            {isUploading ? "Starting indexing..." : "Add documents to collection"}
           </button>
         ) : null}
         {uploadStatus ? (

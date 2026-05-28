@@ -142,6 +142,7 @@ function ChatPageContent({
         uploadFiles={mutations.uploadFiles}
         setUploadFiles={mutations.setUploadFiles}
         uploadStatus={mutations.uploadStatus}
+        isUploading={mutations.isUploading}
         onUpload={mutations.handleUpload}
         threadHistory={threadHistory}
         activeThreadId={threadId}
@@ -220,7 +221,10 @@ function ChatPageContent({
             />
           </>
         ) : (
-          <ProcessedSourcesPanel collectionName={sessionUI.collectionName} />
+          <ProcessedSourcesPanel
+            collectionName={sessionUI.collectionName}
+            ingestionJobs={mutations.ingestionJobs}
+          />
         )}
       </div>
     </div>
