@@ -489,7 +489,15 @@ class ChatRuntimeService:
                 if isinstance(retrieval_state, dict)
                 else []
             )
-            if not retrieval_docs and "oracle_retrieval" in tools_used and latest_user_message:
+            retrieval_error = (
+                bool(retrieval_state.get("error")) if isinstance(retrieval_state, dict) else False
+            )
+            if (
+                not retrieval_docs
+                and not retrieval_error
+                and "oracle_retrieval" in tools_used
+                and latest_user_message
+            ):
                 retrieval_docs = self._retrieve_oracle_docs(
                     query=latest_user_message,
                     collection_name=collection_name,

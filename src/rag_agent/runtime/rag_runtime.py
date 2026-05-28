@@ -9,16 +9,14 @@ from typing import Any, cast
 
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
-from langchain_core.retrievers import BaseRetriever
 from langchain_core.runnables.config import RunnableConfig
-from langchain_core.tools import StructuredTool, create_retriever_tool
+from langchain_core.tools import StructuredTool
 
 from src.rag_agent.core.citations import citations_from_documents
 from src.rag_agent.infrastructure.db_utils import get_pooled_connection
 from src.rag_agent.infrastructure.oci_models import (
     get_embedding_model,
     get_llm,
-    get_oracle_vs,
 )
 from src.rag_agent.infrastructure.oci_models import (
     rerank_documents as oci_rerank_documents,
@@ -44,29 +42,49 @@ def build_oracle_retrieval_tool(
     collection_name: str | None,
     filter_docs: Callable[[str, list[Document]], list[Document]],
 ) -> StructuredTool:
-    class _OracleRetriever(BaseRetriever):
-        collection: str
-        retrieval_state: dict[str, object]
+    state: dict[str, object] = {"docs": []}
+    collection = collection_name or "RAG_KNOWLEDGE_BASE"
 
-        def _get_relevant_documents(self, query: str, *, run_manager: object) -> list[Document]:
-            _ = run_manager
+    def retrieve_context(query: str) -> tuple[str, list[Document]]:
+        """Retrieve Oracle knowledge-base and documentation context for a user question."""
+        try:
             with _compat_dependency("get_pooled_connection", get_pooled_connection)() as conn:
                 embed_model = _compat_dependency("get_embedding_model", get_embedding_model)()
-                vector_store = _compat_dependency("get_oracle_vs", get_oracle_vs)(
-                    conn, self.collection, embed_model
+                docs = cast(
+                    list[Document],
+                    _compat_dependency("search_documents", search_documents)(
+                        conn=conn,
+                        collection_name=collection,
+                        embed_model=embed_model,
+                        query=query,
+                        top_k=8,
+                        search_mode="vector",
+                    ),
                 )
-                docs = vector_store.similarity_search(query, 8)
             filtered = filter_docs(query, docs)
-            self.retrieval_state["docs"] = filtered
-            return filtered
+            state["docs"] = filtered
+            state.pop("error", None)
+            serialized = "\n\n".join(
+                f"Source: {doc.metadata}\nContent: {doc.page_content}" for doc in filtered
+            )
+            return serialized, filtered
+        except Exception as exc:
+            message = str(exc) or exc.__class__.__name__
+            logger.exception(
+                "oracle_retrieval_failed collection=%s query_len=%d",
+                collection,
+                len(query or ""),
+            )
+            state["docs"] = []
+            state["error"] = message
+            return (
+                "Oracle retrieval failed while searching the knowledge base. "
+                f"Error: {message}",
+                [],
+            )
 
-    state: dict[str, object] = {"docs": []}
-    retriever = _OracleRetriever(
-        collection=collection_name or "RAG_KNOWLEDGE_BASE",
-        retrieval_state=state,
-    )
-    tool = create_retriever_tool(
-        retriever,
+    tool = StructuredTool.from_function(
+        retrieve_context,
         name="oracle_retrieval",
         description="Retrieve Oracle knowledge-base and documentation context for a user question.",
         response_format="content_and_artifact",

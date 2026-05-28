@@ -1024,6 +1024,72 @@ def test_graph_service_mixed_mode_falls_back_to_direct_retrieval_for_citations(m
     ]
 
 
+def test_graph_service_mixed_mode_skips_direct_retrieval_fallback_after_tool_error(
+    monkeypatch,
+) -> None:
+    service = ChatRuntimeService(graph=object())
+
+    class _Tool:
+        name = "oracle_retrieval"
+        description = "Retrieve Oracle documentation context for a question."
+        _retrieval_state = {
+            "docs": [],
+            "error": "Failed due to a DB error: ORA-22275: invalid LOB locator specified",
+        }
+
+    async def fake_get_mcp_answer_async(
+        *args: object, **kwargs: object
+    ) -> tuple[str, list[str], list[object]]:
+        _ = args, kwargs
+        return (
+            "Oracle retrieval failed while searching the knowledge base.",
+            ["oracle_retrieval"],
+            [],
+        )
+
+    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+        _ = server_keys, run_config
+        return []
+
+    def fail_if_direct_retrieval_called(self, **kwargs):
+        _ = self, kwargs
+        raise AssertionError("direct retrieval fallback should not run after tool error")
+
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
+        fake_get_mcp_tools_async,
+    )
+    monkeypatch.setattr(
+        ChatRuntimeService,
+        "_build_oracle_retrieval_tool",
+        lambda self, collection_name=None: _Tool(),
+    )
+    monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", fail_if_direct_retrieval_called)
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        fake_get_mcp_answer_async,
+    )
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "Give me Northway payment terms"}],
+            model_id="google.gemini-2.5-pro",
+            thread_id="thread-refs-tool-error",
+            session_id=None,
+            collection_name="RAG_KNOWLEDGE_BASE",
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="mixed",
+            mcp_server_keys=None,
+            stream=False,
+        )
+    )
+
+    assert result["final_answer"] == "Oracle retrieval failed while searching the knowledge base."
+    assert result["citations"] == []
+    assert result["context_usage"] is None
+
+
 def test_graph_service_mixed_mode_keeps_non_retrieval_mcp_answer_without_rag_override(
     monkeypatch,
 ) -> None:
