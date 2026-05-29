@@ -81,9 +81,6 @@ STOPWORDS = {
     "make",
     "create",
 }
-EQUATION_HINT_PATTERN = re.compile(r"[=+\-*/^()]|\d")
-
-
 class SuggestionsRequest(BaseModel):
     """Request body for POST /api/suggestions."""
 
@@ -161,39 +158,6 @@ def _filter_suggestions(
     return cleaned
 
 
-def _fallback_suggestions(last_user_message: str | None, last_message: str) -> list[str]:
-    user_text = (last_user_message or "").strip()
-    if user_text:
-        base = _normalize_question(user_text)
-        return [
-            f"{base[:-1]} with step-by-step details?",
-            "Can you verify the final answer quickly?",
-            "Can you show one similar example?",
-        ]
-
-    if EQUATION_HINT_PATTERN.search(last_message or ""):
-        return [
-            "Can you show each algebra step?",
-            "Can you verify by substitution?",
-            "Can you solve a similar equation?",
-        ]
-
-    topic_keywords = sorted(_extract_keywords(last_message))[:2]
-    if topic_keywords:
-        topic = " and ".join(topic_keywords)
-        return [
-            f"Can you explain {topic} step-by-step?",
-            f"What should I do first for {topic}?",
-            f"Can you give one practical {topic} example?",
-        ]
-
-    return [
-        "Can you show this step-by-step?",
-        "Can you verify the final answer quickly?",
-        "Can you give one practical example?",
-    ]
-
-
 async def _generate_suggestions_async(
     *,
     last_message: str,
@@ -266,9 +230,8 @@ async def _generate_suggestions_async(
             last_message=last_message,
             last_user_message=last_user_message,
         )
-        result = filtered if filtered else _fallback_suggestions(last_user_message, last_message)
-        langfuse_trace.update_output({"suggestion_count": len(result)})
-        return result
+        langfuse_trace.update_output({"suggestion_count": len(filtered)})
+        return filtered
 
 
 @router.post("/api/suggestions", response_model=SuggestionsResponse)
