@@ -2,7 +2,7 @@
 
 Next.js frontend for the **OCI Custom RAG Agent**: a chat app powered by **Oracle Cloud Infrastructure (OCI) Generative AI** with **retrieval-augmented generation (RAG)** and optional **MCP (Model Context Protocol)** tools. Users ask questions, get answers grounded in your documents, and can choose flow modes (RAG only, MCP tools only, mixed, or direct).
 
-![OCI Custom RAG Agent processed sources view](../images/oci-custom-rag-agent-processed-sources.png)
+![OCI Custom RAG Agent processed sources view](../images/oci-custom-rag-agent-processed-sources-table.png)
 
 ## What this app does
 

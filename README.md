@@ -4,7 +4,7 @@
 
 A LangChain-powered Oracle RAG application with chat, MCP tools, and observability.
 
-![OCI Custom RAG Agent initial chat screen](images/oci-custom-rag-agent-initial-chat-screen.png)
+![OCI Custom RAG Agent chat workspace with document upload](images/oci-custom-rag-agent-chat-upload-panel.png)
 
 ## What this repo is
 
@@ -32,6 +32,26 @@ This application provides an intelligent question-answering system that:
 - Supports optional MCP tool usage in `mcp`, `mixed`, or `direct` flows
 - Streams answers to the UI with citations and source references
 
+## Screenshots
+
+The UI includes the main chat workspace, document upload controls, source review, and runtime selectors.
+
+### Chat workspace and document upload
+
+![Chat workspace with document upload panel](images/oci-custom-rag-agent-chat-upload-panel.png)
+
+### Processed sources
+
+![Processed sources table](images/oci-custom-rag-agent-processed-sources-table.png)
+
+### Flow mode selector
+
+![Flow mode selector](images/oci-custom-rag-agent-flow-mode-selector.png)
+
+### Model selector
+
+![Model selector](images/oci-custom-rag-agent-model-selector.png)
+
 ## Architecture
 
 The active backend runtime is centered on `ChatRuntimeService` in `src/rag_agent/runtime/chat_service.py`. API routes normalize incoming chat turns, dispatch to one of the explicit runtime modes, and return stable chat responses or LangGraph-compatible `event: values` streams.
@@ -49,31 +69,6 @@ The active backend runtime is centered on `ChatRuntimeService` in `src/rag_agent
 | `scripts/`                | Document population, database/table utilities, stack management, and API doc sync              |
 | `tests/`                  | Unit, workflow, integration, and manual run scripts                                            |
 | `docs/`                   | Setup, MCP usage, tracing, OCI, database, and generated API documentation                      |
-
-## Key Components
-
-### 1. **Runtime Service** (`src/rag_agent/runtime/chat_service.py`)
-
-- Owns chat execution for `rag`, `mcp`, `mixed`, and `direct` modes
-- Maintains server-side thread memory
-- Emits LangChain/LangGraph v3 stream events for the thread/run API
-
-### 2. **Retrieval Runtime** (`src/rag_agent/runtime/rag_runtime.py`)
-
-- Builds Oracle retrieval tools
-- Normalizes retrieved documents and citations
-- Supports direct RAG answer generation
-
-### 3. **MCP Integrations** (`src/rag_agent/infrastructure/`)
-
-- Loads configured MCP servers and tools
-- Runs MCP-only and mixed retrieval/tool paths
-- Supports repeated work-unit workflows for multi-step tool tasks
-
-### 4. **Thread State** (`src/rag_agent/runtime/thread_checkpoints.py`)
-
-- Persists current thread state when persistent memory is enabled
-- Keeps API state endpoints aligned with the LangGraph-compatible frontend protocol
 
 ## Data Flow
 
@@ -99,13 +94,17 @@ Next.js UI → streamed answer + citations
 
 ## Technology Stack
 
-- **Framework**: LangChain v1 agents and LangGraph-compatible thread/run APIs
-- **Vector Database**: Oracle 26AI / Oracle AI Vector Search
-- **LLM**: OCI Generative AI (Meta Llama, Cohere, OpenAI models)
-- **Embeddings**: OCI Generative AI (Cohere multilingual)
-- **UI**: Next.js
-- **Observability**: OpenTelemetry (OTLP); OCI APM supported via OTLP
-- **Language**: Python 3.11
+| Layer | Technology |
+| ----- | ---------- |
+| Backend API | FastAPI, Pydantic, Uvicorn |
+| Agent runtime | LangChain v1 agents, LangGraph-compatible thread/run APIs, LangChain MCP adapters |
+| Retrieval | Oracle 26AI / Oracle AI Vector Search through `langchain-oracledb` |
+| LLM and embeddings | OCI Generative AI through `langchain-oci`; optional OpenAI-compatible model wiring |
+| Reranking | Native OCI Gen AI rerank with local lexical fallback |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS v4, Radix UI, Streamdown |
+| Streaming protocol | AI SDK-style streams and LangGraph-compatible `event: values` streams |
+| Optional observability | OpenTelemetry OTLP, Grafana, Tempo, Loki, OCI APM, Langfuse |
+| Tooling | Python 3.11, `uv`, `pnpm`, Docker Compose, Playwright, Ruff, Black, Mypy, Pytest |
 
 ## Setup
 
@@ -113,17 +112,23 @@ Next.js UI → streamed answer + citations
 
 ### Prerequisites
 
-1. **Oracle 26AI Database** with:
-   - Vector Store enabled
-   - Table: `RAG_KNOWLEDGE_BASE`
+1. **Oracle 26AI Database / Oracle AI Vector Search** with:
+   - Vector search enabled
    - Wallet configured for secure connection
+   - Permission to create or use the configured knowledge-base table, defaulting to `RAG_KNOWLEDGE_BASE`
 
 2. **OCI Account** with:
    - Generative AI service access
    - API keys configured in `~/.oci/config`
-   - Compartment with Generative AI permissions
+   - Compartment permissions for chat, embeddings, and native rerank models
 
 3. **Python 3.11**
+4. **uv** for Python dependency management
+5. **Node.js and pnpm** for the Next.js frontend
+6. **Docker or Colima/Docker Desktop** if you plan to run the backend/frontend or optional observability stacks through Compose
+7. **Optional observability configuration** only if you enable tracing or monitoring:
+   - OCI APM or OTLP endpoint if sending traces outside the local stack
+   - Langfuse keys if using Langfuse trace UI
 
 ### Installation
 
@@ -142,7 +147,7 @@ uv sync
 
 OCI and Oracle AI Vector Search integrations use the official [oracle/langchain-oracle](https://github.com/oracle/langchain-oracle) packages: **langchain-oci** (LLM and embeddings) and **langchain-oracledb** (vector store). See that repository for documentation and examples.
 
-**OCI Gen AI** is used via **ChatOCIGenAI** (from langchain-oci) for RAG (answer, reranker, follow-up interpretation) and MCP tool-calling. Auth uses the OCI profile from config (`~/.oci/config`).
+**OCI Gen AI** is used via **ChatOCIGenAI** (from langchain-oci) for RAG answer synthesis, follow-up interpretation, and MCP tool-calling. Native OCI Gen AI rerank is used for retrieval reranking. Auth uses the OCI profile from config (`~/.oci/config`).
 
 **Development dependencies**:
 
@@ -177,19 +182,7 @@ RUN_INTEGRATION_TESTS=1 OCI_INTEGRATION_TESTS=1 AI_WORKFLOW_E2E_TESTS=1 \
 
 ## Usage
 
-### 1. Populate Knowledge Base
-
-The ingestion implementation lives in `src/rag_agent/ingestion.py`. For local operations and batch ingestion, the supported CLI entrypoint remains `scripts/ingest_documents.py`, which wraps that shared module.
-
-```bash
-# Process specific files (PDF, HTML, TXT, MD)
-uv run python scripts/ingest_documents.py --files document1.pdf document2.pdf readme.md
-
-# Process all supported files in a directory
-uv run python scripts/ingest_documents.py --dir ./documents
-```
-
-### 2. Run the Application
+### 1. Run the Application
 
 #### Local ports
 
@@ -272,6 +265,20 @@ The Langfuse UI will run at `http://localhost:3300` (default) using its own comp
    `ENABLE_OBSERVABILITY_STACK=true` or `ENABLE_OTEL_TRACING=true`, and
    `langfuse` when `ENABLE_LANGFUSE_TRACING=true`.
 
+### 2. Add documents
+
+The primary path is the UI: use the sidebar **Upload documents** control to add PDF, HTML, TXT, Markdown, or MD files to the selected collection. The **Processed sources** tab shows indexed sources, chunk counts, refresh, and delete actions.
+
+For batch imports or automation, use the CLI entrypoint. It wraps the same ingestion implementation used by the upload API.
+
+```bash
+# Process specific files
+uv run python scripts/ingest_documents.py --files document1.pdf document2.pdf readme.md
+
+# Process all supported files in a directory
+uv run python scripts/ingest_documents.py --dir ./documents
+```
+
 ### 3. Query the Knowledge Base
 
 1. Enter your question in the chat interface
@@ -299,7 +306,7 @@ The Langfuse UI will run at `http://localhost:3300` (default) using its own comp
 
 ### 🎯 Intelligent Reranking
 
-- LLM-based relevance scoring
+- Native OCI Gen AI rerank relevance scoring
 - Filters out irrelevant documents
 - Improves answer accuracy
 
