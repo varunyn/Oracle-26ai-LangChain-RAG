@@ -1,20 +1,25 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import inspect
 import json
 import logging
 import re
 import uuid
 from collections import deque
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import suppress
 from fractions import Fraction
 from typing import Any, cast
 from uuid import UUID
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
+    AgentMiddleware,
     LLMToolSelectorMiddleware,
+    ModelRequest,
+    ModelResponse,
     ModelRetryMiddleware,
     ToolCallLimitMiddleware,
     ToolRetryMiddleware,
@@ -40,6 +45,325 @@ _LITERAL_TOOL_CALL_RETRY_INSTRUCTION = (
     "tool_name(...)). Complete the task before giving the final answer."
 )
 ToolProgressCallback = Callable[[dict[str, object]], None]
+
+
+class OCIToolCallContentMiddleware(AgentMiddleware):
+    """Keep LangChain tool calls out of OCI chat content blocks."""
+
+    tools: Sequence[BaseTool] = ()
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse | AIMessage:
+        return handler(_sanitize_model_request_for_oci(request))
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse | AIMessage:
+        return await handler(_sanitize_model_request_for_oci(request))
+
+
+def _sanitize_model_request_for_oci(request: ModelRequest) -> ModelRequest:
+    messages = [_sanitize_ai_message_content_for_oci(message) for message in request.messages]
+    if messages == request.messages:
+        return request
+    return request.override(messages=messages)
+
+
+class ModelCallTimeoutFallbackMiddleware(AgentMiddleware):
+    """Bound stuck model calls and answer from completed tool results when possible."""
+
+    tools: Sequence[BaseTool] = ()
+
+    def __init__(self, timeout_seconds: float) -> None:
+        super().__init__()
+        self.timeout_seconds = max(0.0, float(timeout_seconds or 0.0))
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse | AIMessage:
+        return handler(request)
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse | AIMessage:
+        if self.timeout_seconds <= 0:
+            return await handler(request)
+        try:
+            return await asyncio.wait_for(handler(request), timeout=self.timeout_seconds)
+        except TimeoutError:
+            fallback = _fallback_answer_from_tool_messages(request.messages)
+            if fallback:
+                logger.warning(
+                    "MCP agent model call timed out after %.1fs; using completed tool result",
+                    self.timeout_seconds,
+                )
+                return ModelResponse(result=[AIMessage(content=fallback)])
+            raise
+
+
+def _fallback_answer_from_tool_messages(messages: Sequence[object]) -> str:
+    invocations = _extract_tool_invocations({"messages": list(messages)})
+    successful = [
+        invocation
+        for invocation in invocations
+        if not _tool_result_text_is_error(str(invocation.get("result") or ""))
+    ]
+    if not successful:
+        return ""
+    invocation = successful[-1]
+    tool_name = str(invocation.get("tool_name") or "tool").strip() or "tool"
+    result_text = str(invocation.get("result") or "").strip()
+    parsed: object
+    try:
+        parsed = json.loads(result_text)
+    except Exception:  # noqa: BLE001
+        parsed = None
+    if isinstance(parsed, Mapping):
+        details = ", ".join(f"{key}: {value}" for key, value in parsed.items())
+        return f"{tool_name} returned {details}."
+    return f"{tool_name} returned {result_text}."
+
+
+def _tool_result_text_is_error(text: str) -> bool:
+    normalized = text.lower()
+    if "tool call limit exceeded" in normalized:
+        return True
+    try:
+        parsed = json.loads(text)
+    except Exception:  # noqa: BLE001
+        return "error" in normalized
+    return isinstance(parsed, Mapping) and "error" in parsed
+
+
+def _tool_progress_from_stream_event(event: Mapping[str, object]) -> dict[str, object] | None:
+    if event.get("method") != "tools":
+        return None
+    params = event.get("params")
+    if not isinstance(params, Mapping):
+        return None
+    data = params.get("data")
+    if not isinstance(data, Mapping):
+        return None
+
+    event_type = data.get("event")
+    tool_call_id = str(data.get("tool_call_id") or "")
+    tool_name = str(data.get("tool_name") or "").strip() or "unknown_tool"
+    if event_type == "tool-started":
+        return {
+            "phase": "start",
+            "tool_name": tool_name,
+            "args": data.get("input"),
+            "tool_run_id": tool_call_id,
+        }
+    if event_type == "tool-finished":
+        return {
+            "phase": "end",
+            "tool_name": tool_name,
+            "result": _serialize_tool_output(data.get("output")),
+            "tool_run_id": tool_call_id,
+        }
+    if event_type == "tool-error":
+        return {
+            "phase": "error",
+            "tool_name": tool_name,
+            "error": _truncate_tool_text(str(data.get("message") or "Tool execution failed.")),
+            "tool_run_id": tool_call_id,
+        }
+    return None
+
+
+async def _ainvoke_or_stream_agent(
+    agent: Any,
+    payload: dict[str, object],
+    *,
+    config: RunnableConfig,
+    tool_progress_callback: ToolProgressCallback | None,
+) -> Mapping[str, object]:
+    payload = _sanitize_agent_payload_for_oci(payload)
+    if tool_progress_callback is None or not callable(getattr(agent, "astream_events", None)):
+        return cast(Mapping[str, object], await agent.ainvoke(cast(Any, payload), config=config))
+
+    raw_stream = agent.astream_events(cast(Any, payload), config=config, version="v3")
+    stream = await raw_stream if inspect.isawaitable(raw_stream) else raw_stream
+    if hasattr(stream, "tool_calls") and hasattr(stream, "output"):
+        tool_task = asyncio.create_task(
+            _consume_tool_call_projection(stream, tool_progress_callback)
+        )
+        try:
+            output = await _resolve_stream_output(stream)
+            await tool_task
+        except BaseException:
+            tool_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await tool_task
+            raise
+        return cast(Mapping[str, object], output or {})
+
+    latest_values: Mapping[str, object] | None = None
+    async for event in stream:
+        if not isinstance(event, Mapping):
+            continue
+        if event.get("method") == "values":
+            params = event.get("params")
+            if isinstance(params, Mapping) and isinstance(params.get("data"), Mapping):
+                latest_values = cast(Mapping[str, object], params["data"])
+            continue
+        progress = _tool_progress_from_stream_event(event)
+        if progress is not None:
+            tool_progress_callback(progress)
+    if latest_values is not None:
+        return latest_values
+    return cast(Mapping[str, object], await _resolve_stream_output(stream))
+
+
+async def _resolve_stream_output(stream: Any) -> object:
+    output_attr = getattr(stream, "output", None)
+    output = output_attr() if callable(output_attr) else output_attr
+    return await output if inspect.isawaitable(output) else output
+
+
+async def _drain_tool_call(call: Any) -> None:
+    if hasattr(call, "__aiter__"):
+        async for _delta in call:
+            pass
+        return
+
+    output_deltas = getattr(call, "output_deltas", None)
+    if hasattr(output_deltas, "__aiter__"):
+        async for _delta in output_deltas:
+            pass
+
+
+async def _consume_tool_call_projection(
+    stream: Any,
+    tool_progress_callback: ToolProgressCallback,
+) -> None:
+    async for call in stream.tool_calls:
+        tool_name = str(getattr(call, "tool_name", "") or "unknown_tool")
+        tool_call_id = str(getattr(call, "tool_call_id", "") or "")
+        tool_progress_callback(
+            {
+                "phase": "start",
+                "tool_name": tool_name,
+                "args": getattr(call, "input", None),
+                "tool_run_id": tool_call_id,
+            }
+        )
+        await _drain_tool_call(call)
+        error = getattr(call, "error", None)
+        if error:
+            tool_progress_callback(
+                {
+                    "phase": "error",
+                    "tool_name": tool_name,
+                    "error": _truncate_tool_text(str(error)),
+                    "tool_run_id": tool_call_id,
+                }
+            )
+            continue
+        tool_progress_callback(
+            {
+                "phase": "end",
+                "tool_name": tool_name,
+                "result": _serialize_tool_output(getattr(call, "output", None)),
+                "tool_run_id": tool_call_id,
+            }
+        )
+
+
+def _sanitize_agent_payload_for_oci(payload: dict[str, object]) -> dict[str, object]:
+    messages = payload.get("messages")
+    if not isinstance(messages, Sequence) or isinstance(messages, (str, bytes)):
+        return payload
+    sanitized = [_sanitize_ai_message_content_for_oci(message) for message in messages]
+    return {**payload, "messages": sanitized}
+
+
+def _build_retry_messages_after_tool_error(
+    *,
+    chat_history: Sequence[object] | None,
+    question: str,
+    agent_state: Mapping[str, object],
+) -> list[object]:
+    """Summarize failed tool state without replaying provider-specific tool IDs."""
+    messages = cast(list[object], _build_messages(chat_history, question))
+    invocations = _extract_tool_invocations(agent_state)
+    observations = (
+        json.dumps(invocations, ensure_ascii=True)
+        if invocations
+        else "The prior tool attempt failed before producing a usable result."
+    )
+    messages.append(
+        HumanMessage(
+            "The prior tool attempt returned an error or unusable result. "
+            f"Tool observations: {observations}\n"
+            "Re-evaluate the request using the full available tool catalog. "
+            "Choose the best tool based on its name, description, and schema, "
+            "then answer from the tool result."
+        )
+    )
+    return messages
+
+
+def _sanitize_ai_message_content_for_oci(message: object) -> object:
+    if not isinstance(message, AIMessage) or not isinstance(message.content, list):
+        return message
+
+    supported_content_types = {
+        "text",
+        "image_url",
+        "document_url",
+        "document",
+        "file",
+        "video_url",
+        "video",
+        "audio_url",
+        "audio",
+        "media",
+    }
+    content: list[object] = []
+    for item in message.content:
+        if isinstance(item, str):
+            if item:
+                content.append(item)
+            continue
+        if not isinstance(item, Mapping):
+            continue
+        content_type = item.get("type")
+        if content_type == "tool_call":
+            continue
+        if content_type in supported_content_types:
+            content.append(dict(item))
+            continue
+        if "text" in item and content_type is None:
+            text = item.get("text")
+            if isinstance(text, str) and text:
+                content.append({"type": "text", "text": text})
+
+    if not content and (message.tool_calls or message.additional_kwargs.get("tool_calls")):
+        content = [{"type": "text", "text": "."}]
+    if content == message.content:
+        return message
+    copy = getattr(message, "model_copy", None)
+    if callable(copy):
+        return copy(update={"content": content})
+    return AIMessage(
+        content=content,
+        additional_kwargs=dict(message.additional_kwargs),
+        response_metadata=dict(message.response_metadata),
+        tool_calls=list(message.tool_calls),
+        id=message.id,
+        name=message.name,
+    )
 
 
 def _normalize_message_content(content: object) -> str:
@@ -133,16 +457,27 @@ def _build_middleware(
     settings: object,
     tools: Sequence[BaseTool],
     *,
-    use_tool_selector: bool = True,
-    use_tool_retry: bool = False,
+    use_tool_selector: bool | None = None,
+    use_tool_retry: bool = True,
     tool_call_run_limit: int | None = None,
 ) -> list[object]:
     middleware: list[object] = []
+    selector_enabled = (
+        bool(getattr(settings, "MCP_USE_LLM_TOOL_SELECTOR", False))
+        if use_tool_selector is None
+        else use_tool_selector
+    )
 
+    middleware.append(OCIToolCallContentMiddleware())
     middleware.append(ModelRetryMiddleware(max_retries=1))
+    middleware.append(
+        ModelCallTimeoutFallbackMiddleware(
+            timeout_seconds=float(getattr(settings, "MCP_AGENT_MODEL_TIMEOUT_SECONDS", 45.0) or 0)
+        )
+    )
     if use_tool_retry:
         middleware.append(ToolRetryMiddleware(max_retries=1))
-    if use_tool_selector:
+    if selector_enabled:
         middleware.append(
             LLMToolSelectorMiddleware(always_include=_tool_names_to_always_include(tools))
         )
@@ -316,6 +651,13 @@ def _parse_one_tool_call(tc: Mapping[str, object]) -> tuple[str, str, object]:
 def _serialize_tool_output(value: object) -> str:
     if value is None:
         return ""
+    if isinstance(value, ToolMessage):
+        artifact = getattr(value, "artifact", None)
+        if isinstance(artifact, Mapping):
+            structured_content = artifact.get("structured_content")
+            if structured_content is not None:
+                return _serialize_tool_output(structured_content)
+        return _truncate_tool_text(_normalize_message_content(value.content))
     if isinstance(value, str):
         return _truncate_tool_text(value)
     if isinstance(value, (dict, list, tuple)):
@@ -714,8 +1056,8 @@ async def get_mcp_answer_with_langchain_agent_async(
 
     def _create_mcp_agent(
         *,
-        use_tool_selector: bool,
-        use_tool_retry: bool,
+        use_tool_selector: bool | None = None,
+        use_tool_retry: bool = True,
         tool_call_run_limit: int | None = None,
     ) -> Any:
         return create_agent(
@@ -736,22 +1078,19 @@ async def get_mcp_answer_with_langchain_agent_async(
         )
 
     try:
-        agent = _create_mcp_agent(
-            use_tool_selector=True,
-            use_tool_retry=False,
-            tool_call_run_limit=1,
-        )
+        agent = _create_mcp_agent()
         current_messages: list[object] = cast(list[object], _build_messages(chat_history, question))
         response_state: Mapping[str, object] | None = None
         answer = ""
         tools_used: list[str] = []
         tool_invocations: list[dict[str, object]] = []
-        retried_with_full_tool_catalog = False
+        retried_after_tool_error = False
 
         invoke_config_map: dict[str, object] = dict(run_config or {})
         raw_callbacks = invoke_config_map.get("callbacks")
         callbacks = list(raw_callbacks) if isinstance(raw_callbacks, list) else []
-        if tool_progress_callback is not None:
+        agent_supports_stream_events = callable(getattr(agent, "astream_events", None))
+        if tool_progress_callback is not None and not agent_supports_stream_events:
             callbacks.append(_ToolProgressCallback(tool_progress_callback))
         if callbacks:
             invoke_config_map["callbacks"] = callbacks
@@ -759,9 +1098,11 @@ async def get_mcp_answer_with_langchain_agent_async(
         for retry_idx in range(2):
             response_state = cast(
                 Mapping[str, object],
-                await agent.ainvoke(
-                    cast(Any, {"messages": current_messages}),
+                await _ainvoke_or_stream_agent(
+                    agent,
+                    {"messages": current_messages},
                     config=invoke_config,
+                    tool_progress_callback=tool_progress_callback,
                 ),
             )
             _normalize_ai_tool_call_ids(response_state)
@@ -770,30 +1111,32 @@ async def get_mcp_answer_with_langchain_agent_async(
             answer = _clean_leaked_tool_syntax(answer, tools_used)
             if retry_idx >= 1:
                 break
-            if (
-                tools_used
-                and not retried_with_full_tool_catalog
-                and _agent_state_has_tool_error(response_state)
-            ):
-                agent = _create_mcp_agent(
-                    use_tool_selector=False,
-                    use_tool_retry=True,
-                    tool_call_run_limit=None,
-                )
-                retried_with_full_tool_catalog = True
+            if require_tool_call and not tools_used:
                 state_messages = response_state.get("messages")
                 current_messages = (
-                    cast(list[object], list(state_messages))
+                    list(cast(Sequence[object], state_messages))
                     if isinstance(state_messages, Sequence)
                     and not isinstance(state_messages, (str, bytes))
                     else cast(list[object], _build_messages(chat_history, question))
                 )
                 current_messages.append(
                     HumanMessage(
-                        "The prior tool attempt returned an error. Re-evaluate the "
-                        "request using the full available tool catalog and choose the "
-                        "best tool based on its name, description, and schema."
+                        "A real tool invocation is required for this request. "
+                        "Call the best available tool based on its name, "
+                        "description, and schema before giving the final answer."
                     )
+                )
+                continue
+            if (
+                tools_used
+                and not retried_after_tool_error
+                and _agent_state_has_tool_error(response_state)
+            ):
+                retried_after_tool_error = True
+                current_messages = _build_retry_messages_after_tool_error(
+                    chat_history=chat_history,
+                    question=question,
+                    agent_state=response_state,
                 )
                 continue
             if not _should_retry_for_literal_tool_text(
@@ -811,7 +1154,7 @@ async def get_mcp_answer_with_langchain_agent_async(
                 HumanMessage(_LITERAL_TOOL_CALL_RETRY_INSTRUCTION),
             ]
 
-        if require_tool_call and not tools_used and not answer.strip():
+        if require_tool_call and not tools_used:
             return "MCP tool call required but none was produced after retry. Please try again.", [], []
         return answer, tools_used, tool_invocations
     finally:

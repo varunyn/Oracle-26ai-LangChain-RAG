@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from types import SimpleNamespace
 from typing import Any
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain.agents.middleware import ModelRequest, ModelResponse
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from src.rag_agent.infrastructure import mcp_agent_executor as mod
 
@@ -17,6 +19,137 @@ class _FakeAgent:
     async def ainvoke(self, inp: dict[str, object], *, config: object | None = None) -> dict[str, object]:
         self.calls.append({"input": inp, "config": config})
         return self.output
+
+
+class _FakeStreamingAgent:
+    def __init__(self, events: list[dict[str, object]]) -> None:
+        self.events = events
+        self.calls: list[dict[str, Any]] = []
+
+    async def astream_events(
+        self,
+        inp: dict[str, object],
+        *,
+        config: object | None = None,
+        version: str,
+    ):
+        self.calls.append({"input": inp, "config": config, "version": version})
+        for event in self.events:
+            yield event
+
+    async def ainvoke(
+        self,
+        inp: dict[str, object],
+        *,
+        config: object | None = None,
+    ) -> dict[str, object]:
+        raise AssertionError("streaming path should not call ainvoke")
+
+
+class _FakeToolCall:
+    def __init__(
+        self,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        tool_input: dict[str, object],
+        output: object,
+    ) -> None:
+        self.tool_call_id = tool_call_id
+        self.tool_name = tool_name
+        self.input = tool_input
+        self.output = output
+        self.error = None
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> object:
+        raise StopAsyncIteration
+
+
+class _FakeToolCalls:
+    def __init__(self, calls: list[_FakeToolCall]) -> None:
+        self.calls = calls
+        self._idx = 0
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> _FakeToolCall:
+        if self._idx >= len(self.calls):
+            raise StopAsyncIteration
+        call = self.calls[self._idx]
+        self._idx += 1
+        return call
+
+
+class _FakeOutputDeltas:
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> object:
+        raise StopAsyncIteration
+
+
+class _FakeProjectedToolCall:
+    def __init__(
+        self,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        tool_input: dict[str, object],
+        output: object,
+    ) -> None:
+        self.tool_call_id = tool_call_id
+        self.tool_name = tool_name
+        self.input = tool_input
+        self.output = output
+        self.output_deltas = _FakeOutputDeltas()
+        self.error = None
+
+
+class _FakeProjectionStream:
+    def __init__(self, output: dict[str, object], tool_calls: list[_FakeToolCall]) -> None:
+        self._output = output
+        self.tool_calls = _FakeToolCalls(tool_calls)
+
+    async def output(self) -> dict[str, object]:
+        return self._output
+
+
+class _FakeProjectionPropertyStream:
+    def __init__(self, output: dict[str, object], tool_calls: list[_FakeProjectedToolCall]) -> None:
+        self._output = output
+        self.tool_calls = _FakeToolCalls(tool_calls)  # type: ignore[arg-type]
+        self.output = self._resolve_output()
+
+    async def _resolve_output(self) -> dict[str, object]:
+        return self._output
+
+
+class _FakeProjectionStreamingAgent:
+    def __init__(self, stream: _FakeProjectionStream | _FakeProjectionPropertyStream) -> None:
+        self.stream = stream
+        self.calls: list[dict[str, Any]] = []
+
+    async def astream_events(
+        self,
+        inp: dict[str, object],
+        *,
+        config: object | None = None,
+        version: str,
+    ) -> _FakeProjectionStream | _FakeProjectionPropertyStream:
+        self.calls.append({"input": inp, "config": config, "version": version})
+        return self.stream
+
+    async def ainvoke(
+        self,
+        inp: dict[str, object],
+        *,
+        config: object | None = None,
+    ) -> dict[str, object]:
+        raise AssertionError("streaming path should not call ainvoke")
 
 
 class _FakeSequencedAgent:
@@ -72,6 +205,424 @@ def test_langchain_executor_returns_final_answer_and_tools(monkeypatch) -> None:
     assert len(fake_agent.calls) == 1
 
 
+def test_langchain_executor_streams_tool_progress_events(monkeypatch) -> None:
+    tool_call_id = str(uuid.uuid4())
+    fake_agent = _FakeStreamingAgent(
+        [
+            {
+                "method": "tools",
+                "params": {
+                    "data": {
+                        "event": "tool-started",
+                        "tool_call_id": tool_call_id,
+                        "tool_name": "Calculator_solve_equation",
+                        "input": {"equation": "x^2 - 5x + 6 = 0"},
+                    }
+                },
+            },
+            {
+                "method": "tools",
+                "params": {
+                    "data": {
+                        "event": "tool-finished",
+                        "tool_call_id": tool_call_id,
+                        "tool_name": "Calculator_solve_equation",
+                        "output": {"solutions": "[2, 3]"},
+                    }
+                },
+            },
+            {
+                "method": "values",
+                "params": {
+                    "data": {
+                        "messages": [
+                            AIMessage(
+                                content="",
+                                tool_calls=[
+                                    {
+                                        "name": "Calculator_solve_equation",
+                                        "args": {"equation": "x^2 - 5x + 6 = 0"},
+                                        "id": tool_call_id,
+                                    }
+                                ],
+                            ),
+                            ToolMessage(
+                                content='{"solutions":"[2, 3]"}',
+                                tool_call_id=tool_call_id,
+                                name="Calculator_solve_equation",
+                            ),
+                            AIMessage(content="x = 2 and x = 3"),
+                        ]
+                    }
+                },
+            },
+        ]
+    )
+    progress_events: list[dict[str, object]] = []
+
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
+    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
+
+    import asyncio
+
+    answer, tools_used, invocations = asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="solve",
+            chat_history=None,
+            model_id=None,
+            tools=[SimpleNamespace(name="Calculator_solve_equation", description="solve")],
+            run_config=None,
+            require_tool_call=False,
+            tool_progress_callback=progress_events.append,
+        )
+    )
+
+    assert fake_agent.calls[0]["version"] == "v3"
+    assert answer == "x = 2 and x = 3"
+    assert tools_used == ["Calculator_solve_equation"]
+    assert invocations == [
+        {
+            "tool_name": "Calculator_solve_equation",
+            "args": {"equation": "x^2 - 5x + 6 = 0"},
+            "result": '{"solutions":"[2, 3]"}',
+        }
+    ]
+    assert progress_events == [
+        {
+            "phase": "start",
+            "tool_name": "Calculator_solve_equation",
+            "args": {"equation": "x^2 - 5x + 6 = 0"},
+            "tool_run_id": tool_call_id,
+        },
+        {
+            "phase": "end",
+            "tool_name": "Calculator_solve_equation",
+            "result": '{"solutions": "[2, 3]"}',
+            "tool_run_id": tool_call_id,
+        },
+    ]
+
+
+def test_sanitize_agent_payload_removes_oci_unsupported_tool_call_content() -> None:
+    message = AIMessage(
+        content=[
+            {"type": "text", "text": "Calling a tool."},
+            {
+                "type": "tool_call",
+                "id": "call-1",
+                "name": "Calculator_solve_equation",
+                "input": {"equation": "x^2 - 5x + 6 = 0"},
+            },
+        ],
+        tool_calls=[
+            {
+                "name": "Calculator_solve_equation",
+                "args": {"equation": "x^2 - 5x + 6 = 0"},
+                "id": "call-1",
+            }
+        ],
+    )
+
+    payload = mod._sanitize_agent_payload_for_oci({"messages": [message]})
+
+    sanitized = payload["messages"][0]
+    assert isinstance(sanitized, AIMessage)
+    assert sanitized.content == [{"type": "text", "text": "Calling a tool."}]
+    assert sanitized.tool_calls == message.tool_calls
+
+
+def test_sanitize_agent_payload_keeps_placeholder_for_tool_call_only_message() -> None:
+    message = AIMessage(
+        content=[
+            {
+                "type": "tool_call",
+                "id": "call-1",
+                "name": "Calculator_solve_equation",
+                "input": {"equation": "x^2 - 5x + 6 = 0"},
+            }
+        ],
+        tool_calls=[
+            {
+                "name": "Calculator_solve_equation",
+                "args": {"equation": "x^2 - 5x + 6 = 0"},
+                "id": "call-1",
+            }
+        ],
+    )
+
+    payload = mod._sanitize_agent_payload_for_oci({"messages": [message]})
+
+    sanitized = payload["messages"][0]
+    assert isinstance(sanitized, AIMessage)
+    assert sanitized.content == [{"type": "text", "text": "."}]
+    assert sanitized.tool_calls == message.tool_calls
+
+
+def test_oci_tool_call_content_middleware_sanitizes_internal_model_requests() -> None:
+    tool_message = AIMessage(
+        content=[
+            {"type": "tool_call", "id": "call_1", "name": "Calculator_solve_equation"},
+        ],
+        tool_calls=[
+            {
+                "name": "Calculator_solve_equation",
+                "args": {"equation": "x^2 - 5x + 6 = 0"},
+                "id": "call_1",
+            }
+        ],
+    )
+    request = ModelRequest(model=object(), messages=[tool_message])
+    seen_messages: list[object] = []
+
+    def handler(sanitized_request: ModelRequest) -> ModelResponse:
+        seen_messages.extend(sanitized_request.messages)
+        return ModelResponse(result=[AIMessage(content="done")])
+
+    response = mod.OCIToolCallContentMiddleware().wrap_model_call(request, handler)
+
+    assert isinstance(response, ModelResponse)
+    sanitized = seen_messages[0]
+    assert isinstance(sanitized, AIMessage)
+    assert sanitized.content == [{"type": "text", "text": "."}]
+    assert sanitized.tool_calls == tool_message.tool_calls
+
+
+def test_model_timeout_middleware_falls_back_to_successful_tool_result() -> None:
+    request = ModelRequest(
+        model=object(),
+        messages=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "Calculator_linear_regression",
+                        "args": {"data": [[1, 2], [2, 3.5]]},
+                        "id": "call_1",
+                    }
+                ],
+            ),
+            ToolMessage(
+                content='{"slope":1.54,"intercept":0.44}',
+                tool_call_id="call_1",
+                name="Calculator_linear_regression",
+            ),
+        ],
+    )
+
+    async def handler(_request: ModelRequest) -> ModelResponse:
+        await asyncio.sleep(1)
+        return ModelResponse(result=[AIMessage(content="too late")])
+
+    response = asyncio.run(
+        mod.ModelCallTimeoutFallbackMiddleware(timeout_seconds=0.01).awrap_model_call(
+            request,
+            handler,
+        )
+    )
+
+    assert isinstance(response, ModelResponse)
+    assert response.result[0].content == (
+        "Calculator_linear_regression returned slope: 1.54, intercept: 0.44."
+    )
+
+
+def test_model_timeout_middleware_reraises_without_successful_tool_result() -> None:
+    request = ModelRequest(model=object(), messages=[HumanMessage(content="hello")])
+
+    async def handler(_request: ModelRequest) -> ModelResponse:
+        await asyncio.sleep(1)
+        return ModelResponse(result=[AIMessage(content="too late")])
+
+    try:
+        asyncio.run(
+            mod.ModelCallTimeoutFallbackMiddleware(timeout_seconds=0.01).awrap_model_call(
+                request,
+                handler,
+            )
+        )
+    except TimeoutError:
+        pass
+    else:
+        raise AssertionError("expected TimeoutError")
+
+
+def test_serialize_tool_output_prefers_tool_message_structured_content() -> None:
+    output = ToolMessage(
+        content=[
+            {
+                "type": "text",
+                "text": '{"slope":1.54,"intercept":0.4400000000000004}',
+            }
+        ],
+        tool_call_id="call_1",
+        name="Calculator_linear_regression",
+        artifact={"structured_content": {"slope": 1.54, "intercept": 0.4400000000000004}},
+    )
+
+    assert mod._serialize_tool_output(output) == (
+        '{"slope": 1.54, "intercept": 0.4400000000000004}'
+    )
+
+
+def test_langchain_executor_uses_tool_call_projection_for_live_progress(monkeypatch) -> None:
+    tool_call_id = str(uuid.uuid4())
+    fake_agent = _FakeProjectionStreamingAgent(
+        _FakeProjectionStream(
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "Calculator_solve_equation",
+                                "args": {"equation": "x^2 - 5x + 6 = 0"},
+                                "id": tool_call_id,
+                            }
+                        ],
+                    ),
+                    ToolMessage(
+                        content='{"solutions":"[2, 3]"}',
+                        tool_call_id=tool_call_id,
+                        name="Calculator_solve_equation",
+                    ),
+                    AIMessage(content="x = 2 and x = 3"),
+                ]
+            },
+            [
+                _FakeToolCall(
+                    tool_call_id=tool_call_id,
+                    tool_name="Calculator_solve_equation",
+                    tool_input={"equation": "x^2 - 5x + 6 = 0"},
+                    output={"solutions": "[2, 3]"},
+                )
+            ],
+        )
+    )
+    progress_events: list[dict[str, object]] = []
+
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
+    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
+
+    import asyncio
+
+    answer, tools_used, invocations = asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="solve",
+            chat_history=None,
+            model_id=None,
+            tools=[SimpleNamespace(name="Calculator_solve_equation", description="solve")],
+            run_config=None,
+            require_tool_call=False,
+            tool_progress_callback=progress_events.append,
+        )
+    )
+
+    assert fake_agent.calls[0]["version"] == "v3"
+    assert answer == "x = 2 and x = 3"
+    assert tools_used == ["Calculator_solve_equation"]
+    assert invocations == [
+        {
+            "tool_name": "Calculator_solve_equation",
+            "args": {"equation": "x^2 - 5x + 6 = 0"},
+            "result": '{"solutions":"[2, 3]"}',
+        }
+    ]
+    assert progress_events == [
+        {
+            "phase": "start",
+            "tool_name": "Calculator_solve_equation",
+            "args": {"equation": "x^2 - 5x + 6 = 0"},
+            "tool_run_id": tool_call_id,
+        },
+        {
+            "phase": "end",
+            "tool_name": "Calculator_solve_equation",
+            "result": '{"solutions": "[2, 3]"}',
+            "tool_run_id": tool_call_id,
+        },
+    ]
+
+
+def test_langchain_executor_uses_async_output_property_projection(monkeypatch) -> None:
+    tool_call_id = str(uuid.uuid4())
+    fake_agent = _FakeProjectionStreamingAgent(
+        _FakeProjectionPropertyStream(
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "Calculator_linear_regression",
+                                "args": {"data": [[1, 2], [2, 4]]},
+                                "id": tool_call_id,
+                            }
+                        ],
+                    ),
+                    ToolMessage(
+                        content='{"slope":2.0,"intercept":0.0}',
+                        tool_call_id=tool_call_id,
+                        name="Calculator_linear_regression",
+                    ),
+                    AIMessage(content="y = 2x"),
+                ]
+            },
+            [
+                _FakeProjectedToolCall(
+                    tool_call_id=tool_call_id,
+                    tool_name="Calculator_linear_regression",
+                    tool_input={"data": [[1, 2], [2, 4]]},
+                    output={"slope": 2.0, "intercept": 0.0},
+                )
+            ],
+        )
+    )
+    progress_events: list[dict[str, object]] = []
+
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
+    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
+
+    answer, tools_used, invocations = asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="fit line",
+            chat_history=None,
+            model_id=None,
+            tools=[SimpleNamespace(name="Calculator_linear_regression", description="fit")],
+            run_config=None,
+            require_tool_call=False,
+            tool_progress_callback=progress_events.append,
+        )
+    )
+
+    assert fake_agent.calls[0]["version"] == "v3"
+    assert answer == "y = 2x"
+    assert tools_used == ["Calculator_linear_regression"]
+    assert invocations == [
+        {
+            "tool_name": "Calculator_linear_regression",
+            "args": {"data": [[1, 2], [2, 4]]},
+            "result": '{"slope":2.0,"intercept":0.0}',
+        }
+    ]
+    assert progress_events == [
+        {
+            "phase": "start",
+            "tool_name": "Calculator_linear_regression",
+            "args": {"data": [[1, 2], [2, 4]]},
+            "tool_run_id": tool_call_id,
+        },
+        {
+            "phase": "end",
+            "tool_name": "Calculator_linear_regression",
+            "result": '{"slope": 2.0, "intercept": 0.0}',
+            "tool_run_id": tool_call_id,
+        },
+    ]
+
+
 def test_langchain_executor_closes_async_llm_client(monkeypatch) -> None:
     fake_agent = _FakeAgent({"messages": [AIMessage(content="done")]})
 
@@ -103,7 +654,7 @@ def test_langchain_executor_closes_async_llm_client(monkeypatch) -> None:
     assert fake_llm.close_calls == 1
 
 
-def test_langchain_executor_keeps_substantive_answer_when_no_tool_call(monkeypatch) -> None:
+def test_langchain_executor_rejects_direct_answer_when_tool_call_required(monkeypatch) -> None:
     fake_agent = _FakeAgent({"messages": [AIMessage(content="No tools needed")]})
 
     monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
@@ -123,9 +674,10 @@ def test_langchain_executor_keeps_substantive_answer_when_no_tool_call(monkeypat
         )
     )
 
-    assert answer == "No tools needed"
+    assert answer == "MCP tool call required but none was produced after retry. Please try again."
     assert tools_used == []
     assert invocations == []
+    assert len(fake_agent.calls) == 2
 
 
 def test_langchain_executor_enforces_require_tool_call_when_answer_empty(monkeypatch) -> None:
@@ -152,23 +704,24 @@ def test_langchain_executor_enforces_require_tool_call_when_answer_empty(monkeyp
     assert invocations == []
 
 
-def test_build_middleware_uses_retry_tool_selector_and_tool_limit_controls() -> None:
+def test_build_middleware_defaults_to_single_agent_retry_and_limit_controls() -> None:
     settings = SimpleNamespace(MCP_MAX_ROUNDS=2)
     middleware = mod._build_middleware(
         settings,
         [SimpleNamespace(name="calculator.add", description="add")],
-        tool_call_run_limit=1,
     )
     names = [type(m).__name__ for m in middleware]
     assert names == [
+        "OCIToolCallContentMiddleware",
         "ModelRetryMiddleware",
-        "LLMToolSelectorMiddleware",
+        "ModelCallTimeoutFallbackMiddleware",
+        "ToolRetryMiddleware",
         "ToolCallLimitMiddleware",
     ]
-    assert middleware[-1].run_limit == 1
+    assert middleware[-1].run_limit == 2
 
 
-def test_build_middleware_keeps_oracle_retrieval_available_for_selector() -> None:
+def test_build_middleware_can_enable_selector_for_large_catalogs() -> None:
     settings = SimpleNamespace(MCP_MAX_ROUNDS=0)
     middleware = mod._build_middleware(
         settings,
@@ -176,79 +729,88 @@ def test_build_middleware_keeps_oracle_retrieval_available_for_selector() -> Non
             SimpleNamespace(name="oracle_retrieval", description="retrieve"),
             SimpleNamespace(name="calculator.add", description="add"),
         ],
+        use_tool_selector=True,
+        use_tool_retry=False,
     )
 
-    selector = middleware[1]
+    selector = middleware[3]
     assert type(selector).__name__ == "LLMToolSelectorMiddleware"
     assert selector.always_include == ["oracle_retrieval"]
 
 
-def test_build_middleware_can_disable_tool_selector_for_full_catalog_retry() -> None:
+def test_build_middleware_can_disable_tool_retry() -> None:
     settings = SimpleNamespace(MCP_MAX_ROUNDS=0)
     middleware = mod._build_middleware(
         settings,
         [SimpleNamespace(name="calculator.add", description="add")],
         use_tool_selector=False,
-        use_tool_retry=True,
+        use_tool_retry=False,
     )
 
     names = [type(m).__name__ for m in middleware]
-    assert names == ["ModelRetryMiddleware", "ToolRetryMiddleware"]
+    assert names == [
+        "OCIToolCallContentMiddleware",
+        "ModelRetryMiddleware",
+        "ModelCallTimeoutFallbackMiddleware",
+    ]
 
 
-def test_langchain_executor_retries_with_full_tool_catalog_after_tool_error(
+def test_langchain_executor_retries_tool_error_in_same_agent_harness(
     monkeypatch,
 ) -> None:
-    first_agent = _FakeAgent(
-        {
-            "messages": [
-                AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "name": "Calculator_calculate",
-                            "args": {"expression": "x**2 - 5*x + 6"},
-                            "id": "bad-tool",
-                        }
-                    ],
-                ),
-                ToolMessage(
-                    content='{"error":"name x is not defined"}',
-                    tool_call_id="bad-tool",
-                    name="Calculator_calculate",
-                ),
-            ]
-        }
-    )
-    second_agent = _FakeAgent(
-        {
-            "messages": [
-                AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "name": "Calculator_solve_equation",
-                            "args": {"equation": "x**2 - 5*x + 6 = 0"},
-                            "id": "good-tool",
-                        }
-                    ],
-                ),
-                ToolMessage(
-                    content='{"solutions":["2","3"]}',
-                    tool_call_id="good-tool",
-                    name="Calculator_solve_equation",
-                ),
-                AIMessage(content="x = 2 and x = 3"),
-            ]
-        }
+    fake_agent = _FakeSequencedAgent(
+        [
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "Calculator_calculate",
+                                "args": {"expression": "x**2 - 5*x + 6"},
+                                "id": "bad-tool",
+                            }
+                        ],
+                    ),
+                    ToolMessage(
+                        content='{"error":"name x is not defined"}',
+                        tool_call_id="bad-tool",
+                        name="Calculator_calculate",
+                    ),
+                ]
+            },
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "Calculator_solve_equation",
+                                "args": {"equation": "x**2 - 5*x + 6 = 0"},
+                                "id": "good-tool",
+                            }
+                        ],
+                    ),
+                    ToolMessage(
+                        content='{"solutions":["2","3"]}',
+                        tool_call_id="good-tool",
+                        name="Calculator_solve_equation",
+                    ),
+                    AIMessage(content="x = 2 and x = 3"),
+                ]
+            },
+        ]
     )
     created_agents: list[dict[str, Any]] = []
 
     def fake_create_agent(**kwargs: Any) -> _FakeAgent:
         created_agents.append(kwargs)
-        return first_agent if len(created_agents) == 1 else second_agent
+        return fake_agent
 
-    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
+    monkeypatch.setattr(
+        "api.settings.get_settings",
+        lambda: SimpleNamespace(MCP_MAX_ROUNDS=2, MCP_USE_LLM_TOOL_SELECTOR=False),
+    )
     monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
     monkeypatch.setattr(mod, "create_agent", fake_create_agent)
 
@@ -277,14 +839,19 @@ def test_langchain_executor_retries_with_full_tool_catalog_after_tool_error(
             "result": '{"solutions":["2","3"]}',
         }
     ]
-    first_middleware = [type(m).__name__ for m in created_agents[0]["middleware"]]
-    second_middleware = [type(m).__name__ for m in created_agents[1]["middleware"]]
-    assert "LLMToolSelectorMiddleware" in first_middleware
-    assert "ToolRetryMiddleware" not in first_middleware
-    assert "LLMToolSelectorMiddleware" not in second_middleware
-    assert "ToolRetryMiddleware" in second_middleware
-    assert created_agents[0]["middleware"][-1].run_limit == 1
-    assert created_agents[1]["middleware"][-1].run_limit == 2
+    assert len(created_agents) == 1
+    middleware_names = [type(m).__name__ for m in created_agents[0]["middleware"]]
+    assert "LLMToolSelectorMiddleware" not in middleware_names
+    assert "ToolRetryMiddleware" in middleware_names
+    assert created_agents[0]["middleware"][-1].run_limit == 2
+    assert "transformers" not in created_agents[0]
+    retry_messages = fake_agent.calls[1]["input"]["messages"]
+    assert len(retry_messages) == 2
+    assert isinstance(retry_messages[0], HumanMessage)
+    assert isinstance(retry_messages[1], HumanMessage)
+    assert "Calculator_calculate" in retry_messages[1].content
+    assert "bad-tool" not in retry_messages[1].content
+    assert not any(isinstance(message, (AIMessage, ToolMessage)) for message in retry_messages)
 
 
 def test_build_system_prompt_uses_mixed_prompt_when_oracle_retrieval_tool_present() -> None:
