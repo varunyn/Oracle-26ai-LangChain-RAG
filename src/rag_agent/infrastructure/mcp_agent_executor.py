@@ -74,76 +74,6 @@ def _sanitize_model_request_for_oci(request: ModelRequest) -> ModelRequest:
     return request.override(messages=messages)
 
 
-class ModelCallTimeoutFallbackMiddleware(AgentMiddleware):
-    """Bound stuck model calls and answer from completed tool results when possible."""
-
-    tools: Sequence[BaseTool] = ()
-
-    def __init__(self, timeout_seconds: float) -> None:
-        super().__init__()
-        self.timeout_seconds = max(0.0, float(timeout_seconds or 0.0))
-
-    def wrap_model_call(
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], ModelResponse],
-    ) -> ModelResponse | AIMessage:
-        return handler(request)
-
-    async def awrap_model_call(
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
-    ) -> ModelResponse | AIMessage:
-        if self.timeout_seconds <= 0:
-            return await handler(request)
-        try:
-            return await asyncio.wait_for(handler(request), timeout=self.timeout_seconds)
-        except TimeoutError:
-            fallback = _fallback_answer_from_tool_messages(request.messages)
-            if fallback:
-                logger.warning(
-                    "MCP agent model call timed out after %.1fs; using completed tool result",
-                    self.timeout_seconds,
-                )
-                return ModelResponse(result=[AIMessage(content=fallback)])
-            raise
-
-
-def _fallback_answer_from_tool_messages(messages: Sequence[object]) -> str:
-    invocations = _extract_tool_invocations({"messages": list(messages)})
-    successful = [
-        invocation
-        for invocation in invocations
-        if not _tool_result_text_is_error(str(invocation.get("result") or ""))
-    ]
-    if not successful:
-        return ""
-    invocation = successful[-1]
-    tool_name = str(invocation.get("tool_name") or "tool").strip() or "tool"
-    result_text = str(invocation.get("result") or "").strip()
-    parsed: object
-    try:
-        parsed = json.loads(result_text)
-    except Exception:  # noqa: BLE001
-        parsed = None
-    if isinstance(parsed, Mapping):
-        details = ", ".join(f"{key}: {value}" for key, value in parsed.items())
-        return f"{tool_name} returned {details}."
-    return f"{tool_name} returned {result_text}."
-
-
-def _tool_result_text_is_error(text: str) -> bool:
-    normalized = text.lower()
-    if "tool call limit exceeded" in normalized:
-        return True
-    try:
-        parsed = json.loads(text)
-    except Exception:  # noqa: BLE001
-        return "error" in normalized
-    return isinstance(parsed, Mapping) and "error" in parsed
-
-
 def _tool_progress_from_stream_event(event: Mapping[str, object]) -> dict[str, object] | None:
     if event.get("method") != "tools":
         return None
@@ -470,11 +400,6 @@ def _build_middleware(
 
     middleware.append(OCIToolCallContentMiddleware())
     middleware.append(ModelRetryMiddleware(max_retries=1))
-    middleware.append(
-        ModelCallTimeoutFallbackMiddleware(
-            timeout_seconds=float(getattr(settings, "MCP_AGENT_MODEL_TIMEOUT_SECONDS", 45.0) or 0)
-        )
-    )
     if use_tool_retry:
         middleware.append(ToolRetryMiddleware(max_retries=1))
     if selector_enabled:

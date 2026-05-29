@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-import threading
-from collections.abc import Coroutine, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
 from langchain_core.tools import BaseTool
 
+from .async_utils import run_coroutine_sync
 from .mcp_adapter_runtime import load_adapter_tools
 from .mcp_settings import get_mcp_servers_config
 
@@ -31,72 +30,6 @@ class MCPToolMetadata:
             "description": self.description,
             "input_schema": self.input_schema,
         }
-
-
-def _run_coroutine_in_thread(coro: Coroutine[object, object, object]) -> object:
-    result: dict[str, object] = {}
-    error: dict[str, BaseException] = {}
-
-    def runner() -> None:
-        try:
-            result["value"] = asyncio.run(coro)
-        except BaseException as exc:  # noqa: BLE001
-            error["value"] = exc
-
-    thread = threading.Thread(target=runner, daemon=True)
-    thread.start()
-    thread.join()
-    if "value" in error:
-        raise error["value"]
-    if "value" not in result:
-        raise RuntimeError("Thread runner did not return a value.")
-    return result["value"]
-
-
-def _canonical_tool_name(server_key: str, tool_name: str) -> str:
-    return f"{server_key}.{tool_name}"
-
-
-def _coerce_dict(raw: object) -> dict[str, Any]:
-    if isinstance(raw, Mapping):
-        return dict(cast(Mapping[str, Any], raw))
-    return {}
-
-
-def _coerce_tool_schema(tool_obj: object) -> dict[str, Any]:
-    for attr in ("inputSchema", "input_schema"):
-        candidate = getattr(tool_obj, attr, None)
-        if isinstance(candidate, Mapping):
-            return dict(cast(Mapping[str, Any], candidate))
-    return {}
-
-
-def _coerce_tool_description(tool_obj: object) -> str:
-    description = getattr(tool_obj, "description", None)
-    if isinstance(description, str):
-        return description.strip()
-    return ""
-
-
-def _coerce_tool_name(tool_obj: object) -> str | None:
-    tool_name = getattr(tool_obj, "name", None)
-    if isinstance(tool_name, str) and tool_name.strip():
-        return tool_name.strip()
-    return None
-
-
-def _serialize_tool_result(result: object) -> object:
-    if result is None:
-        return None
-    if isinstance(result, (str, int, float, bool, list, dict)):
-        return result
-    model_dump = getattr(result, "model_dump", None)
-    if callable(model_dump):
-        try:
-            return cast(object, model_dump(exclude_none=True))
-        except Exception:  # noqa: BLE001
-            return str(result)
-    return str(result)
 
 
 def _schema_from_tool(tool: BaseTool) -> dict[str, Any]:
@@ -192,11 +125,7 @@ def get_mcp_tools(
     run_config: Mapping[str, Any] | None = None,
 ) -> list[BaseTool]:
     coro = get_mcp_tools_async(server_keys=server_keys, run_config=run_config)
-    try:
-        _ = asyncio.get_running_loop()
-    except RuntimeError:
-        return cast(list[BaseTool], asyncio.run(coro))
-    return cast(list[BaseTool], _run_coroutine_in_thread(coro))
+    return cast(list[BaseTool], run_coroutine_sync(coro))
 
 
 async def get_mcp_tool_metadata_async(
@@ -214,11 +143,7 @@ def get_mcp_tool_metadata(
     run_config: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     coro = get_mcp_tool_metadata_async(server_keys=server_keys, run_config=run_config)
-    try:
-        _ = asyncio.get_running_loop()
-    except RuntimeError:
-        return cast(list[dict[str, Any]], asyncio.run(coro))
-    return cast(list[dict[str, Any]], _run_coroutine_in_thread(coro))
+    return cast(list[dict[str, Any]], run_coroutine_sync(coro))
 
 
 __all__ = [

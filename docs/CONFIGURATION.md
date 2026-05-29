@@ -211,7 +211,6 @@ MCP (Model Context Protocol) client and server configuration.
 | `MCP_SEARCH_MODE`                   | `vector`       | Default retrieval mode for semantic-search MCP tools. Only `vector` is currently supported. |
 | `MCP_MAX_ROUNDS`                    | `2`            | Maximum MCP tool-call rounds passed into chat runtime config. |
 | `MCP_USE_LLM_TOOL_SELECTOR`         | `false`        | Optional extra LLM pass that preselects MCP tools before each agent model call. Keep disabled unless a large catalog needs preselection. |
-| `MCP_AGENT_MODEL_TIMEOUT_SECONDS`   | `45`           | Max seconds to wait for each MCP agent model call before falling back to completed tool results when available. |
 | `ENABLE_MCP_CLIENT_JWT`             | `false`        | Legacy global MCP auth toggle. Prefer per-server auth in Settings. |
 | `ENABLE_MCP_OAUTH`                  | `false`        | Legacy global OAuth client-credentials auth toggle. Prefer per-server auth in Settings. |
 | `MCP_OAUTH_CLIENT_ID`               | —              | Legacy global OAuth client ID. |

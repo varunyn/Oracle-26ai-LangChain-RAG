@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import threading
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from typing import Any, cast
 
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import BaseTool
 
 from ..prompts.mcp_agent_prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_MIXED
+from .async_utils import run_coroutine_sync
 from .direct_mcp_tools import get_mcp_tools_async
 from .mcp_agent_executor import get_mcp_answer_with_langchain_agent_async
 from .mcp_settings import get_mcp_settings
@@ -19,26 +18,6 @@ from .mcp_settings import get_mcp_settings
 logger = logging.getLogger(__name__)
 
 __all__ = ["SYSTEM_PROMPT", "SYSTEM_PROMPT_MIXED", "get_mcp_answer", "get_mcp_answer_async"]
-
-
-def _run_coroutine_in_thread(coro: Coroutine[object, object, object]) -> object:
-    result: dict[str, object] = {}
-    error: dict[str, BaseException] = {}
-
-    def runner() -> None:
-        try:
-            result["value"] = asyncio.run(coro)
-        except BaseException as exc:  # noqa: BLE001
-            error["value"] = exc
-
-    thread = threading.Thread(target=runner, daemon=True)
-    thread.start()
-    thread.join()
-    if "value" in error:
-        raise error["value"]
-    if "value" not in result:
-        raise RuntimeError("Thread runner did not return a value.")
-    return result["value"]
 
 
 async def _get_mcp_answer_impl(
@@ -82,25 +61,9 @@ def get_mcp_answer(
     run_config: RunnableConfig | None = None,
     tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> tuple[str, list[str], list[dict[str, Any]]]:
-    try:
-        _ = asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(
-            _get_mcp_answer_impl(
-                question,
-                chat_history=chat_history,
-                model_id=model_id,
-                server_keys=server_keys,
-                tools=tools,
-                require_tool_call=require_tool_call,
-                run_config=run_config,
-                tool_progress_callback=tool_progress_callback,
-            )
-        )
-
     return cast(
         tuple[str, list[str], list[dict[str, Any]]],
-        _run_coroutine_in_thread(
+        run_coroutine_sync(
             _get_mcp_answer_impl(
                 question,
                 chat_history=chat_history,

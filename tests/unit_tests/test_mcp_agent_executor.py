@@ -388,7 +388,7 @@ def test_oci_tool_call_content_middleware_sanitizes_internal_model_requests() ->
     assert sanitized.tool_calls == tool_message.tool_calls
 
 
-def test_model_timeout_middleware_falls_back_to_successful_tool_result() -> None:
+def test_model_timeout_propagates_after_successful_tool_result() -> None:
     request = ModelRequest(
         model=object(),
         messages=[
@@ -414,32 +414,9 @@ def test_model_timeout_middleware_falls_back_to_successful_tool_result() -> None
         await asyncio.sleep(1)
         return ModelResponse(result=[AIMessage(content="too late")])
 
-    response = asyncio.run(
-        mod.ModelCallTimeoutFallbackMiddleware(timeout_seconds=0.01).awrap_model_call(
-            request,
-            handler,
-        )
-    )
-
-    assert isinstance(response, ModelResponse)
-    assert response.result[0].content == (
-        "Calculator_linear_regression returned slope: 1.54, intercept: 0.44."
-    )
-
-
-def test_model_timeout_middleware_reraises_without_successful_tool_result() -> None:
-    request = ModelRequest(model=object(), messages=[HumanMessage(content="hello")])
-
-    async def handler(_request: ModelRequest) -> ModelResponse:
-        await asyncio.sleep(1)
-        return ModelResponse(result=[AIMessage(content="too late")])
-
     try:
         asyncio.run(
-            mod.ModelCallTimeoutFallbackMiddleware(timeout_seconds=0.01).awrap_model_call(
-                request,
-                handler,
-            )
+            asyncio.wait_for(handler(request), timeout=0.01)
         )
     except TimeoutError:
         pass
@@ -714,7 +691,6 @@ def test_build_middleware_defaults_to_single_agent_retry_and_limit_controls() ->
     assert names == [
         "OCIToolCallContentMiddleware",
         "ModelRetryMiddleware",
-        "ModelCallTimeoutFallbackMiddleware",
         "ToolRetryMiddleware",
         "ToolCallLimitMiddleware",
     ]
@@ -733,7 +709,7 @@ def test_build_middleware_can_enable_selector_for_large_catalogs() -> None:
         use_tool_retry=False,
     )
 
-    selector = middleware[3]
+    selector = middleware[2]
     assert type(selector).__name__ == "LLMToolSelectorMiddleware"
     assert selector.always_include == ["oracle_retrieval"]
 
@@ -751,7 +727,6 @@ def test_build_middleware_can_disable_tool_retry() -> None:
     assert names == [
         "OCIToolCallContentMiddleware",
         "ModelRetryMiddleware",
-        "ModelCallTimeoutFallbackMiddleware",
     ]
 
 
