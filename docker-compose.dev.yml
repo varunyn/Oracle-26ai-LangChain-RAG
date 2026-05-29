@@ -1,0 +1,27 @@
+services:
+  backend:
+    command:
+      - uvicorn
+      - api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "3002"
+      - --reload
+      - --reload-dir
+      - /app/api
+      - --reload-dir
+      - /app/src
+      - --reload-dir
+      - /app/scripts
+      - --reload-dir
+      - /app/mcp_servers
+      - --timeout-graceful-shutdown
+      - "15"
+    environment:
+      - WATCHFILES_FORCE_POLLING=true
+    volumes:
+      - ./api:/app/api:ro
+      - ./src:/app/src:ro
+      - ./scripts:/app/scripts:ro
+      - ./mcp_servers:/app/mcp_servers:ro
