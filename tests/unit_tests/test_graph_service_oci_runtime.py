@@ -409,6 +409,51 @@ def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> N
     ]
 
 
+def test_graph_service_rag_mode_returns_not_found_when_retrieval_has_no_docs(
+    monkeypatch,
+) -> None:
+    service = ChatRuntimeService(graph=object())
+
+    def fake_retrieve_oracle_docs(**kwargs: object) -> list[Document]:
+        assert kwargs["query"] == "How can we land on moon?"
+        return []
+
+    async def fail_if_synthesizing_without_context(self: object, **kwargs: object):
+        _ = self, kwargs
+        raise AssertionError("RAG mode must not synthesize an answer without retrieved docs")
+
+    monkeypatch.setattr(
+        ChatRuntimeService,
+        "_retrieve_oracle_docs",
+        lambda self, **kwargs: fake_retrieve_oracle_docs(**kwargs),
+    )
+    monkeypatch.setattr(
+        ChatRuntimeService,
+        "_synthesize_rag_answer",
+        fail_if_synthesizing_without_context,
+    )
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[{"role": "user", "content": "How can we land on moon?"}],
+            model_id="google.gemini-2.5-pro",
+            thread_id="thread-rag-empty",
+            session_id=None,
+            collection_name="RAG_KNOWLEDGE_BASE",
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="rag",
+            mcp_server_keys=None,
+            stream=False,
+        )
+    )
+
+    assert result["final_answer"] == "I don't know the answer from the selected Oracle collection."
+    assert result["citations"] == []
+    assert result["reranker_docs"] == []
+    assert result["context_usage"] is None
+
+
 def test_graph_service_rag_mode_uses_native_reranker_when_enabled(monkeypatch) -> None:
     service = ChatRuntimeService(graph=object())
     docs = [
@@ -1021,7 +1066,7 @@ def test_graph_service_mixed_mode_uses_only_retrieval_tool_state_for_citations(
         )
     )
 
-    assert result["final_answer"] == "namespace is xyz"
+    assert result["final_answer"] == "I don't know the answer from the selected Oracle collection."
     assert result["mcp_tools_used"] == ["oracle_retrieval"]
     assert result["citations"] == []
     assert result["reranker_docs"] == []

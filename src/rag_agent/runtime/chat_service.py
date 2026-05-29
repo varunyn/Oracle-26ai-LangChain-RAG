@@ -45,6 +45,9 @@ from .thread_checkpoints import LangGraphCheckpointThreadStateStore
 
 logger = logging.getLogger(__name__)
 
+_ORACLE_RETRIEVAL_TOOL_NAME = "oracle_retrieval"
+_NO_ORACLE_CONTEXT_ANSWER = "I don't know the answer from the selected Oracle collection."
+
 
 @dataclass(frozen=True)
 class _MCPAgentTurn:
@@ -291,6 +294,42 @@ def _tool_failure_summary(tool_invocations: list[dict[str, object]]) -> str | No
     return f"Workflow failed because tool execution failed: {joined}. See tool output for details."
 
 
+def _tool_was_called(
+    *,
+    tool_name: str,
+    tools_used: list[str],
+    tool_invocations: list[dict[str, object]],
+) -> bool:
+    expected = tool_name.strip().lower()
+    called_tool_names = {str(name).strip().lower() for name in tools_used if str(name).strip()}
+    called_tool_names.update(
+        str(invocation.get("tool_name") or "").strip().lower()
+        for invocation in tool_invocations
+        if isinstance(invocation, dict)
+    )
+    return expected in called_tool_names
+
+
+def _oracle_retrieval_used_without_context(
+    *,
+    retrieval_state: object,
+    retrieval_docs: list[Document],
+    tools_used: list[str],
+    tool_invocations: list[dict[str, object]],
+) -> bool:
+    if retrieval_docs:
+        return False
+    if not isinstance(retrieval_state, dict):
+        return False
+    if str(retrieval_state.get("error") or "").strip():
+        return False
+    return _tool_was_called(
+        tool_name=_ORACLE_RETRIEVAL_TOOL_NAME,
+        tools_used=tools_used,
+        tool_invocations=tool_invocations,
+    )
+
+
 class ChatRuntimeService:
     """Small service to execute direct, MCP, RAG, and mixed OCI chat modes."""
 
@@ -518,6 +557,16 @@ class ChatRuntimeService:
                     retrieval_docs,
                     enable_reranker=enable_reranker,
                 )
+            if (
+                not policy_error
+                and _oracle_retrieval_used_without_context(
+                    retrieval_state=retrieval_state,
+                    retrieval_docs=retrieval_docs,
+                    tools_used=tools_used,
+                    tool_invocations=cast(list[dict[str, object]], tool_invocations),
+                )
+            ):
+                final_answer = _NO_ORACLE_CONTEXT_ANSWER
             mixed_result: dict[str, object] = {
                 "final_answer": final_answer,
                 "error": policy_error,
@@ -606,12 +655,17 @@ class ChatRuntimeService:
                     docs,
                     enable_reranker=enable_reranker,
                 )
-                rag_answer, rag_usage, resolved_model_id = await self._synthesize_rag_answer(
-                    question=standalone_question,
-                    docs=docs,
-                    model_id=model_id,
-                    run_config=run_cfg,
-                )
+                if docs:
+                    rag_answer, rag_usage, resolved_model_id = await self._synthesize_rag_answer(
+                        question=standalone_question,
+                        docs=docs,
+                        model_id=model_id,
+                        run_config=run_cfg,
+                    )
+                else:
+                    rag_answer = _NO_ORACLE_CONTEXT_ANSWER
+                    rag_usage = None
+                    resolved_model_id = model_id or "unknown"
                 emitted_usage, cost_usd = emit_usage_observability(
                     mode=normalized_mode,
                     model_id=resolved_model_id,
