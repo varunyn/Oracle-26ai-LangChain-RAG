@@ -1489,7 +1489,7 @@ def test_graph_service_mixed_mode_runs_repeated_workflow_before_normal_agent(
     assert result["mcp_tools_used"] == ["list_work"]
 
 
-def test_graph_service_mixed_mode_falls_back_when_repeated_workflow_has_no_queue(
+def test_graph_service_mixed_mode_stops_when_repeated_workflow_has_no_queue(
     monkeypatch,
 ) -> None:
     service = ChatRuntimeService(graph=object())
@@ -1572,8 +1572,8 @@ def test_graph_service_mixed_mode_falls_back_when_repeated_workflow_has_no_queue
         )
     )
 
-    assert normal_calls == 1
-    assert result["final_answer"] == "normal answer"
+    assert normal_calls == 0
+    assert "could not identify a work queue" in result["final_answer"]
 
 
 def test_graph_service_mixed_mode_enforces_generic_workflow_policy_when_activated(

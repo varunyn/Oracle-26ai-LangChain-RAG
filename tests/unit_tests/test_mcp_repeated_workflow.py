@@ -204,6 +204,69 @@ def test_run_repeated_mcp_workflow_discovers_processes_then_finalizes(monkeypatc
     assert len([inv for inv in invocations if inv["tool_name"] == "mutate_thing"]) == 2
 
 
+def test_run_repeated_mcp_workflow_stops_when_discovery_finds_no_queue(monkeypatch) -> None:
+    @tool
+    def list_things() -> str:
+        """List things."""
+        return "ok"
+
+    async def fake_get_answer(**kwargs):
+        _ = kwargs
+        return (
+            "No matching work items were found.",
+            ["list_things"],
+            [{"tool_name": "list_things", "args": {}, "result": '{"items": []}'}],
+        )
+
+    async def fake_select_discovery_tools(**kwargs):
+        return list(kwargs["tools"])
+
+    async def fake_select_processing_tools(**kwargs):
+        return list(kwargs["tools"])
+
+    async def fake_select_finalization_tools(**kwargs):
+        return list(kwargs["tools"])
+
+    async def fake_select_context_tools(**kwargs):
+        _ = kwargs
+        return []
+
+    monkeypatch.setattr(
+        "src.rag_agent.workflows.mcp_repeated.select_repeated_workflow_discovery_tools",
+        fake_select_discovery_tools,
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.workflows.mcp_repeated.select_repeated_workflow_processing_tools",
+        fake_select_processing_tools,
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.workflows.mcp_repeated.select_repeated_workflow_finalization_tools",
+        fake_select_finalization_tools,
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.workflows.mcp_repeated.select_repeated_workflow_context_tools",
+        fake_select_context_tools,
+    )
+
+    result = asyncio.run(
+        run_repeated_mcp_workflow(
+            question="Review the thing queue and send a summary",
+            model_id=None,
+            tools=[list_things],
+            run_config={"configurable": {"thread_id": "thread-1"}},
+            require_tool_call=True,
+            get_answer=fake_get_answer,
+        )
+    )
+
+    assert result is not None
+    answer, tools_used, invocations = result
+    assert "could not identify a work queue" in answer
+    assert "No matching work items were found." in answer
+    assert tools_used == ["list_things"]
+    assert invocations == [{"tool_name": "list_things", "args": {}, "result": '{"items": []}'}]
+
+
 def test_run_repeated_mcp_workflow_does_not_reuse_finalized_checkpoint_for_new_run(
     monkeypatch,
     tmp_path,

@@ -448,12 +448,16 @@ class ChatRuntimeService:
         )
         require_tool_call = _require_tool_call_enabled() or explicit_mcp_required
         repeated_result = None
-        if _repeated_workflow_controller_enabled() and await should_use_repeated_workflow(
-            question=question,
-            tools=agent_tools,
-            model_id=resolved_model_id,
-            run_config=run_cfg,
-        ):
+        repeated_workflow_selected = (
+            _repeated_workflow_controller_enabled()
+            and await should_use_repeated_workflow(
+                question=question,
+                tools=agent_tools,
+                model_id=resolved_model_id,
+                run_config=run_cfg,
+            )
+        )
+        if repeated_workflow_selected:
             repeated_result = await run_repeated_mcp_workflow(
                 question=question,
                 model_id=resolved_model_id,
@@ -465,7 +469,7 @@ class ChatRuntimeService:
                 tool_progress_callback=tool_progress_callback,
                 chat_history=chat_history,
             )
-        if repeated_result is None:
+        if repeated_result is None and not repeated_workflow_selected:
             answer, tools_used, tool_invocations = await get_mcp_answer_async(
                 question,
                 chat_history=chat_history,
@@ -475,6 +479,13 @@ class ChatRuntimeService:
                 require_tool_call=require_tool_call,
                 tool_progress_callback=tool_progress_callback,
             )
+        elif repeated_result is None:
+            answer = (
+                "I could not identify a work queue from the discovery tool results, "
+                "so I stopped before processing individual work units."
+            )
+            tools_used = []
+            tool_invocations = []
         else:
             answer, tools_used, tool_invocations = repeated_result
         return _MCPAgentTurn(

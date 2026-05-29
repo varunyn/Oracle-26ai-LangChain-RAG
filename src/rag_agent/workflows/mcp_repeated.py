@@ -82,7 +82,11 @@ async def run_repeated_mcp_workflow(
     discovery_answer, discovery_tool_names, discovery_invocations = discovery_result
     work_units = extract_work_units_from_tool_invocations(discovery_invocations)
     if not work_units:
-        return None
+        return (
+            _no_work_queue_answer(discovery_answer),
+            _dedupe(discovery_tool_names),
+            list(discovery_invocations),
+        )
 
     per_unit_invocations: list[dict[str, object]] = []
     per_unit_tools: list[str] = []
@@ -163,6 +167,19 @@ def _discovery_prompt(question: str) -> str:
         "or reference inputs as the work queue. If queue discovery fails, retry "
         "with corrected arguments when possible. Use native structured tool calls only; "
         "never print tool_name(...) as text. After the queue is discovered, stop."
+    )
+
+
+def _no_work_queue_answer(discovery_answer: str) -> str:
+    answer = discovery_answer.strip()
+    if answer:
+        return (
+            "I could not identify a work queue from the discovery tool results, "
+            f"so I stopped before processing individual work units. Discovery answer: {answer}"
+        )
+    return (
+        "I could not identify a work queue from the discovery tool results, "
+        "so I stopped before processing individual work units."
     )
 
 
