@@ -961,7 +961,9 @@ def test_graph_service_mixed_mode_includes_retrieval_references_when_available(m
     assert result["context_usage"] == {"retrieved_docs_count": 1}
 
 
-def test_graph_service_mixed_mode_falls_back_to_direct_retrieval_for_citations(monkeypatch) -> None:
+def test_graph_service_mixed_mode_uses_only_retrieval_tool_state_for_citations(
+    monkeypatch,
+) -> None:
     service = ChatRuntimeService(graph=object())
 
     class _Tool:
@@ -984,10 +986,6 @@ def test_graph_service_mixed_mode_falls_back_to_direct_retrieval_for_citations(m
         _ = server_keys, run_config
         return [calculator_tool]
 
-    docs = [
-        Document(page_content="VB doc content", metadata={"source": "VB Guide", "page": "1"}),
-    ]
-
     monkeypatch.setattr(
         "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
         fake_get_mcp_tools_async,
@@ -997,7 +995,12 @@ def test_graph_service_mixed_mode_falls_back_to_direct_retrieval_for_citations(m
         "_build_oracle_retrieval_tool",
         lambda self, collection_name=None: _Tool(),
     )
-    monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", lambda self, **kwargs: docs)
+
+    def fail_if_direct_retrieval_called(self, **kwargs):
+        _ = self, kwargs
+        raise AssertionError("mixed mode must not run direct retrieval outside oracle_retrieval")
+
+    monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", fail_if_direct_retrieval_called)
     monkeypatch.setattr(
         "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
@@ -1007,7 +1010,7 @@ def test_graph_service_mixed_mode_falls_back_to_direct_retrieval_for_citations(m
         service.run_chat(
             messages=[{"role": "user", "content": "How can I create visual applications?"}],
             model_id="google.gemini-2.5-pro",
-            thread_id="thread-refs-fallback",
+            thread_id="thread-refs-tool-state",
             session_id=None,
             collection_name="RAG_KNOWLEDGE_BASE",
             enable_reranker=None,
@@ -1018,13 +1021,14 @@ def test_graph_service_mixed_mode_falls_back_to_direct_retrieval_for_citations(m
         )
     )
 
-    assert result["citations"] == [{"source": "VB Guide", "page": "1", "link": None}]
-    assert result["reranker_docs"] == [
-        {"page_content": "VB doc content", "metadata": {"source": "VB Guide", "page": "1"}}
-    ]
+    assert result["final_answer"] == "namespace is xyz"
+    assert result["mcp_tools_used"] == ["oracle_retrieval"]
+    assert result["citations"] == []
+    assert result["reranker_docs"] == []
+    assert result["context_usage"] is None
 
 
-def test_graph_service_mixed_mode_skips_direct_retrieval_fallback_after_tool_error(
+def test_graph_service_mixed_mode_does_not_run_direct_retrieval_after_tool_error(
     monkeypatch,
 ) -> None:
     service = ChatRuntimeService(graph=object())
@@ -1053,7 +1057,7 @@ def test_graph_service_mixed_mode_skips_direct_retrieval_fallback_after_tool_err
 
     def fail_if_direct_retrieval_called(self, **kwargs):
         _ = self, kwargs
-        raise AssertionError("direct retrieval fallback should not run after tool error")
+        raise AssertionError("direct retrieval should not run after tool error")
 
     monkeypatch.setattr(
         "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
@@ -1117,7 +1121,7 @@ def test_graph_service_mixed_mode_keeps_non_retrieval_mcp_answer_without_rag_ove
 
     def fail_if_retrieval_called(self, **kwargs):
         _ = self, kwargs
-        raise AssertionError("RAG fallback should not run when non-retrieval MCP tools were used")
+        raise AssertionError("direct retrieval should not run when non-retrieval MCP tools were used")
 
     monkeypatch.setattr(
         "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
@@ -1188,7 +1192,7 @@ def test_graph_service_mixed_mode_keeps_metadata_answer_without_rag_override(
 
     def fail_if_retrieval_called(self, **kwargs):
         _ = self, kwargs
-        raise AssertionError("RAG fallback should not override a substantive MCP answer")
+        raise AssertionError("direct retrieval should not override a substantive MCP answer")
 
     monkeypatch.setattr(
         "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
@@ -1226,7 +1230,7 @@ def test_graph_service_mixed_mode_keeps_metadata_answer_without_rag_override(
     assert result["reranker_docs"] == []
 
 
-def test_graph_service_mixed_mode_retries_with_required_tool_call_when_mcp_tools_explicitly_referenced(
+def test_graph_service_mixed_mode_requires_tool_call_when_mcp_tools_explicitly_referenced(
     monkeypatch,
 ) -> None:
     service = ChatRuntimeService(graph=object())
@@ -1260,10 +1264,10 @@ def test_graph_service_mixed_mode_retries_with_required_tool_call_when_mcp_tools
         _ = server_keys, run_config
         return [oic_list_documents]
 
-    def fail_if_rag_fallback_called(self, **kwargs):
+    def fail_if_direct_retrieval_called(self, **kwargs):
         _ = self, kwargs
         raise AssertionError(
-            "RAG fallback must not run when explicit MCP tool reference is present"
+            "direct retrieval must not run when explicit MCP tool reference is present"
         )
 
     monkeypatch.setattr(
@@ -1279,7 +1283,7 @@ def test_graph_service_mixed_mode_retries_with_required_tool_call_when_mcp_tools
         "_build_oracle_retrieval_tool",
         lambda self, collection_name=None: retrieval_tool,
     )
-    monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", fail_if_rag_fallback_called)
+    monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", fail_if_direct_retrieval_called)
     monkeypatch.setattr(
         "src.rag_agent.runtime.chat_service.get_settings",
         lambda: type("Settings", (), {"REQUIRE_TOOL_CALL": False, "MCP_WORKFLOW_POLICY": {}})(),
@@ -1305,9 +1309,8 @@ def test_graph_service_mixed_mode_retries_with_required_tool_call_when_mcp_tools
         )
     )
 
-    assert len(call_kwargs) == 2
-    assert call_kwargs[0].get("require_tool_call") is False
-    assert call_kwargs[1].get("require_tool_call") is True
+    assert len(call_kwargs) == 1
+    assert call_kwargs[0].get("require_tool_call") is True
     assert (
         result["final_answer"]
         == "MCP tool call required but none was produced after retry. Please try again."

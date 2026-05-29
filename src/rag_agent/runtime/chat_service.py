@@ -51,9 +51,6 @@ class _MCPAgentTurn:
     answer: str
     tools_used: list[str]
     tool_invocations: list[dict[str, object]]
-    mcp_tools: list[BaseTool]
-    agent_tools: list[BaseTool]
-    run_config: RunnableConfig
     resolved_model_id: str
 
 
@@ -173,19 +170,6 @@ def _question_explicitly_references_mcp_tools(
         if humanized in lower_question:
             return True
     return False
-
-
-def _has_called_mcp_tool(
-    tools_used: list[str],
-    mcp_tools: list[BaseTool],
-) -> bool:
-    used = {str(name).strip() for name in tools_used if str(name).strip()}
-    mcp_tool_names = {
-        str(getattr(tool, "name", "") or "").strip()
-        for tool in mcp_tools
-        if str(getattr(tool, "name", "") or "").strip()
-    }
-    return any(name in used for name in mcp_tool_names)
 
 
 def _to_string_list(raw: object) -> list[str]:
@@ -333,6 +317,7 @@ class ChatRuntimeService:
         langfuse_trace: LangfuseChatTrace | None,
         tool_progress_callback: Callable[[dict[str, object]], None] | None,
         extra_tools: list[BaseTool] | None = None,
+        require_mcp_tool_call_when_referenced: bool = False,
     ) -> _MCPAgentTurn:
         resolved_model_id = model_id or get_llm().model_id
         run_cfg = _prepare_run_config(
@@ -356,6 +341,11 @@ class ChatRuntimeService:
             (time.perf_counter() - tool_load_started) * 1000,
         )
         agent_tools = [*(extra_tools or []), *mcp_tools]
+        explicit_mcp_required = (
+            require_mcp_tool_call_when_referenced
+            and _question_explicitly_references_mcp_tools(question, mcp_tools)
+        )
+        require_tool_call = _require_tool_call_enabled() or explicit_mcp_required
         repeated_result = None
         if _repeated_workflow_controller_enabled() and await should_use_repeated_workflow(
             question=question,
@@ -368,7 +358,7 @@ class ChatRuntimeService:
                 model_id=resolved_model_id,
                 tools=agent_tools,
                 run_config=run_cfg,
-                require_tool_call=_require_tool_call_enabled(),
+                require_tool_call=require_tool_call,
                 get_answer=get_mcp_answer_async,
                 checkpoint_path=_workflow_checkpoint_path(),
                 tool_progress_callback=tool_progress_callback,
@@ -381,7 +371,7 @@ class ChatRuntimeService:
                 model_id=resolved_model_id,
                 tools=agent_tools,
                 run_config=run_cfg,
-                require_tool_call=_require_tool_call_enabled(),
+                require_tool_call=require_tool_call,
                 tool_progress_callback=tool_progress_callback,
             )
         else:
@@ -390,9 +380,6 @@ class ChatRuntimeService:
             answer=answer,
             tools_used=tools_used,
             tool_invocations=cast(list[dict[str, object]], tool_invocations),
-            mcp_tools=mcp_tools,
-            agent_tools=agent_tools,
-            run_config=run_cfg,
             resolved_model_id=resolved_model_id,
         )
 
@@ -494,32 +481,15 @@ class ChatRuntimeService:
                 langfuse_trace=langfuse_trace,
                 tool_progress_callback=tool_progress_callback,
                 extra_tools=[retrieval_tool],
+                require_mcp_tool_call_when_referenced=True,
             )
             final_answer = mcp_turn.answer
             tools_used = mcp_turn.tools_used
             tool_invocations = mcp_turn.tool_invocations
-            explicit_mcp_required = _question_explicitly_references_mcp_tools(
-                latest_user_message,
-                mcp_turn.mcp_tools,
-            )
             workflow_policy = _workflow_policy_for_request(
                 mode=normalized_mode,
                 question=latest_user_message,
             )
-            if (
-                explicit_mcp_required
-                and latest_user_message
-                and not _has_called_mcp_tool(tools_used, mcp_turn.mcp_tools)
-            ):
-                final_answer, tools_used, tool_invocations = await get_mcp_answer_async(
-                    latest_user_message,
-                    chat_history=chat_history,
-                    model_id=mcp_turn.resolved_model_id,
-                    tools=mcp_turn.agent_tools,
-                    run_config=mcp_turn.run_config,
-                    require_tool_call=True,
-                    tool_progress_callback=tool_progress_callback,
-                )
             policy_applied, missing_capabilities, policy_failure_message = _enforce_workflow_policy(
                 policy=workflow_policy,
                 tools_used=tools_used,
@@ -542,61 +512,12 @@ class ChatRuntimeService:
                 if isinstance(retrieval_state, dict)
                 else []
             )
-            retrieval_error = (
-                bool(retrieval_state.get("error")) if isinstance(retrieval_state, dict) else False
-            )
-            if (
-                not retrieval_docs
-                and not retrieval_error
-                and "oracle_retrieval" in tools_used
-                and latest_user_message
-            ):
-                retrieval_docs = self._retrieve_oracle_docs(
-                    query=latest_user_message,
-                    collection_name=collection_name,
-                    k=8,
-                )
             if retrieval_docs and latest_user_message:
                 retrieval_docs = self._rank_retrieved_docs(
                     latest_user_message,
                     retrieval_docs,
                     enable_reranker=enable_reranker,
                 )
-            # Guardrail: if the agent produced no usable answer and no MCP tools
-            # were used, fall back to direct RAG retrieval+synthesis.
-            # Do not override a substantive answer generated from available tool
-            # metadata, even when no external tool invocation was needed.
-            if (
-                latest_user_message
-                and not tools_used
-                and not final_answer.strip()
-                and not explicit_mcp_required
-                and not policy_applied
-            ):
-                retrieval_docs = self._retrieve_oracle_docs(
-                    query=latest_user_message,
-                    collection_name=collection_name,
-                    k=8,
-                )
-                if retrieval_docs:
-                    retrieval_docs = self._rank_retrieved_docs(
-                        latest_user_message,
-                        retrieval_docs,
-                        enable_reranker=enable_reranker,
-                    )
-                    rag_answer, rag_usage, resolved_model_id = await self._synthesize_rag_answer(
-                        question=latest_user_message,
-                        docs=retrieval_docs,
-                        model_id=model_id,
-                    )
-                    emit_usage_observability(
-                        mode=normalized_mode,
-                        model_id=resolved_model_id,
-                        session_id=session_id,
-                        thread_id=thread_id,
-                        usage=rag_usage,
-                    )
-                    final_answer = rag_answer
             mixed_result: dict[str, object] = {
                 "final_answer": final_answer,
                 "error": policy_error,
