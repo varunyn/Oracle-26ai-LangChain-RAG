@@ -885,7 +885,7 @@ def test_build_system_prompt_prioritizes_explicit_workflows_generically() -> Non
     assert "item/document/record" not in prompt
 
 
-def test_langchain_executor_normalizes_missing_tool_call_ids(monkeypatch) -> None:
+def test_langchain_executor_does_not_mutate_missing_tool_call_ids(monkeypatch) -> None:
     fake_agent = _FakeAgent(
         {
             "messages": [
@@ -912,8 +912,6 @@ def test_langchain_executor_normalizes_missing_tool_call_ids(monkeypatch) -> Non
     monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
     monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
     monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
-    monkeypatch.setattr(uuid, "uuid4", lambda: SimpleNamespace(hex="a1b2c3d4e5f67890"))
-
     import asyncio
 
     _ = asyncio.run(
@@ -929,9 +927,9 @@ def test_langchain_executor_normalizes_missing_tool_call_ids(monkeypatch) -> Non
 
     first = fake_agent.output["messages"][0]
     assert isinstance(first, AIMessage)
-    assert first.tool_calls[0]["id"] == "call_0_a1b2c3d4e5f6"
-    assert first.additional_kwargs["tool_calls"][0]["id"] == "call_0_a1b2c3d4e5f6"
-    assert first.response_metadata["tool_calls"][0]["id"] == "call_0_a1b2c3d4e5f6"
+    assert first.tool_calls[0]["id"] == ""
+    assert first.additional_kwargs["tool_calls"][0]["id"] == ""
+    assert first.response_metadata["tool_calls"][0]["id"] == ""
 
 
 def test_extract_answer_and_tools_ignores_mapping_messages() -> None:

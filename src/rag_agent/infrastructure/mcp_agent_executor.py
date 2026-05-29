@@ -4,7 +4,6 @@ import asyncio
 import inspect
 import json
 import logging
-import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
@@ -612,50 +611,6 @@ def _agent_state_has_tool_error(agent_state: Mapping[str, object]) -> bool:
     return False
 
 
-def _normalize_ai_tool_call_ids(agent_state: Mapping[str, object]) -> None:
-    messages_raw = agent_state.get("messages")
-    if not isinstance(messages_raw, Sequence) or isinstance(messages_raw, (str, bytes)):
-        return
-
-    for message in cast(Sequence[object], messages_raw):
-        if not isinstance(message, AIMessage):
-            continue
-        raw_tool_calls = getattr(message, "tool_calls", None)
-        if not isinstance(raw_tool_calls, list):
-            continue
-
-        normalized_ids: list[str] = []
-        for idx, tool_call in enumerate(raw_tool_calls):
-            if not isinstance(tool_call, dict):
-                continue
-            current_id = tool_call.get("id")
-            if isinstance(current_id, str) and current_id.strip():
-                normalized_ids.append(current_id.strip())
-                continue
-            generated_id = f"call_{idx}_{uuid.uuid4().hex[:12]}"
-            tool_call["id"] = generated_id
-            normalized_ids.append(generated_id)
-
-        if not normalized_ids:
-            continue
-
-        for container_name in ("additional_kwargs", "response_metadata"):
-            container = getattr(message, container_name, None)
-            if not isinstance(container, dict):
-                continue
-            container_tool_calls = container.get("tool_calls")
-            if not isinstance(container_tool_calls, list):
-                continue
-            for idx, tool_call in enumerate(container_tool_calls):
-                if not isinstance(tool_call, dict):
-                    continue
-                existing = tool_call.get("id")
-                if isinstance(existing, str) and existing.strip():
-                    continue
-                if idx < len(normalized_ids):
-                    tool_call["id"] = normalized_ids[idx]
-
-
 async def get_mcp_answer_with_langchain_agent_async(
     *,
     question: str,
@@ -706,7 +661,6 @@ async def get_mcp_answer_with_langchain_agent_async(
                     tool_progress_callback=tool_progress_callback,
                 ),
             )
-            _normalize_ai_tool_call_ids(response_state)
             answer, tools_used = _extract_answer_and_tools(response_state)
             tool_invocations = _extract_tool_invocations(response_state)
             if retry_idx >= 1:
