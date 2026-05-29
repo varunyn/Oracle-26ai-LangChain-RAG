@@ -1,14 +1,12 @@
 """Follow-up suggestions endpoint for the runtime API surface."""
 
 import asyncio
-import json
 import logging
-import re
-from typing import Any
 
 from fastapi import APIRouter
-from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import AliasChoices, BaseModel, Field
+from langchain.agents import create_agent
+from langchain_core.messages import HumanMessage
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from src.rag_agent.infrastructure.oci_models import get_llm
 from src.rag_agent.utils.langfuse_tracing import add_langfuse_callbacks, start_langfuse_chat_trace
@@ -21,66 +19,13 @@ Output exactly 3 to 5 concise questions as a JSON array of strings.
 
 Rules:
 - Keep questions tightly grounded in the latest user question and assistant answer.
+- Return an empty list if the assistant answer is empty, just internal tool syntax, or not enough context.
 - Do not change domain/topic. No generic brainstorming.
 - Each suggestion must be <= 12 words and end with "?".
 - Avoid duplicates and near-duplicates.
-- Return only JSON array. No markdown, no explanation.
 
 Example:
 ["Can you show the exact steps in Visual Builder?","What prerequisites are required first?"]"""
-
-RAW_TOOL_CALL_PATTERN = re.compile(r"^[\w\.]+\s*\([^)]*\)$")
-WORD_PATTERN = re.compile(r"[a-zA-Z][a-zA-Z0-9_-]{2,}")
-GENERIC_SUGGESTION_PATTERN = re.compile(
-    r"^(can you tell me more|what else|anything else|more details|explain more)\??$",
-    re.IGNORECASE,
-)
-STOPWORDS = {
-    "the",
-    "and",
-    "for",
-    "with",
-    "that",
-    "this",
-    "from",
-    "your",
-    "about",
-    "what",
-    "when",
-    "where",
-    "which",
-    "how",
-    "can",
-    "could",
-    "would",
-    "should",
-    "into",
-    "then",
-    "than",
-    "have",
-    "has",
-    "had",
-    "you",
-    "are",
-    "was",
-    "were",
-    "they",
-    "them",
-    "their",
-    "there",
-    "here",
-    "just",
-    "also",
-    "only",
-    "using",
-    "use",
-    "used",
-    "need",
-    "show",
-    "give",
-    "make",
-    "create",
-}
 class SuggestionsRequest(BaseModel):
     """Request body for POST /api/suggestions."""
 
@@ -103,59 +48,55 @@ class SuggestionsResponse(BaseModel):
     suggestions: list[str] = Field(default_factory=list, description="Follow-up question strings")
 
 
-def _looks_like_raw_tool_call(text: str) -> bool:
-    candidate = text.strip()
-    return bool(candidate) and len(candidate) <= 200 and bool(RAW_TOOL_CALL_PATTERN.fullmatch(candidate))
+class FollowUpSuggestions(BaseModel):
+    """Structured output for follow-up suggestions."""
+
+    suggestions: list[str] = Field(
+        default_factory=list,
+        description="Three to five concise follow-up questions, or an empty list.",
+    )
+
+    @field_validator("suggestions", mode="before")
+    @classmethod
+    def _coerce_suggestions(cls, value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [item for item in value if isinstance(item, str)]
+
+    @field_validator("suggestions")
+    @classmethod
+    def _normalize_suggestions(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw in value:
+            question = " ".join(raw.strip().split()).rstrip(".!")
+            if not question:
+                continue
+            if not question.endswith("?"):
+                question = f"{question}?"
+            if len(question[:-1].split()) > 12:
+                continue
+            key = question.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(question)
+            if len(normalized) >= 5:
+                break
+        return normalized
 
 
-def _extract_keywords(text: str) -> set[str]:
-    return {
-        token.lower()
-        for token in WORD_PATTERN.findall(text)
-        if token and token.lower() not in STOPWORDS
-    }
+def _extract_structured_suggestions(result: object) -> list[str]:
+    if isinstance(result, dict):
+        structured = result.get("structured_response")
+    else:
+        structured = getattr(result, "structured_response", None)
 
-
-def _normalize_question(text: str) -> str:
-    value = re.sub(r"\s+", " ", text.strip())
-    value = value.rstrip(".!")
-    if value and not value.endswith("?"):
-        value = f"{value}?"
-    return value
-
-
-def _filter_suggestions(
-    *,
-    suggestions: list[str],
-    last_message: str,
-    last_user_message: str | None,
-) -> list[str]:
-    topic_keywords = _extract_keywords(f"{last_user_message or ''} {last_message}")
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for raw in suggestions:
-        candidate = _normalize_question(raw)
-        if not candidate:
-            continue
-        if GENERIC_SUGGESTION_PATTERN.fullmatch(candidate.strip().lower()):
-            continue
-        key = candidate.lower()
-        if key in seen:
-            continue
-        suggestion_keywords = _extract_keywords(candidate)
-        enforce_topic_overlap = bool(last_user_message and last_user_message.strip())
-        if (
-            enforce_topic_overlap
-            and topic_keywords
-            and suggestion_keywords
-            and topic_keywords.isdisjoint(suggestion_keywords)
-        ):
-            continue
-        seen.add(key)
-        cleaned.append(candidate)
-        if len(cleaned) >= 5:
-            break
-    return cleaned
+    if isinstance(structured, FollowUpSuggestions):
+        return structured.suggestions
+    if isinstance(structured, dict):
+        return FollowUpSuggestions.model_validate(structured).suggestions
+    return []
 
 
 async def _generate_suggestions_async(
@@ -174,10 +115,6 @@ async def _generate_suggestions_async(
         f"Latest user question:\n{user_context[:2000] or '(none)'}\n\n"
         f"Latest assistant answer:\n{last_message[:4000]}"
     )
-    messages = [
-        SystemMessage(content=FOLLOW_UP_SYSTEM),
-        HumanMessage(content=prompt_payload),
-    ]
     trace_tags = [
         tag
         for tag in (
@@ -210,36 +147,24 @@ async def _generate_suggestions_async(
         )
 
         def _invoke() -> object:
-            try:
-                return llm.invoke(messages, config=run_config)
-            except TypeError:
-                return llm.invoke(messages)
+            agent = create_agent(
+                model=llm,
+                tools=[],
+                system_prompt=FOLLOW_UP_SYSTEM,
+                response_format=FollowUpSuggestions,
+            )
+            return agent.invoke({"messages": [HumanMessage(content=prompt_payload)]}, config=run_config)
 
-        msg = await asyncio.to_thread(_invoke)
-        text = (getattr(msg, "content", None) or "").strip()
-        raw = re.sub(r"^```json?\s*|\s*```$", "", text).strip()
-        suggestions: list[str] = []
-        try:
-            parsed: Any = json.loads(raw)
-            if isinstance(parsed, list):
-                suggestions = [s.strip() for s in parsed if isinstance(s, str) and s.strip()][:6]
-        except (json.JSONDecodeError, TypeError):
-            pass
-        filtered = _filter_suggestions(
-            suggestions=suggestions,
-            last_message=last_message,
-            last_user_message=last_user_message,
-        )
-        langfuse_trace.update_output({"suggestion_count": len(filtered)})
-        return filtered
+        result = await asyncio.to_thread(_invoke)
+        suggestions = _extract_structured_suggestions(result)
+        langfuse_trace.update_output({"suggestion_count": len(suggestions)})
+        return suggestions
 
 
 @router.post("/api/suggestions", response_model=SuggestionsResponse)
 async def post_suggestions(request: SuggestionsRequest) -> SuggestionsResponse:
     """Generate 3-6 follow-up question suggestions from the last assistant message."""
     if not request.last_message.strip():
-        return SuggestionsResponse(suggestions=[])
-    if _looks_like_raw_tool_call(request.last_message):
         return SuggestionsResponse(suggestions=[])
     try:
         suggestions = await _generate_suggestions_async(
