@@ -37,6 +37,23 @@ Scoped hints:
 - Observability stack: `uv run python scripts/manage_stacks.py up --stacks observability`
 - Langfuse stack: `uv run python scripts/manage_stacks.py up --stacks langfuse`
 
+## Live Runtime Debugging
+
+- Start from the running system. Check `docker compose ps`, then `docker compose logs --tail 120 <service>` before guessing from source or screenshots.
+- When the user is testing Docker, treat Docker as the source of truth. Frontend changes require the frontend image/container to be rebuilt or hot-loaded by the active dev setup before browser results matter.
+- For faster backend iteration, use direct uvicorn or the bind-mounted dev override: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up backend`.
+- For browser-visible regressions, collect the actual console/network symptom, request ID, backend log lines, and response/stream payload before changing code.
+- Leave local-only Codex or MCP config such as `.codex/config.toml` out of commits unless the user explicitly asks to version it.
+
+## Agentic AI Changes
+
+- For agentic AI, MCP, tool-calling, routing, retry, memory/state, streaming, or output-quality bugs, inspect live Langfuse traces before coding. Use `langfuse --env .env api traces list --limit 5 --json`, then fetch the trace and observations by trace id.
+- Do not hardcode prompt-keyword or tool-name scenarios to make one example pass. Prefer model tool-calling semantics, tool descriptions, structured state, middleware, and deterministic checks on already-structured tool results.
+- For provider errors, inspect the real package behavior and live payload shape first. Keep compatibility fixes at the app/provider boundary and avoid patching vendored packages unless explicitly requested.
+- Unit tests are not enough for LangChain/LangGraph changes. Run an integration or end-to-end path that exercises the actual graph/agent flow; use real model calls and real tool calls when the environment allows.
+- If real calls are not possible, say exactly what was validated instead and what remains unproven. Keep deterministic unit/workflow tests for guardrails, but do not present them as proof of live agent behavior.
+- Streaming fixes must be verified at the stream contract and UI layers: backend SSE/events, frontend stream state, visible tool progress, and final answer rendering.
+
 ## Checks
 
 Use targeted checks while iterating, then broaden based on risk.
