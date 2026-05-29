@@ -20,8 +20,21 @@ def _stream_payload(messages: list[dict[str, object]], **kwargs: object) -> dict
 
 
 def _parse_values_events(chunks: list[bytes]) -> list[dict[str, object]]:
-    payloads = list(parse_sse_stream(iter(chunks)))
-    return [cast(dict[str, object], json.loads(payload)) for payload in payloads]
+    return [payload for event, payload in _parse_sse_events(chunks) if event == "values"]
+
+
+def _parse_sse_events(chunks: list[bytes]) -> list[tuple[str, dict[str, object]]]:
+    events: list[tuple[str, dict[str, object]]] = []
+    current_event = "message"
+    for raw_line in b"".join(chunks).decode("utf-8").splitlines():
+        line = raw_line.rstrip("\r")
+        if line.startswith("event: "):
+            current_event = line[7:]
+            continue
+        if line.startswith("data: "):
+            events.append((current_event, cast(dict[str, object], json.loads(line[6:]))))
+            current_event = "message"
+    return events
 
 
 def _last_assistant(events: list[dict[str, object]]) -> dict[str, object]:
@@ -169,6 +182,7 @@ class StubRuntimeEventServiceWithToolProgress(StubRuntimeEventService):
                 "data": {
                     "phase": "start",
                     "tool_name": "oic_LIST_DOCUMENTS",
+                    "tool_run_id": "tool-call-1",
                     "args": {"folderName": "invoices"},
                 },
             },
@@ -490,6 +504,54 @@ def test_values_stream_includes_tool_progress_events() -> None:
         assert progress
         assert progress[0].get("phase") == "start"
         assert progress[0].get("tool_name") == "oic_LIST_DOCUMENTS"
+
+    try:
+        asyncio.run(run())
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_stream_emits_sdk_tool_events_before_final_answer() -> None:
+    from api.dependencies import get_graph_service
+
+    app.dependency_overrides[get_graph_service] = lambda: StubRuntimeEventServiceWithToolProgress()
+
+    async def run() -> None:
+        headers = {"Content-Type": "application/json"}
+        payload = _stream_payload([{"type": "human", "content": "Hello"}], streamMode=["values", "tools"])
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            async with client.stream(
+                "POST",
+                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+                headers=headers,
+                json=payload,
+            ) as response:
+                assert response.status_code == 200
+                chunks: list[bytes] = []
+                async for chunk in response.aiter_bytes():
+                    chunks.append(chunk)
+
+        events = _parse_sse_events(chunks)
+        tool_event_index = next(
+            index for index, (event_name, _) in enumerate(events) if event_name == "tools"
+        )
+        final_answer_index = next(
+            index
+            for index, (event_name, payload) in enumerate(events)
+            if event_name == "values"
+            and "Processing complete."
+            in str(cast(list[dict[str, object]], payload.get("messages") or [])[-1].get("content"))
+        )
+        event_payload = events[tool_event_index][1]
+        assert tool_event_index < final_answer_index
+        assert event_payload == {
+            "event": "on_tool_start",
+            "name": "oic_LIST_DOCUMENTS",
+            "toolCallId": "tool-call-1",
+            "input": {"folderName": "invoices"},
+        }
 
     try:
         asyncio.run(run())

@@ -13,7 +13,7 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, model_validator
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 from api.dependencies import generate_request_id, get_graph_service, log_conversation_out
 from api.routes.langgraph_middleware import merge_runtime_context
@@ -52,6 +52,10 @@ class RunInput(BaseModel):
     enable_tracing: bool | None = None
     mode: str | None = None
     mcp_server_keys: list[str] | None = None
+    stream_mode: str | list[str] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("stream_mode", "streamMode"),
+    )
 
     @staticmethod
     def _normalized_role(message: dict[str, Any]) -> str:
@@ -100,6 +104,10 @@ class ThreadRunRequest(BaseModel):
     metadata: dict[str, Any] | None = None
     configurable: dict[str, Any] | None = None
     assistant_id: str | None = None
+    stream_mode: str | list[str] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("stream_mode", "streamMode"),
+    )
 
     @model_validator(mode="after")
     def _validate_payload(self) -> ThreadRunRequest:
@@ -197,6 +205,55 @@ def _stream_error_message(exc: Exception) -> str:
     return "Internal server error"
 
 
+def _safe_non_empty_string(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _to_tools_stream_event(data: dict[str, object]) -> dict[str, object] | None:
+    """Convert internal tool progress metadata to LangGraph SDK tools events."""
+
+    raw_event = _safe_non_empty_string(data.get("event"))
+    if raw_event in {"on_tool_start", "on_tool_event", "on_tool_end", "on_tool_error"}:
+        name = _safe_non_empty_string(data.get("name"))
+        if not name:
+            return None
+        event_payload: dict[str, object] = {"event": raw_event, "name": name}
+        tool_call_id = _safe_non_empty_string(data.get("toolCallId"))
+        if tool_call_id:
+            event_payload["toolCallId"] = tool_call_id
+        for key in ("input", "data", "output", "error"):
+            if key in data:
+                event_payload[key] = data[key]
+        return event_payload
+
+    phase = _safe_non_empty_string(data.get("phase"))
+    tool_name = _safe_non_empty_string(data.get("tool_name"))
+    if not phase or not tool_name:
+        return None
+
+    event_payload: dict[str, object] = {"name": tool_name}
+    tool_run_id = _safe_non_empty_string(data.get("tool_run_id"))
+    if tool_run_id:
+        event_payload["toolCallId"] = tool_run_id
+
+    if phase == "start":
+        event_payload["event"] = "on_tool_start"
+        event_payload["input"] = data.get("args", {})
+        return event_payload
+    if phase == "end":
+        event_payload["event"] = "on_tool_end"
+        event_payload["output"] = data.get("result")
+        return event_payload
+    if phase == "error":
+        event_payload["event"] = "on_tool_error"
+        event_payload["error"] = data.get("error") or data.get("result")
+        return event_payload
+    return None
+
+
 def _effective_run_input(payload: ThreadRunRequest) -> RunInput:
     if payload.input is not None:
         return payload.input
@@ -212,6 +269,7 @@ def _effective_run_input(payload: ThreadRunRequest) -> RunInput:
             "enable_tracing": payload.enable_tracing,
             "mode": payload.mode,
             "mcp_server_keys": payload.mcp_server_keys,
+            "stream_mode": payload.stream_mode,
         },
         context=payload.context,
         metadata=payload.metadata,
@@ -341,6 +399,14 @@ async def stream_thread_run(
                         if len(progress_events) > 100:
                             progress_events = progress_events[-100:]
                         references["mcp_progress_events"] = list(progress_events)
+                        tools_stream_event = _to_tools_stream_event(
+                            cast(dict[str, object], safe_event)
+                        )
+                        if tools_stream_event:
+                            yield (
+                                "event: tools\n"
+                                f"data: {_json_response_body(tools_stream_event)}\n\n"
+                            )
                         yield _emit_values()
             log_conversation_out(
                 final_answer=assistant_text,

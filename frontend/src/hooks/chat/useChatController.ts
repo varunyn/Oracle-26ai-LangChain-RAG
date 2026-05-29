@@ -1,6 +1,13 @@
 import { AIMessage, HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
 import { useStream } from "@langchain/react";
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useSuggestions } from "@/hooks/useSuggestions";
 import { useChatBodyParams, type FlowMode } from "@/hooks/useChatBodyParams";
 import { useScrollToBottom } from "@/hooks/useScrollToBottom";
@@ -42,9 +49,21 @@ type MessageLike = {
   content?: string;
   parts?: { type?: string; text?: string; data?: unknown }[];
 };
+type PendingUserMessage = MessageLike & {
+  submittedMessageCount: number;
+};
 type ChatStatus = "submitted" | "streaming" | "ready" | "error";
 type SendOverrides = {
   mode?: FlowMode;
+};
+type SdkToolProgress = {
+  toolCallId?: string;
+  name?: string;
+  state?: string;
+  input?: unknown;
+  data?: unknown;
+  result?: unknown;
+  error?: unknown;
 };
 
 type ClearSessionChat = (helpers: {
@@ -69,6 +88,20 @@ type BaseMessageWithKwargs = BaseMessage & {
   additional_kwargs?: Record<string, unknown>;
   response_metadata?: Record<string, unknown>;
 };
+
+type ChatStreamDebugEvent =
+  | "submit"
+  | "stop"
+  | "error"
+  | "status"
+  | "stream.messages"
+  | "stream.values"
+  | "stream.toolProgress"
+  | "visible.messages";
+
+const CHAT_STREAM_DEBUG_FLAG = "rag_agent_debug_stream";
+const CHAT_STREAM_DEBUG_BREAK_FLAG = "rag_agent_debug_stream_break";
+const EMPTY_TOOL_PROGRESS: SdkToolProgress[] = [];
 
 function toFiniteNumber(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
@@ -226,12 +259,160 @@ function toReferencesFromRawMessage(rawMessage: unknown): ReferencePayload | nul
   return null;
 }
 
+function toRoleFromRawValueMessage(rawMessage: Record<string, unknown>): MessageLike["role"] {
+  const role = String(rawMessage.role ?? "").trim().toLowerCase();
+  const type = String(rawMessage.type ?? "").trim().toLowerCase();
+  if (role === "user" || role === "human" || type === "human") return "user";
+  if (role === "assistant" || role === "ai" || type === "ai") return "assistant";
+  if (role === "system" || type === "system") return "system";
+  return undefined;
+}
+
+function toMessageFromRawValue(rawMessage: unknown, index: number): MessageLike | null {
+  if (!rawMessage || typeof rawMessage !== "object") return null;
+  const data = rawMessage as Record<string, unknown>;
+  const role = toRoleFromRawValueMessage(data);
+  if (!role) return null;
+
+  const text = readText(data.content);
+  const refData = toReferencesFromRawMessage(data);
+  const parts: { type?: string; text?: string; data?: unknown }[] = [];
+  if (text) parts.push({ type: "text", text });
+  if (refData) parts.push({ type: "data-references", data: refData });
+
+  return {
+    id: typeof data.id === "string" ? data.id : `value-message-${index}`,
+    role,
+    content: text,
+    parts,
+  };
+}
+
+function hasVisibleUserMessageWithText(messages: MessageLike[], text: string): boolean {
+  const normalizedText = text.trim();
+  if (!normalizedText) return false;
+  return messages.some(
+    (message) =>
+      message.role === "user" && getMessageContent(message).trim() === normalizedText,
+  );
+}
+
 function traceIdFromMessage(message: MessageLike): string | undefined {
   const refPart = message.parts?.find((part) => part.type === "data-references");
   const data = refPart?.data;
   if (!data || typeof data !== "object") return undefined;
   const traceId = (data as ReferencePayload).trace_id;
   return typeof traceId === "string" && traceId.trim() ? traceId : undefined;
+}
+
+function referencePayloadFromMessage(message: MessageLike): ReferencePayload | null {
+  const refPart = message.parts?.find((part) => part.type === "data-references");
+  const data = refPart?.data;
+  return data && typeof data === "object" ? (data as ReferencePayload) : null;
+}
+
+function stringifyToolPayload(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function toolProgressToMcpEvents(toolProgress: SdkToolProgress[]): McpProgressEvent[] {
+  return toolProgress
+    .map((tool): McpProgressEvent | null => {
+      const toolName = typeof tool.name === "string" ? tool.name.trim() : "";
+      if (!toolName) return null;
+      const toolRunId =
+        typeof tool.toolCallId === "string" && tool.toolCallId.trim()
+          ? tool.toolCallId
+          : undefined;
+      const base = {
+        tool_name: toolName,
+        tool_run_id: toolRunId,
+        args: tool.input,
+      };
+      if (tool.state === "completed") {
+        return {
+          ...base,
+          phase: "end",
+          result: stringifyToolPayload(tool.result),
+        };
+      }
+      if (tool.state === "error") {
+        return {
+          ...base,
+          phase: "error",
+          error: stringifyToolPayload(tool.error),
+        };
+      }
+      return {
+        ...base,
+        phase: "start",
+        result: tool.state === "running" ? stringifyToolPayload(tool.data) : null,
+      };
+    })
+    .filter((event): event is McpProgressEvent => event != null);
+}
+
+function withLiveToolProgress(
+  messages: MessageLike[],
+  progressEvents: McpProgressEvent[],
+): MessageLike[] {
+  if (progressEvents.length === 0) return messages;
+  const toolsUsed = [...new Set(progressEvents.map((event) => event.tool_name))];
+  const assistantIndex = [...messages]
+    .map((message, index) => ({ message, index }))
+    .reverse()
+    .find(({ message }) => message.role === "assistant")?.index;
+  const progressReferences = {
+    citations: [],
+    reranker_docs: [],
+    mcp_used: true,
+    mcp_tools_used: toolsUsed,
+    mcp_progress_events: progressEvents,
+  } satisfies ReferencePayload;
+
+  if (assistantIndex == null) {
+    const latestEvent = progressEvents.at(-1);
+    return [
+      ...messages,
+      {
+        id: `live-tool-progress-${latestEvent?.tool_run_id ?? latestEvent?.tool_name ?? "tool"}`,
+        role: "assistant",
+        content: "",
+        parts: [{ type: "data-references", data: progressReferences }],
+      },
+    ];
+  }
+
+  const target = messages[assistantIndex];
+  const currentReferences = referencePayloadFromMessage(target);
+  const mergedReferences: ReferencePayload = {
+    trace_id: currentReferences?.trace_id,
+    standalone_question: currentReferences?.standalone_question,
+    citations: currentReferences?.citations ?? [],
+    reranker_docs: currentReferences?.reranker_docs ?? [],
+    context_usage: currentReferences?.context_usage,
+    mcp_used: currentReferences?.mcp_used ?? true,
+    mcp_tools_used:
+      currentReferences?.mcp_tools_used && currentReferences.mcp_tools_used.length > 0
+        ? currentReferences.mcp_tools_used
+        : toolsUsed,
+    mcp_tool_invocations: currentReferences?.mcp_tool_invocations,
+    mcp_progress_events: progressEvents,
+    error: currentReferences?.error,
+  };
+  const next = [...messages];
+  const nextParts = (target.parts ?? []).filter((part) => part.type !== "data-references");
+  next[assistantIndex] = {
+    ...target,
+    parts: [...nextParts, { type: "data-references", data: mergedReferences }],
+  };
+  return next;
 }
 
 function normalizeStatus(rawStatus: unknown, isLoading: boolean, hasError: boolean): ChatStatus {
@@ -255,6 +436,173 @@ function getLastUserMessageText(messages: MessageLike[]): string {
   return getMessageContent(lastUserMessage).trim();
 }
 
+function hasRawUserMessageWithText(messages: BaseMessageWithKwargs[], text: string): boolean {
+  const normalizedText = text.trim();
+  if (!normalizedText) return false;
+  return messages.some(
+    (message) =>
+      toRole(message) === "user" &&
+      readText(message.content).trim() === normalizedText,
+  );
+}
+
+function createPendingUserMessage(
+  text: string,
+  submittedMessageCount: number,
+): PendingUserMessage {
+  return {
+    id: `pending-user-${Date.now()}`,
+    role: "user",
+    content: text,
+    parts: [{ type: "text", text }],
+    submittedMessageCount,
+  };
+}
+
+function getDebugParam(name: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return new URLSearchParams(window.location.search).get(name);
+  } catch {
+    return null;
+  }
+}
+
+function getDebugStorageValue(name: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(name);
+  } catch {
+    return null;
+  }
+}
+
+function isTruthyDebugValue(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function isChatStreamDebugEnabled(): boolean {
+  return (
+    process.env.NEXT_PUBLIC_CHAT_STREAM_DEBUG === "true" ||
+    isTruthyDebugValue(getDebugParam("debugStream")) ||
+    isTruthyDebugValue(getDebugStorageValue(CHAT_STREAM_DEBUG_FLAG))
+  );
+}
+
+function shouldBreakForChatStreamEvent(event: ChatStreamDebugEvent): boolean {
+  const configured =
+    getDebugParam("debugStreamBreak") ??
+    getDebugStorageValue(CHAT_STREAM_DEBUG_BREAK_FLAG);
+  if (!configured) return false;
+  const normalized = configured.trim().toLowerCase();
+  if (["1", "true", "yes", "on", "*", "all"].includes(normalized)) {
+    return true;
+  }
+  return normalized
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .includes(event.toLowerCase());
+}
+
+function summarizeReferencePayload(refs: ReferencePayload | null): Record<string, unknown> | null {
+  if (!refs) return null;
+  return {
+    trace_id: refs.trace_id,
+    mcp_used: refs.mcp_used,
+    mcp_tools_used: refs.mcp_tools_used,
+    mcp_tool_invocations: refs.mcp_tool_invocations?.map((tool) => tool.tool_name),
+    mcp_progress_events: refs.mcp_progress_events?.map((event) => ({
+      phase: event.phase,
+      tool_name: event.tool_name,
+      tool_run_id: event.tool_run_id,
+    })),
+    citations: refs.citations?.length ?? 0,
+    reranker_docs: refs.reranker_docs?.length ?? 0,
+    error: refs.error,
+  };
+}
+
+function summarizeBaseMessage(message: BaseMessageWithKwargs, index: number): Record<string, unknown> {
+  const refs = toReferences(message);
+  return {
+    index,
+    id: typeof message.id === "string" ? message.id : undefined,
+    role: toRole(message),
+    text: readText(message.content).slice(0, 240),
+    refs: summarizeReferencePayload(refs),
+  };
+}
+
+function summarizeVisibleMessage(message: MessageLike, index: number): Record<string, unknown> {
+  const refPart = message.parts?.find((part) => part.type === "data-references");
+  const refs =
+    refPart?.data && typeof refPart.data === "object"
+      ? (refPart.data as ReferencePayload)
+      : null;
+  return {
+    index,
+    id: message.id,
+    role: message.role,
+    text: getMessageContent(message).slice(0, 240),
+    refs: summarizeReferencePayload(refs),
+  };
+}
+
+function summarizeStreamValues(values: unknown): Record<string, unknown> {
+  if (!values || typeof values !== "object") {
+    return { type: typeof values };
+  }
+  const data = values as Record<string, unknown>;
+  const rawMessages = Array.isArray(data.messages) ? data.messages : [];
+  return {
+    keys: Object.keys(data),
+    message_count: rawMessages.length,
+    messages: rawMessages.map((message, index) => {
+      if (!message || typeof message !== "object") {
+        return { index, type: typeof message };
+      }
+      const raw = message as Record<string, unknown>;
+      return {
+        index,
+        id: raw.id,
+        role: raw.role,
+        type: raw.type,
+        text: readText(raw.content).slice(0, 240),
+        refs: summarizeReferencePayload(toReferencesFromRawMessage(raw)),
+      };
+    }),
+  };
+}
+
+function summarizeToolProgress(toolProgress: SdkToolProgress[]): Record<string, unknown>[] {
+  return toolProgress.map((tool, index) => ({
+    index,
+    toolCallId: tool.toolCallId,
+    name: tool.name,
+    state: tool.state,
+    input: tool.input,
+    data: tool.data,
+    result: tool.result,
+    error: tool.error,
+  }));
+}
+
+function debugChatStream(
+  event: ChatStreamDebugEvent,
+  payload: Record<string, unknown>,
+): void {
+  if (!isChatStreamDebugEnabled()) return;
+  const time = new Date().toISOString();
+  console.groupCollapsed(`[chat-stream] ${event} ${time}`);
+  console.log(payload);
+  console.groupEnd();
+  if (shouldBreakForChatStreamEvent(event)) {
+    debugger;
+  }
+}
+
 export function useChatController({
   selectedModel,
   threadId,
@@ -273,6 +621,7 @@ export function useChatController({
     Set<number>
   >(() => new Set());
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
+  const [pendingUserMessage, setPendingUserMessage] = useState<PendingUserMessage | null>(null);
   const lastErrorToastKeyRef = useRef<string | null>(null);
 
   const bodyParams = useChatBodyParams({
@@ -294,9 +643,11 @@ export function useChatController({
     reconnectOnMount: true,
     fetchStateHistory: true,
     onStop: () => {
+      debugChatStream("stop", { threadId });
       toast.success("Generation stopped");
     },
     onError: (error) => {
+      debugChatStream("error", { threadId, error });
       console.error("Chat error:", error);
       const message = error instanceof Error ? error.message : String(error);
       toast.error(message);
@@ -304,14 +655,32 @@ export function useChatController({
   });
 
   const streamMessages = stream.messages;
+  const streamMessageCount = streamMessages?.length ?? 0;
   const streamValues = (stream as { values?: unknown }).values;
+  const streamToolProgress =
+    (stream as { toolProgress?: SdkToolProgress[] }).toolProgress ?? EMPTY_TOOL_PROGRESS;
+  const liveToolProgressEvents = useMemo(
+    () => toolProgressToMcpEvents(streamToolProgress),
+    [streamToolProgress],
+  );
 
   const sendUserMessage = useCallback(
     (text: string, overrides?: SendOverrides) => {
+      const trimmedText = text.trim();
+      if (!trimmedText) return;
+
       const effectiveMode = overrides?.mode ?? bodyParams.mode;
+      setPendingUserMessage(createPendingUserMessage(trimmedText, streamMessageCount));
+      debugChatStream("submit", {
+        threadId,
+        text: trimmedText,
+        streamMessageCount,
+        bodyParams,
+        effectiveMode,
+      });
       void Promise.resolve(
         stream.submit({
-          messages: [{ type: "human", content: text }],
+          messages: [{ type: "human", content: trimmedText }],
           model: bodyParams.model,
           session_id: bodyParams.session_id,
           collection_name: bodyParams.collection_name,
@@ -321,10 +690,10 @@ export function useChatController({
           context: { ...bodyParams, mode: effectiveMode },
           metadata: { ...bodyParams, mode: effectiveMode },
           configurable: { ...bodyParams, mode: effectiveMode },
-        }),
+        }, { streamMode: ["values", "tools"] }),
       ).catch(() => undefined);
     },
-    [bodyParams, stream],
+    [bodyParams, stream, streamMessageCount, threadId],
   );
 
   const messages = useMemo<MessageLike[]>(() => {
@@ -343,12 +712,29 @@ export function useChatController({
       };
     });
 
-    // Fallback for cases where class-message metadata drops reference payloads.
     const rawValues = streamValues;
     const valueMessages =
       rawValues && typeof rawValues === "object" && Array.isArray((rawValues as { messages?: unknown }).messages)
         ? ((rawValues as { messages: unknown[] }).messages as unknown[])
         : [];
+    const valueMapped = valueMessages
+      .map((message, index) => toMessageFromRawValue(message, index))
+      .filter((message): message is MessageLike => message != null);
+
+    const hasValueProgress = valueMapped.some((message) => {
+      const refPart = message.parts?.find((part) => part.type === "data-references");
+      const data = refPart?.data;
+      return (
+        data != null &&
+        typeof data === "object" &&
+        Array.isArray((data as ReferencePayload).mcp_progress_events) &&
+        ((data as ReferencePayload).mcp_progress_events?.length ?? 0) > 0
+      );
+    });
+    const baseMapped =
+      valueMapped.length > mapped.length || hasValueProgress ? valueMapped : mapped;
+
+    // Fallback for cases where class-message metadata drops reference payloads.
     const lastAssistantValue = [...valueMessages]
       .reverse()
       .find((msg) => {
@@ -359,26 +745,99 @@ export function useChatController({
         return role === "assistant" || type === "ai";
       });
     const fallbackRefs = toReferencesFromRawMessage(lastAssistantValue);
-    if (!fallbackRefs) return mapped;
+    const pendingText = getMessageContent(pendingUserMessage);
+    const hasStreamedPendingUser =
+      pendingUserMessage != null &&
+      (hasVisibleUserMessageWithText(baseMapped, pendingText) ||
+        hasRawUserMessageWithText(
+          raw.slice(pendingUserMessage.submittedMessageCount),
+          pendingText,
+        ));
+    const visibleMessages =
+      pendingUserMessage && !hasStreamedPendingUser
+        ? [...baseMapped, pendingUserMessage]
+        : baseMapped;
 
-    const lastAssistantIdx = [...mapped]
+    if (!fallbackRefs) {
+      return withLiveToolProgress(visibleMessages, liveToolProgressEvents);
+    }
+
+    const lastAssistantIdx = [...visibleMessages]
       .map((msg, idx) => ({ msg, idx }))
       .reverse()
       .find(({ msg }) => msg.role === "assistant")?.idx;
-    if (lastAssistantIdx == null) return mapped;
-    const target = mapped[lastAssistantIdx];
+    if (lastAssistantIdx == null) {
+      return withLiveToolProgress(visibleMessages, liveToolProgressEvents);
+    }
+    const target = visibleMessages[lastAssistantIdx];
     const hasRefsAlready =
       Array.isArray(target.parts) &&
       target.parts.some((part) => part?.type === "data-references" && part.data != null);
-    if (hasRefsAlready) return mapped;
+    if (hasRefsAlready) {
+      return withLiveToolProgress(visibleMessages, liveToolProgressEvents);
+    }
 
-    const next = [...mapped];
+    const next = [...visibleMessages];
     next[lastAssistantIdx] = {
       ...target,
       parts: [...(target.parts ?? []), { type: "data-references", data: fallbackRefs }],
     };
-    return next;
-  }, [streamMessages, streamValues]);
+    return withLiveToolProgress(next, liveToolProgressEvents);
+  }, [liveToolProgressEvents, pendingUserMessage, streamMessages, streamValues]);
+
+  const rawStreamStatus = (stream as { status?: unknown }).status;
+  const status = normalizeStatus(
+    rawStreamStatus,
+    stream.isLoading,
+    stream.error != null,
+  );
+
+  useEffect(() => {
+    debugChatStream("status", {
+      threadId,
+      status,
+      rawStatus: rawStreamStatus,
+      isLoading: stream.isLoading,
+      hasError: stream.error != null,
+      error: stream.error,
+    });
+  }, [rawStreamStatus, status, stream.error, stream.isLoading, threadId]);
+
+  useEffect(() => {
+    const raw = (streamMessages ?? []) as BaseMessageWithKwargs[];
+    debugChatStream("stream.messages", {
+      threadId,
+      count: raw.length,
+      messages: raw.map(summarizeBaseMessage),
+      raw,
+    });
+  }, [streamMessages, threadId]);
+
+  useEffect(() => {
+    debugChatStream("stream.values", {
+      threadId,
+      summary: summarizeStreamValues(streamValues),
+      raw: streamValues,
+    });
+  }, [streamValues, threadId]);
+
+  useEffect(() => {
+    debugChatStream("stream.toolProgress", {
+      threadId,
+      count: streamToolProgress.length,
+      progress: summarizeToolProgress(streamToolProgress),
+      mcpProgressEvents: liveToolProgressEvents,
+    });
+  }, [liveToolProgressEvents, streamToolProgress, threadId]);
+
+  useEffect(() => {
+    debugChatStream("visible.messages", {
+      threadId,
+      count: messages.length,
+      messages: messages.map(summarizeVisibleMessage),
+      raw: messages,
+    });
+  }, [messages, threadId]);
 
   useEffect(() => {
     const lastAssistant = [...messages]
@@ -403,12 +862,6 @@ export function useChatController({
       toast.error(refs.error, "Search unavailable");
     }
   }, [messages, toast]);
-
-  const status = normalizeStatus(
-    (stream as { status?: unknown }).status,
-    stream.isLoading,
-    stream.error != null,
-  );
 
   const {
     dynamicSuggestions,
@@ -520,6 +973,7 @@ export function useChatController({
       setFeedbackSubmitted,
       setContextUsage,
     });
+    setPendingUserMessage(null);
     setFeedbackSubmittedMessageIndexes(new Set());
     toast.success("Chat cleared");
   }, [clearSessionChat, threadId, toast, stream]);

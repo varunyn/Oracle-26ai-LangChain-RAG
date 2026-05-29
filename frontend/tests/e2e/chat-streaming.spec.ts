@@ -238,6 +238,313 @@ test.describe('chat streaming', () => {
     expect(pageErrors.filter((message) => message.includes('Maximum update depth'))).toEqual([])
   })
 
+  test('keeps the submitted question visible while the stream is starting', async ({ page }) => {
+    let releaseStream: (() => void) | undefined
+    const streamStarted = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+
+    await page.route('**/api/langgraph/**/history', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '[]',
+      })
+    })
+    await page.route('**/api/langgraph/**/runs/stream', async (route) => {
+      await streamStarted
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: [
+          'event: values',
+          `data: {"messages":[{"type":"human","content":"${PROMPT}"},{"type":"ai","content":"Use Grafana deployment docs."}]}`,
+          '',
+        ].join('\n'),
+      })
+    })
+
+    await page.goto('/')
+    await page.getByRole('textbox', { name: 'Message' }).fill(PROMPT)
+    await page.getByRole('button', { name: 'Ask' }).click()
+
+    await expect(page.getByTestId('chat-message-list').getByText(PROMPT)).toBeVisible()
+    await expect(page.getByTestId('chat-streaming-indicator')).toBeVisible()
+    await expect(page.getByText('Ask a question about your documents')).toHaveCount(0)
+
+    releaseStream?.()
+    await expect(page.getByText('Use Grafana deployment docs.')).toBeVisible()
+  })
+
+  test('renders MCP tool progress from stream values metadata', async ({ page }) => {
+    const prompt =
+      'Perform a linear regression on these points: (1,2), (2,3.5), (3,5.1), (4,6.5), (5,8.2) using tools'
+    const progressPayload = {
+      messages: [
+        { type: 'human', content: prompt },
+        {
+          type: 'ai',
+          content: '',
+          additional_kwargs: {
+            mcp_progress_events: [
+              {
+                phase: 'start',
+                tool_name: 'Calculator_linear_regression',
+                tool_run_id: 'tool-1',
+                args: { data: [[1, 2], [2, 3.5], [3, 5.1], [4, 6.5], [5, 8.2]] },
+              },
+              {
+                phase: 'end',
+                tool_name: 'Calculator_linear_regression',
+                tool_run_id: 'tool-1',
+                result: '{"slope":1.54,"intercept":0.44}',
+              },
+            ],
+          },
+        },
+      ],
+    }
+    const finalPayload = {
+      messages: [
+        { type: 'human', content: prompt },
+        {
+          type: 'ai',
+          content: 'The best-fit line is y = 1.54x + 0.44.',
+          additional_kwargs: {
+            mcp_used: true,
+            mcp_tools_used: ['Calculator_linear_regression'],
+            mcp_tool_invocations: [
+              {
+                tool_name: 'Calculator_linear_regression',
+                args: { data: [[1, 2], [2, 3.5], [3, 5.1], [4, 6.5], [5, 8.2]] },
+                result: '{"slope":1.54,"intercept":0.44}',
+              },
+            ],
+            citations: [],
+            reranker_docs: [],
+          },
+        },
+      ],
+    }
+
+    await page.route('**/api/langgraph/**/history', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '[]',
+      })
+    })
+    await page.route('**/api/langgraph/**/runs/stream', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: [
+          'event: values',
+          `data: ${JSON.stringify(progressPayload)}`,
+          '',
+          'event: values',
+          `data: ${JSON.stringify(finalPayload)}`,
+          '',
+        ].join('\n'),
+      })
+    })
+
+    await page.goto('/')
+    await page.getByRole('textbox', { name: 'Message' }).fill(prompt)
+    await page.getByRole('button', { name: 'Ask' }).click()
+
+    await expect(page.getByText('The best-fit line is y = 1.54x + 0.44.')).toBeVisible()
+    await expect(page.getByText('Calculator_linear_regression').first()).toBeVisible()
+    await expect(
+      page.locator(
+        '[data-tool-type="Calculator_linear_regression"][data-tool-state="output-available"]',
+      ),
+    ).toBeVisible()
+  })
+
+  test('renders live MCP tool progress before the final answer text arrives', async ({ page }) => {
+    const prompt = 'Find the Northwell payment terms using tools'
+    const finalAnswer = 'Northwell Solutions uses net 45 payment terms.'
+
+    await page.addInitScript(({ promptText, answerText }) => {
+      const encoder = new TextEncoder()
+      const originalFetch = window.fetch.bind(window)
+      let historyCalls = 0
+
+      const sseChunk = (event: string, payload: unknown) =>
+        encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
+
+      window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof Request
+              ? input.url
+            : input.toString()
+
+        if (url.includes('/api/langgraph/') && url.endsWith('/history')) {
+          historyCalls += 1
+          ;(window as typeof window & { __historyCalls?: number }).__historyCalls = historyCalls
+          const body =
+            historyCalls > 1
+              ? JSON.stringify([
+                  {
+                    values: {
+                      messages: [
+                        { type: 'human', content: promptText },
+                        { type: 'ai', content: answerText },
+                      ],
+                    },
+                  },
+                ])
+              : '[]'
+          return Promise.resolve(
+            new Response(body, {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            }),
+          )
+        }
+
+        if (url.includes('/api/suggestions')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ suggestions: [] }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            }),
+          )
+        }
+
+        if (url.includes('/api/langgraph/') && url.endsWith('/runs/stream')) {
+          let releaseFinal: (() => void) | undefined
+          ;(window as typeof window & { __releaseChatFinal?: () => void }).__releaseChatFinal =
+            () => releaseFinal?.()
+
+          const finalReleased = new Promise<void>((resolve) => {
+            releaseFinal = resolve
+          })
+
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                sseChunk('values', {
+                  messages: [{ type: 'human', content: promptText }],
+                }),
+              )
+              controller.enqueue(
+                sseChunk('tools', {
+                  event: 'on_tool_start',
+                  name: 'oracle_retrieval',
+                  toolCallId: 'retrieval-1',
+                  input: { query: promptText },
+                }),
+              )
+              controller.enqueue(
+                sseChunk('values', {
+                  messages: [
+                    { type: 'human', content: promptText },
+                    {
+                      type: 'ai',
+                      content: '',
+                      additional_kwargs: {
+                        mcp_progress_events: [
+                          {
+                            phase: 'start',
+                            tool_name: 'oracle_retrieval',
+                            tool_run_id: 'retrieval-1',
+                            args: { query: promptText },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                }),
+              )
+              finalReleased.then(() => {
+                controller.enqueue(
+                  sseChunk('tools', {
+                    event: 'on_tool_end',
+                    name: 'oracle_retrieval',
+                    toolCallId: 'retrieval-1',
+                    output: '{"documents":3}',
+                  }),
+                )
+                controller.enqueue(
+                  sseChunk('values', {
+                    messages: [
+                      { type: 'human', content: promptText },
+                      {
+                        type: 'ai',
+                        content: answerText,
+                        additional_kwargs: {
+                          mcp_used: true,
+                          mcp_tools_used: ['oracle_retrieval'],
+                          mcp_progress_events: [
+                            {
+                              phase: 'start',
+                              tool_name: 'oracle_retrieval',
+                              tool_run_id: 'retrieval-1',
+                              args: { query: promptText },
+                            },
+                            {
+                              phase: 'end',
+                              tool_name: 'oracle_retrieval',
+                              tool_run_id: 'retrieval-1',
+                              result: '{"documents":3}',
+                            },
+                          ],
+                          citations: [],
+                          reranker_docs: [],
+                        },
+                      },
+                    ],
+                  }),
+                )
+                controller.close()
+              })
+            },
+          })
+
+          return Promise.resolve(
+            new Response(stream, {
+              status: 200,
+              headers: {
+                'cache-control': 'no-cache',
+                'content-type': 'text/event-stream',
+                'x-vercel-ai-ui-message-stream': 'v1',
+              },
+            }),
+          )
+        }
+
+        return originalFetch(input, init)
+      }
+    }, { promptText: prompt, answerText: finalAnswer })
+
+    await page.goto('/')
+    await page.getByRole('textbox', { name: 'Message' }).fill(prompt)
+    await page.getByRole('button', { name: 'Ask' }).click()
+
+    await expect(page.getByTestId('chat-message-list').getByText(prompt, { exact: true })).toBeVisible()
+    await expect(page.getByTestId('assistant-activity')).toContainText('Calling oracle_retrieval')
+    await expect(
+      page.locator('[data-tool-type="oracle_retrieval"][data-tool-state="input-available"]'),
+    ).toBeVisible()
+    await expect(page.getByText(finalAnswer)).toHaveCount(0)
+
+    await page.evaluate(() => {
+      ;(window as typeof window & { __releaseChatFinal?: () => void }).__releaseChatFinal?.()
+    })
+
+    await expect(page.getByText(finalAnswer)).toBeVisible()
+    await page.waitForFunction(() => {
+      return ((window as typeof window & { __historyCalls?: number }).__historyCalls ?? 0) > 1
+    })
+    await expect(
+      page.locator('[data-tool-type="oracle_retrieval"][data-tool-state="output-available"]'),
+    ).toBeVisible()
+  })
+
   test('removes the cleared chat from local history', async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem('rag_agent_thread_id', 'thread-clear-active')
@@ -347,7 +654,11 @@ test.describe('chat streaming', () => {
 
     await expect(input).toBeDisabled({ timeout: 5_000 })
     await expect(page.getByTestId('chat-streaming-indicator')).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByText('Working on it')).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByText(/Opening answer stream|Preparing response/)).toBeVisible({
+      timeout: 5_000,
+    })
+    await expect(page.getByTestId('chat-message-list').getByText(PROMPT)).toBeVisible()
+    await expect(page.getByText('Ask a question about your documents')).toHaveCount(0)
 
     const chatResponse = await chatResponsePromise
     const chatHeaders = chatResponse.headers()
