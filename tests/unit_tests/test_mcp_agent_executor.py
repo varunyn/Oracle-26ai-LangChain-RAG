@@ -934,7 +934,7 @@ def test_langchain_executor_normalizes_missing_tool_call_ids(monkeypatch) -> Non
     assert first.response_metadata["tool_calls"][0]["id"] == "call_0_a1b2c3d4e5f6"
 
 
-def test_extract_answer_and_tools_supports_mapping_messages() -> None:
+def test_extract_answer_and_tools_ignores_mapping_messages() -> None:
     state = {
         "messages": [
             {
@@ -958,11 +958,11 @@ def test_extract_answer_and_tools_supports_mapping_messages() -> None:
     }
 
     answer, tools_used = mod._extract_answer_and_tools(state)
-    assert answer == "25% of 200 is 50."
-    assert tools_used == ["calculator_calculate"]
+    assert answer == ""
+    assert tools_used == []
 
 
-def test_extract_answer_and_tools_reads_additional_kwargs_tool_calls_from_ai_message() -> None:
+def test_extract_answer_and_tools_ignores_provider_side_channel_tool_calls() -> None:
     state = {
         "messages": [
             AIMessage(
@@ -987,7 +987,7 @@ def test_extract_answer_and_tools_reads_additional_kwargs_tool_calls_from_ai_mes
 
     answer, tools_used = mod._extract_answer_and_tools(state)
     assert answer == "25% of 200 is 50."
-    assert tools_used == ["calculator_calculate"]
+    assert tools_used == []
 
 
 def test_executor_does_not_retry_literal_tool_text_without_tool_requirement(
@@ -1046,3 +1046,32 @@ def test_extract_tool_invocations_pairs_ai_tool_calls_with_tool_messages() -> No
             "result": "log line one\nlog line two",
         },
     ]
+
+
+def test_extract_tool_invocations_ignores_mapping_messages() -> None:
+    state = {
+        "messages": [
+            {
+                "type": "ai",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "function": {
+                            "name": "oci-mcp-server_run_oci_command",
+                            "arguments": '{"command": ["logs", "api"]}',
+                        },
+                    },
+                ],
+            },
+            {
+                "type": "tool",
+                "name": "oci-mcp-server_run_oci_command",
+                "tool_call_id": "call_1",
+                "content": "log line one\nlog line two",
+            },
+        ]
+    }
+
+    invocations = mod._extract_tool_invocations(state)
+    assert invocations == []

@@ -416,79 +416,25 @@ def _extract_answer_and_tools(agent_state: Mapping[str, object]) -> tuple[str, l
     tools_used: list[str] = []
     seen: set[str] = set()
 
-    def _collect_tool_names(raw_tool_calls: object) -> list[str]:
-        if not isinstance(raw_tool_calls, list):
-            return []
-        names: list[str] = []
-        for tool_call in raw_tool_calls:
-            if not isinstance(tool_call, Mapping):
-                continue
-            tool_name = str(tool_call.get("name") or "").strip()
-            if not tool_name:
-                function = tool_call.get("function")
-                if isinstance(function, Mapping):
-                    tool_name = str(function.get("name") or "").strip()
-            if tool_name:
-                names.append(tool_name)
-        return names
-
     for msg in cast(Sequence[object], messages_raw):
         if isinstance(msg, AIMessage):
             answer = _normalize_message_content(msg.content)
-            additional_kwargs = getattr(msg, "additional_kwargs", None)
-            response_metadata = getattr(msg, "response_metadata", None)
-            ai_candidates: list[object] = [
-                getattr(msg, "tool_calls", None),
-                (
-                    additional_kwargs.get("tool_calls")
-                    if isinstance(additional_kwargs, Mapping)
-                    else None
-                ),
-                (
-                    response_metadata.get("tool_calls")
-                    if isinstance(response_metadata, Mapping)
-                    else None
-                ),
-            ]
-            for candidate in ai_candidates:
-                for tool_name in _collect_tool_names(candidate):
-                    if tool_name not in seen:
+            raw_tool_calls = getattr(msg, "tool_calls", None)
+            if isinstance(raw_tool_calls, list):
+                for tool_call in raw_tool_calls:
+                    if not isinstance(tool_call, Mapping):
+                        continue
+                    tool_name = str(tool_call.get("name") or "").strip()
+                    if tool_name and tool_name not in seen:
                         seen.add(tool_name)
                         tools_used.append(tool_name)
+            continue
         if isinstance(msg, ToolMessage):
             tool_name = str(getattr(msg, "name", "") or "").strip()
             if tool_name and tool_name not in seen:
                 seen.add(tool_name)
                 tools_used.append(tool_name)
             continue
-        if isinstance(msg, Mapping):
-            msg_type = str(msg.get("type") or msg.get("role") or "").strip().lower()
-            if msg_type in {"ai", "assistant"}:
-                content = msg.get("content")
-                answer = _normalize_message_content(content)
-                dict_candidates: list[object] = [
-                    msg.get("tool_calls"),
-                    (
-                        msg.get("additional_kwargs", {}).get("tool_calls")
-                        if isinstance(msg.get("additional_kwargs"), Mapping)
-                        else None
-                    ),
-                    (
-                        msg.get("response_metadata", {}).get("tool_calls")
-                        if isinstance(msg.get("response_metadata"), Mapping)
-                        else None
-                    ),
-                ]
-                for candidate in dict_candidates:
-                    for tool_name in _collect_tool_names(candidate):
-                        if tool_name not in seen:
-                            seen.add(tool_name)
-                            tools_used.append(tool_name)
-            elif msg_type == "tool":
-                tool_name = str(msg.get("name") or "").strip()
-                if tool_name and tool_name not in seen:
-                    seen.add(tool_name)
-                    tools_used.append(tool_name)
 
     return answer, tools_used
 
@@ -522,44 +468,6 @@ def _jsonable_tool_value(value: object, depth: int = 0) -> object:
         items = list(value)[:_MAX_JSON_ITEMS]
         return [_jsonable_tool_value(v, depth + 1) for v in items]
     return str(value)[:4000]
-
-
-def _normalize_tool_args(raw: object) -> object:
-    if raw is None:
-        return None
-    if isinstance(raw, str):
-        stripped = raw.strip()
-        if stripped.startswith("{") or stripped.startswith("["):
-            try:
-                parsed = json.loads(stripped)
-                return _jsonable_tool_value(parsed)
-            except Exception:  # noqa: BLE001
-                return raw
-        return raw
-    return _jsonable_tool_value(raw)
-
-
-def _parse_one_tool_call(tc: Mapping[str, object]) -> tuple[str, str, object]:
-    tc_id = str(tc.get("id") or "").strip()
-    name = str(tc.get("name") or "").strip()
-    args: object = tc.get("args")
-    if args is None and "arguments" in tc:
-        args = tc.get("arguments")
-    fn = tc.get("function")
-    if isinstance(fn, Mapping):
-        if not name:
-            name = str(fn.get("name") or "").strip()
-        raw_args = fn.get("arguments")
-        if isinstance(raw_args, str):
-            try:
-                args = json.loads(raw_args) if raw_args.strip() else {}
-            except Exception:  # noqa: BLE001
-                args = raw_args
-        elif raw_args is not None:
-            args = raw_args
-    if args is None:
-        args = {}
-    return name, tc_id, _normalize_tool_args(args)
 
 
 def _serialize_tool_output(value: object) -> str:
@@ -634,9 +542,12 @@ def _extract_tool_invocations(agent_state: Mapping[str, object]) -> list[dict[st
                 for tc in raw_calls:
                     if not isinstance(tc, dict):
                         continue
-                    name, tc_id, args = _parse_one_tool_call(tc)
+                    tc_id = str(tc.get("id") or "").strip()
+                    name = str(tc.get("name") or "").strip()
                     if not name:
                         continue
+                    raw_args = tc.get("args")
+                    args = {} if raw_args is None else _jsonable_tool_value(raw_args)
                     _queue_ai_tool_call(name=name, tc_id=tc_id, args=args)
             continue
 
@@ -646,24 +557,6 @@ def _extract_tool_invocations(agent_state: Mapping[str, object]) -> list[dict[st
             name = str(getattr(msg, "name", "") or "").strip()
             _complete_tool_result(tool_call_id=tc_id, tool_name=name, content=content)
             continue
-
-        if isinstance(msg, Mapping):
-            msg_type = str(msg.get("type") or msg.get("role") or "").strip().lower()
-            if msg_type in {"ai", "assistant"}:
-                raw_calls = msg.get("tool_calls")
-                if isinstance(raw_calls, list):
-                    for tc in raw_calls:
-                        if not isinstance(tc, dict):
-                            continue
-                        name, tc_id, args = _parse_one_tool_call(tc)
-                        if not name:
-                            continue
-                        _queue_ai_tool_call(name=name, tc_id=tc_id, args=args)
-            elif msg_type == "tool":
-                tc_id = str(msg.get("tool_call_id") or msg.get("toolCallId") or "").strip()
-                content = msg.get("content", "")
-                name = str(msg.get("name") or "").strip()
-                _complete_tool_result(tool_call_id=tc_id, tool_name=name, content=content)
 
     return invocations
 
