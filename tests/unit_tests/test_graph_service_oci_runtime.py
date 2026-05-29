@@ -22,6 +22,26 @@ def test_called_tool_names_combines_tools_used_and_invocations() -> None:
     ) == {"oracle_retrieval", "calculator_calculate"}
 
 
+def test_references_from_result_preserves_stream_and_storage_shapes() -> None:
+    result = {
+        "standalone_question": None,
+        "citations": [],
+        "reranker_docs": [],
+        "mcp_tools_used": [],
+    }
+
+    assert mod._references_from_result(result, include_empty_core=True) == {
+        "standalone_question": None,
+        "citations": [],
+        "reranker_docs": [],
+    }
+    assert mod._references_from_result(result, include_empty_mcp_tools=True) == {
+        "citations": [],
+        "reranker_docs": [],
+        "mcp_tools_used": [],
+    }
+
+
 def test_graph_service_run_chat_direct_mode_uses_oci_llm(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

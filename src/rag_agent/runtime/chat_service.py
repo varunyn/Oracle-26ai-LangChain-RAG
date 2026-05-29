@@ -319,6 +319,59 @@ def _tool_was_called(
     )
 
 
+def _references_from_result(
+    result: dict[str, object],
+    *,
+    include_empty_core: bool = False,
+    include_empty_mcp_tools: bool = False,
+) -> dict[str, object]:
+    references: dict[str, object] = {}
+    standalone = result.get("standalone_question")
+    if include_empty_core:
+        references["standalone_question"] = standalone if isinstance(standalone, str) else None
+    elif isinstance(standalone, str) and standalone.strip():
+        references["standalone_question"] = standalone.strip()
+
+    citations = result.get("citations")
+    if isinstance(citations, list):
+        references["citations"] = citations
+    elif include_empty_core:
+        references["citations"] = []
+
+    reranker_docs = result.get("reranker_docs")
+    if isinstance(reranker_docs, list):
+        references["reranker_docs"] = reranker_docs
+    elif include_empty_core:
+        references["reranker_docs"] = []
+
+    context_usage = result.get("context_usage")
+    if isinstance(context_usage, dict):
+        references["context_usage"] = context_usage
+
+    trace_id = result.get("trace_id")
+    if isinstance(trace_id, str) and trace_id.strip():
+        references["trace_id"] = trace_id.strip()
+
+    if result.get("mcp_used") is True:
+        references["mcp_used"] = True
+
+    mcp_tools_used = result.get("mcp_tools_used")
+    if isinstance(mcp_tools_used, list):
+        tool_names = [str(tool) for tool in mcp_tools_used if str(tool).strip()]
+        if tool_names or include_empty_mcp_tools:
+            references["mcp_tools_used"] = tool_names
+
+    mcp_invocations = result.get("mcp_tool_invocations")
+    if isinstance(mcp_invocations, list) and mcp_invocations:
+        references["mcp_tool_invocations"] = mcp_invocations
+
+    error_value = result.get("error")
+    if isinstance(error_value, str) and error_value.strip():
+        references["error"] = error_value.strip()
+
+    return references
+
+
 def _oracle_retrieval_used_without_context(
     *,
     retrieval_state: object,
@@ -805,24 +858,10 @@ class ChatRuntimeService:
         if answer:
             yield {"type": "text", "delta": answer}
 
-        references: dict[str, object] = {
-            "standalone_question": result.get("standalone_question"),
-            "citations": result.get("citations") or [],
-            "reranker_docs": result.get("reranker_docs") or [],
-        }
-        if result.get("context_usage") is not None:
-            references["context_usage"] = result["context_usage"]
-        if result.get("trace_id") is not None:
-            references["trace_id"] = result["trace_id"]
-        if result.get("mcp_used"):
-            references["mcp_used"] = True
-        if result.get("mcp_tools_used"):
-            references["mcp_tools_used"] = result["mcp_tools_used"]
-        invocations = result.get("mcp_tool_invocations")
-        if isinstance(invocations, list) and invocations:
-            references["mcp_tool_invocations"] = invocations
-        if result.get("error"):
-            references["error"] = result["error"]
+        references = _references_from_result(
+            result,
+            include_empty_core=True,
+        )
         yield {"type": "references", "data": references}
 
     async def astream_events(
@@ -1036,36 +1075,10 @@ class ChatRuntimeService:
         )
         final_answer = str(result.get("final_answer") or "").strip()
         if final_answer:
-            references: dict[str, object] = {}
-            standalone = result.get("standalone_question")
-            if isinstance(standalone, str) and standalone.strip():
-                references["standalone_question"] = standalone.strip()
-            citations = result.get("citations")
-            if isinstance(citations, list):
-                references["citations"] = citations
-            reranker_docs = result.get("reranker_docs")
-            if isinstance(reranker_docs, list):
-                references["reranker_docs"] = reranker_docs
-            context_usage = result.get("context_usage")
-            if isinstance(context_usage, dict):
-                references["context_usage"] = context_usage
-            if result.get("mcp_used") is True:
-                references["mcp_used"] = True
-            mcp_tools_used = result.get("mcp_tools_used")
-            if isinstance(mcp_tools_used, list):
-                references["mcp_tools_used"] = [
-                    str(tool) for tool in mcp_tools_used if str(tool).strip()
-                ]
-            mcp_inv = result.get("mcp_tool_invocations")
-            if isinstance(mcp_inv, list) and mcp_inv:
-                references["mcp_tool_invocations"] = mcp_inv
-            error_value = result.get("error")
-            if isinstance(error_value, str) and error_value.strip():
-                references["error"] = error_value.strip()
-            trace_id = result.get("trace_id")
-            if isinstance(trace_id, str) and trace_id.strip():
-                references["trace_id"] = trace_id.strip()
-
+            references = _references_from_result(
+                result,
+                include_empty_mcp_tools=True,
+            )
             updated_messages.append(
                 AIMessage(
                     content=final_answer,

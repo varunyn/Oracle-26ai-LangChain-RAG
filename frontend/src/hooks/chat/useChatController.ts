@@ -162,6 +162,43 @@ function toRole(message: BaseMessage): "user" | "assistant" | "system" {
   return "system";
 }
 
+function toReferencePayload(raw: Record<string, unknown>): ReferencePayload | null {
+  const hasKnownReferenceField =
+    Array.isArray(raw.citations) ||
+    Array.isArray(raw.reranker_docs) ||
+    Array.isArray(raw.mcp_tools_used) ||
+    Array.isArray(raw.mcp_tool_invocations) ||
+    Array.isArray(raw.mcp_progress_events) ||
+    typeof raw.trace_id === "string" ||
+    typeof raw.standalone_question === "string" ||
+    typeof raw.error === "string" ||
+    raw.mcp_used === true;
+  if (!hasKnownReferenceField) return null;
+  return {
+    trace_id: typeof raw.trace_id === "string" ? raw.trace_id : undefined,
+    standalone_question:
+      typeof raw.standalone_question === "string" ? raw.standalone_question : undefined,
+    citations: Array.isArray(raw.citations)
+      ? (raw.citations as { source: string; page: string }[])
+      : [],
+    reranker_docs: Array.isArray(raw.reranker_docs)
+      ? (raw.reranker_docs as { page_content: string; metadata: Record<string, unknown> }[])
+      : [],
+    context_usage: normalizeContextUsage(raw.context_usage),
+    mcp_used: raw.mcp_used === true,
+    mcp_tools_used: Array.isArray(raw.mcp_tools_used)
+      ? (raw.mcp_tools_used as string[])
+      : undefined,
+    mcp_tool_invocations: Array.isArray(raw.mcp_tool_invocations)
+      ? (raw.mcp_tool_invocations as McpToolInvocation[])
+      : undefined,
+    mcp_progress_events: Array.isArray(raw.mcp_progress_events)
+      ? (raw.mcp_progress_events as McpProgressEvent[])
+      : undefined,
+    error: typeof raw.error === "string" ? raw.error : undefined,
+  };
+}
+
 function toReferences(message: BaseMessageWithKwargs): ReferencePayload | null {
   const candidates: unknown[] = [
     message.additional_kwargs,
@@ -170,41 +207,8 @@ function toReferences(message: BaseMessageWithKwargs): ReferencePayload | null {
   ];
   for (const candidate of candidates) {
     if (!candidate || typeof candidate !== "object") continue;
-    const raw = candidate as Record<string, unknown>;
-    const hasKnownReferenceField =
-      Array.isArray(raw.citations) ||
-      Array.isArray(raw.reranker_docs) ||
-      Array.isArray(raw.mcp_tools_used) ||
-      Array.isArray(raw.mcp_tool_invocations) ||
-      Array.isArray(raw.mcp_progress_events) ||
-      typeof raw.trace_id === "string" ||
-      typeof raw.standalone_question === "string" ||
-      typeof raw.error === "string" ||
-      raw.mcp_used === true;
-    if (!hasKnownReferenceField) continue;
-    return {
-      trace_id: typeof raw.trace_id === "string" ? raw.trace_id : undefined,
-      standalone_question:
-        typeof raw.standalone_question === "string" ? raw.standalone_question : undefined,
-      citations: Array.isArray(raw.citations)
-        ? (raw.citations as { source: string; page: string }[])
-        : [],
-      reranker_docs: Array.isArray(raw.reranker_docs)
-        ? (raw.reranker_docs as { page_content: string; metadata: Record<string, unknown> }[])
-        : [],
-      context_usage: normalizeContextUsage(raw.context_usage),
-      mcp_used: raw.mcp_used === true,
-      mcp_tools_used: Array.isArray(raw.mcp_tools_used)
-        ? (raw.mcp_tools_used as string[])
-        : undefined,
-      mcp_tool_invocations: Array.isArray(raw.mcp_tool_invocations)
-        ? (raw.mcp_tool_invocations as McpToolInvocation[])
-        : undefined,
-      mcp_progress_events: Array.isArray(raw.mcp_progress_events)
-        ? (raw.mcp_progress_events as McpProgressEvent[])
-        : undefined,
-      error: typeof raw.error === "string" ? raw.error : undefined,
-    };
+    const references = toReferencePayload(candidate as Record<string, unknown>);
+    if (references) return references;
   }
   return null;
 }
@@ -220,41 +224,8 @@ function toReferencesFromRawMessage(rawMessage: unknown): ReferencePayload | nul
   ];
   for (const candidate of candidates) {
     if (!candidate || typeof candidate !== "object") continue;
-    const raw = candidate as Record<string, unknown>;
-    const hasKnownReferenceField =
-      Array.isArray(raw.citations) ||
-      Array.isArray(raw.reranker_docs) ||
-      Array.isArray(raw.mcp_tools_used) ||
-      Array.isArray(raw.mcp_tool_invocations) ||
-      Array.isArray(raw.mcp_progress_events) ||
-      typeof raw.trace_id === "string" ||
-      typeof raw.standalone_question === "string" ||
-      typeof raw.error === "string" ||
-      raw.mcp_used === true;
-    if (!hasKnownReferenceField) continue;
-    return {
-      trace_id: typeof raw.trace_id === "string" ? raw.trace_id : undefined,
-      standalone_question:
-        typeof raw.standalone_question === "string" ? raw.standalone_question : undefined,
-      citations: Array.isArray(raw.citations)
-        ? (raw.citations as { source: string; page: string }[])
-        : [],
-      reranker_docs: Array.isArray(raw.reranker_docs)
-        ? (raw.reranker_docs as { page_content: string; metadata: Record<string, unknown> }[])
-        : [],
-      context_usage: normalizeContextUsage(raw.context_usage),
-      mcp_used: raw.mcp_used === true,
-      mcp_tools_used: Array.isArray(raw.mcp_tools_used)
-        ? (raw.mcp_tools_used as string[])
-        : undefined,
-      mcp_tool_invocations: Array.isArray(raw.mcp_tool_invocations)
-        ? (raw.mcp_tool_invocations as McpToolInvocation[])
-        : undefined,
-      mcp_progress_events: Array.isArray(raw.mcp_progress_events)
-        ? (raw.mcp_progress_events as McpProgressEvent[])
-        : undefined,
-      error: typeof raw.error === "string" ? raw.error : undefined,
-    };
+    const references = toReferencePayload(candidate as Record<string, unknown>);
+    if (references) return references;
   }
   return null;
 }

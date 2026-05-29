@@ -23,6 +23,12 @@ async function selectCollection(page: Page) {
   return selectedLabel!
 }
 
+async function selectFlowMode(page: Page, label: string) {
+  const select = page.getByRole('combobox', { name: 'Flow mode' })
+  await expect(select).toBeVisible()
+  await select.selectOption({ label })
+}
+
 async function askQuestion(page: Page, prompt: string) {
   const input = page.getByRole('textbox', { name: 'Message' })
   const send = page.getByRole('button', { name: 'Ask' })
@@ -649,6 +655,7 @@ test.describe('chat streaming', () => {
   test('streams responses and renders citations', async ({ page }) => {
     await page.goto('/')
     await selectCollection(page)
+    await selectFlowMode(page, 'RAG only')
 
     const { input, chatResponsePromise } = await askQuestion(page, PROMPT)
 
@@ -673,6 +680,7 @@ test.describe('chat streaming', () => {
   test('clear chat resets the visible conversation', async ({ page }) => {
     await page.goto('/')
     await selectCollection(page)
+    await selectFlowMode(page, 'RAG only')
 
     const { input } = await askQuestion(page, PROMPT)
 
