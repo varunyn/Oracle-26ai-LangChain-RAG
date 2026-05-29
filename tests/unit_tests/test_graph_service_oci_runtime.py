@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 
 from src.rag_agent.runtime import chat_service as mod
+from src.rag_agent.runtime import rag_runtime
 from src.rag_agent.runtime.chat_service import ChatRuntimeService
 
 
@@ -449,20 +450,12 @@ def test_graph_service_rag_mode_returns_not_found_when_retrieval_has_no_docs(
         assert kwargs["query"] == "How can we land on moon?"
         return []
 
-    async def fail_if_synthesizing_without_context(self: object, **kwargs: object):
-        _ = self, kwargs
+    async def fail_if_synthesizing_without_context(**kwargs: object):
+        _ = kwargs
         raise AssertionError("RAG mode must not synthesize an answer without retrieved docs")
 
-    monkeypatch.setattr(
-        ChatRuntimeService,
-        "_retrieve_oracle_docs",
-        lambda self, **kwargs: fake_retrieve_oracle_docs(**kwargs),
-    )
-    monkeypatch.setattr(
-        ChatRuntimeService,
-        "_synthesize_rag_answer",
-        fail_if_synthesizing_without_context,
-    )
+    monkeypatch.setattr(rag_runtime, "retrieve_oracle_docs", fake_retrieve_oracle_docs)
+    monkeypatch.setattr(rag_runtime, "synthesize_rag_answer", fail_if_synthesizing_without_context)
 
     result = asyncio.run(
         service.run_chat(
@@ -1075,11 +1068,11 @@ def test_graph_service_mixed_mode_uses_only_retrieval_tool_state_for_citations(
         lambda self, collection_name=None: _Tool(),
     )
 
-    def fail_if_direct_retrieval_called(self, **kwargs):
-        _ = self, kwargs
+    def fail_if_direct_retrieval_called(**kwargs):
+        _ = kwargs
         raise AssertionError("mixed mode must not run direct retrieval outside oracle_retrieval")
 
-    monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", fail_if_direct_retrieval_called)
+    monkeypatch.setattr(rag_runtime, "retrieve_oracle_docs", fail_if_direct_retrieval_called)
     monkeypatch.setattr(
         "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
@@ -1134,8 +1127,8 @@ def test_graph_service_mixed_mode_does_not_run_direct_retrieval_after_tool_error
         _ = server_keys, run_config
         return []
 
-    def fail_if_direct_retrieval_called(self, **kwargs):
-        _ = self, kwargs
+    def fail_if_direct_retrieval_called(**kwargs):
+        _ = kwargs
         raise AssertionError("direct retrieval should not run after tool error")
 
     monkeypatch.setattr(
@@ -1147,7 +1140,7 @@ def test_graph_service_mixed_mode_does_not_run_direct_retrieval_after_tool_error
         "_build_oracle_retrieval_tool",
         lambda self, collection_name=None: _Tool(),
     )
-    monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", fail_if_direct_retrieval_called)
+    monkeypatch.setattr(rag_runtime, "retrieve_oracle_docs", fail_if_direct_retrieval_called)
     monkeypatch.setattr(
         "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
@@ -1198,8 +1191,8 @@ def test_graph_service_mixed_mode_keeps_non_retrieval_mcp_answer_without_rag_ove
         _ = server_keys, run_config
         return [calculator_tool]
 
-    def fail_if_retrieval_called(self, **kwargs):
-        _ = self, kwargs
+    def fail_if_retrieval_called(**kwargs):
+        _ = kwargs
         raise AssertionError("direct retrieval should not run when non-retrieval MCP tools were used")
 
     monkeypatch.setattr(
@@ -1215,7 +1208,7 @@ def test_graph_service_mixed_mode_keeps_non_retrieval_mcp_answer_without_rag_ove
         "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
-    monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", fail_if_retrieval_called)
+    monkeypatch.setattr(rag_runtime, "retrieve_oracle_docs", fail_if_retrieval_called)
 
     result = asyncio.run(
         service.run_chat(
@@ -1269,8 +1262,8 @@ def test_graph_service_mixed_mode_keeps_metadata_answer_without_rag_override(
         _ = server_keys, run_config
         return [list_documents]
 
-    def fail_if_retrieval_called(self, **kwargs):
-        _ = self, kwargs
+    def fail_if_retrieval_called(**kwargs):
+        _ = kwargs
         raise AssertionError("direct retrieval should not override a substantive MCP answer")
 
     monkeypatch.setattr(
@@ -1286,7 +1279,7 @@ def test_graph_service_mixed_mode_keeps_metadata_answer_without_rag_override(
         "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
-    monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", fail_if_retrieval_called)
+    monkeypatch.setattr(rag_runtime, "retrieve_oracle_docs", fail_if_retrieval_called)
 
     result = asyncio.run(
         service.run_chat(
@@ -1343,8 +1336,8 @@ def test_graph_service_mixed_mode_requires_tool_call_when_mcp_tools_explicitly_r
         _ = server_keys, run_config
         return [oic_list_documents]
 
-    def fail_if_direct_retrieval_called(self, **kwargs):
-        _ = self, kwargs
+    def fail_if_direct_retrieval_called(**kwargs):
+        _ = kwargs
         raise AssertionError(
             "direct retrieval must not run when explicit MCP tool reference is present"
         )
@@ -1362,7 +1355,7 @@ def test_graph_service_mixed_mode_requires_tool_call_when_mcp_tools_explicitly_r
         "_build_oracle_retrieval_tool",
         lambda self, collection_name=None: retrieval_tool,
     )
-    monkeypatch.setattr(ChatRuntimeService, "_retrieve_oracle_docs", fail_if_direct_retrieval_called)
+    monkeypatch.setattr(rag_runtime, "retrieve_oracle_docs", fail_if_direct_retrieval_called)
     monkeypatch.setattr(
         "src.rag_agent.runtime.chat_service.get_settings",
         lambda: type("Settings", (), {"REQUIRE_TOOL_CALL": False, "MCP_WORKFLOW_POLICY": {}})(),
@@ -1848,7 +1841,6 @@ def test_graph_service_run_chat_does_not_apply_custom_transform_prepass(monkeypa
 
 
 def test_graph_service_citations_use_realistic_oracle_metadata_keys() -> None:
-    service = ChatRuntimeService(graph=object())
     docs = [
         Document(
             page_content="Oracle Visual Builder lets you create applications visually.",
@@ -1875,7 +1867,7 @@ def test_graph_service_citations_use_realistic_oracle_metadata_keys() -> None:
         ),
     ]
 
-    citations = service._citations_from_docs(docs)
+    citations = rag_runtime.citations_from_docs(docs)
 
     assert citations == [
         {
@@ -1897,7 +1889,6 @@ def test_graph_service_citations_use_realistic_oracle_metadata_keys() -> None:
 
 
 def test_filter_retrieved_docs_prefers_query_term_overlap() -> None:
-    service = ChatRuntimeService(graph=object())
     docs = [
         Document(
             page_content="How to configure OCI CLI on Linux",
@@ -1909,7 +1900,7 @@ def test_filter_retrieved_docs_prefers_query_term_overlap() -> None:
         ),
     ]
 
-    filtered = service._filter_retrieved_docs(
+    filtered = rag_runtime.filter_retrieved_docs(
         "how can i create applications in visual builder",
         docs,
     )

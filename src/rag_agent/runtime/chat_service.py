@@ -596,7 +596,7 @@ class ChatRuntimeService:
                 else []
             )
             if retrieval_docs and latest_user_message:
-                retrieval_docs = self._rank_retrieved_docs(
+                retrieval_docs = rag_runtime.rerank_retrieved_docs(
                     latest_user_message,
                     retrieval_docs,
                     enable_reranker=enable_reranker,
@@ -615,8 +615,8 @@ class ChatRuntimeService:
                 "final_answer": final_answer,
                 "error": policy_error,
                 "standalone_question": latest_user_message or None,
-                "citations": self._citations_from_docs(retrieval_docs),
-                "reranker_docs": self._serialize_docs(retrieval_docs),
+                "citations": rag_runtime.citations_from_docs(retrieval_docs),
+                "reranker_docs": rag_runtime.serialize_docs(retrieval_docs),
                 "context_usage": (
                     {"retrieved_docs_count": len(retrieval_docs)} if retrieval_docs else None
                 ),
@@ -689,18 +689,18 @@ class ChatRuntimeService:
                     run_config=run_cfg,
                 )
 
-                docs = self._retrieve_oracle_docs(
+                docs = rag_runtime.retrieve_oracle_docs(
                     query=standalone_question,
                     collection_name=collection_name,
                     k=5,
                 )
-                docs = self._rank_retrieved_docs(
+                docs = rag_runtime.rerank_retrieved_docs(
                     standalone_question,
                     docs,
                     enable_reranker=enable_reranker,
                 )
                 if docs:
-                    rag_answer, rag_usage, resolved_model_id = await self._synthesize_rag_answer(
+                    rag_answer, rag_usage, resolved_model_id = await rag_runtime.synthesize_rag_answer(
                         question=standalone_question,
                         docs=docs,
                         model_id=model_id,
@@ -721,8 +721,8 @@ class ChatRuntimeService:
                     "final_answer": rag_answer,
                     "error": None,
                     "standalone_question": standalone_question or None,
-                    "citations": self._citations_from_docs(docs),
-                    "reranker_docs": self._serialize_docs(docs),
+                    "citations": rag_runtime.citations_from_docs(docs),
+                    "reranker_docs": rag_runtime.serialize_docs(docs),
                     "context_usage": None,
                     "mcp_used": False,
                     "mcp_tools_used": [],
@@ -908,7 +908,7 @@ class ChatRuntimeService:
     def _build_oracle_retrieval_tool(self, collection_name: str | None) -> StructuredTool:
         return rag_runtime.build_oracle_retrieval_tool(
             collection_name=collection_name,
-            filter_docs=self._filter_retrieved_docs,
+            filter_docs=rag_runtime.filter_retrieved_docs,
         )
 
     def _attach_trace_id(
@@ -918,62 +918,6 @@ class ChatRuntimeService:
     ) -> None:
         if langfuse_trace is not None and langfuse_trace.trace_id:
             result["trace_id"] = langfuse_trace.trace_id
-
-    def _retrieve_oracle_docs(
-        self, *, query: str, collection_name: str | None, k: int
-    ) -> list[Document]:
-        return rag_runtime.retrieve_oracle_docs(query=query, collection_name=collection_name, k=k)
-
-    async def _synthesize_rag_answer(
-        self,
-        *,
-        question: str,
-        docs: list[Document],
-        model_id: str | None,
-        run_config: RunnableConfig | None = None,
-    ) -> tuple[str, dict[str, int] | None, str]:
-        return await rag_runtime.synthesize_rag_answer(
-            question=question,
-            docs=docs,
-            model_id=model_id,
-            run_config=run_config,
-        )
-
-    def _filter_retrieved_docs(self, query: str, docs: list[Document]) -> list[Document]:
-        return rag_runtime.filter_retrieved_docs(query, docs)
-
-    def _rank_retrieved_docs(
-        self,
-        query: str,
-        docs: list[Document],
-        *,
-        enable_reranker: bool | None,
-    ) -> list[Document]:
-        return rag_runtime.rerank_retrieved_docs(
-            query,
-            docs,
-            enable_reranker=enable_reranker,
-        )
-
-    def _query_terms(self, query: str) -> list[str]:
-        return rag_runtime.query_terms(query)
-
-    def _latest_assistant_answer(
-        self, thread_id: str | None, messages: list[dict[str, object]]
-    ) -> str | None:
-        if thread_id and (thread_state := self._get_thread_state(thread_id)):
-            prior_messages = list(thread_state.get("messages") or [])
-            for message in reversed(prior_messages):
-                content = getattr(message, "content", None)
-                if isinstance(message, AIMessage) and isinstance(content, str) and content.strip():
-                    return content.strip()
-
-        for item in reversed(messages[:-1]):
-            role = str(item.get("role") or "").strip().lower()
-            content = str(item.get("content") or "")
-            if role == "assistant" and content.strip():
-                return content.strip()
-        return None
 
     def _hydrate_thread_messages(
         self,
@@ -1011,15 +955,6 @@ class ChatRuntimeService:
         incoming_messages: list[object],
     ) -> list[Any]:
         return new_incoming_messages(prior_messages, incoming_messages)
-
-    def _serialize_docs(self, docs: list[Document]) -> list[dict[str, object]]:
-        return rag_runtime.serialize_docs(docs)
-
-    def _citations_from_docs(self, docs: list[Document]) -> list[dict[str, object]]:
-        return rag_runtime.citations_from_docs(docs)
-
-    def _format_retrieved_docs(self, docs: list[Document]) -> str:
-        return rag_runtime.format_retrieved_docs(docs)
 
     async def get_state(self, run_config: dict[str, Any]) -> Any:
         thread_id = self._thread_id_from_run_config(run_config)
