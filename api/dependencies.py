@@ -4,9 +4,6 @@ import logging
 import uuid
 from typing import Any
 
-from api.deps.request import (  # noqa: F401
-    get_graph_service,
-)
 from api.settings import get_settings
 from src.rag_agent.infrastructure.mcp_settings import get_mcp_servers_config
 

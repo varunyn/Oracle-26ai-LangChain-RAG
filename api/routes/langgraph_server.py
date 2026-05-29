@@ -15,7 +15,8 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import AliasChoices, BaseModel, Field, model_validator
 
-from api.dependencies import generate_request_id, get_graph_service, log_conversation_out
+from api.dependencies import generate_request_id, log_conversation_out
+from api.deps.request import get_graph_service
 from api.routes.langgraph_middleware import merge_runtime_context
 from api.serialization import make_metadata_safe
 from src.rag_agent.core.citations import normalize_citations
@@ -194,7 +195,7 @@ def _serialize_state_messages(raw_messages: object) -> list[dict[str, Any]]:
     return serialized
 
 
-def _stream_error_message(exc: Exception) -> str:
+def _stream_error_message() -> str:
     return "Internal server error"
 
 
@@ -410,10 +411,10 @@ async def stream_thread_run(
                 ),
                 standalone_question=cast(str | None, references.get("standalone_question")),
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("langgraph_stream_run_failed thread_id=%s", thread_id)
             error_references = dict(references)
-            error_references["error"] = _stream_error_message(exc)
+            error_references["error"] = _stream_error_message()
             references = error_references
             yield _emit_values()
 

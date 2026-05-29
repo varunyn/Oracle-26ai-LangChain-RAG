@@ -39,11 +39,6 @@ def get_graph_service(request: Request) -> ChatRuntimeService:
 
 
 def get_settings(request: Request) -> Settings:
-    """Provide Settings from app.state.resources; fallback to cached global Settings.
-
-    Prefer app-scoped Settings created in lifespan to avoid duplicate instantiation.
-    """
+    """Provide Settings from app.state.resources."""
     resources = _ensure_app_resources(request)
-    if getattr(resources, "settings", None) is not None:
-        return resources.settings
-    return get_settings_global()
+    return resources.settings

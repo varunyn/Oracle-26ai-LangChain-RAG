@@ -241,7 +241,7 @@ class StubRuntimeV3EventService:
 
 
 def test_values_stream_happy_path() -> None:
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     app.dependency_overrides[get_graph_service] = lambda: StubGraph()
 
@@ -278,7 +278,7 @@ def test_values_stream_happy_path() -> None:
 
 
 def test_values_stream_uses_app_v3_event_stream() -> None:
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     app.dependency_overrides[get_graph_service] = lambda: StubRuntimeEventService()
 
@@ -312,7 +312,7 @@ def test_values_stream_uses_app_v3_event_stream() -> None:
 
 
 def test_values_stream_uses_v3_event_stream_when_available() -> None:
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     stub = StubRuntimeV3EventService()
     app.dependency_overrides[get_graph_service] = lambda: stub
@@ -349,7 +349,7 @@ def test_values_stream_uses_v3_event_stream_when_available() -> None:
 
 
 def test_values_stream_reads_v3_events_without_runtime_agent_adapter() -> None:
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     stub = StubRuntimeV3EventService()
     app.dependency_overrides[get_graph_service] = lambda: stub
@@ -382,7 +382,7 @@ def test_values_stream_reads_v3_events_without_runtime_agent_adapter() -> None:
 
 
 def test_values_stream_logs_conversation_out(monkeypatch) -> None:
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     captured: list[dict[str, object]] = []
 
@@ -429,7 +429,7 @@ def test_values_stream_logs_conversation_out(monkeypatch) -> None:
 
 
 def test_values_stream_sanitizes_decimal_in_references() -> None:
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     app.dependency_overrides[get_graph_service] = lambda: StubRuntimeEventServiceWithDecimal()
 
@@ -464,7 +464,7 @@ def test_values_stream_sanitizes_decimal_in_references() -> None:
 
 
 def test_values_stream_includes_tool_progress_events() -> None:
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     app.dependency_overrides[get_graph_service] = lambda: StubRuntimeEventServiceWithToolProgress()
 
@@ -500,7 +500,7 @@ def test_values_stream_includes_tool_progress_events() -> None:
 
 
 def test_stream_emits_sdk_tool_events_before_final_answer() -> None:
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     app.dependency_overrides[get_graph_service] = lambda: StubRuntimeEventServiceWithToolProgress()
 
@@ -548,7 +548,7 @@ def test_stream_emits_sdk_tool_events_before_final_answer() -> None:
 
 
 def test_values_stream_error_on_empty_message() -> None:
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     class EmptyErrorStreamService:
         async def astream_events(
@@ -596,7 +596,7 @@ def test_values_stream_error_on_empty_message() -> None:
 
 
 def test_values_stream_emits_generic_error_on_exception() -> None:
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     class RaisingGraph:
         async def astream_events(
@@ -644,7 +644,7 @@ def test_values_stream_emits_generic_error_on_exception() -> None:
 
 
 def test_values_stream_does_not_leak_followup_interpreter_json() -> None:
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     app.dependency_overrides[get_graph_service] = lambda: StubGraphWithInterpreterLeakAttempt()
 

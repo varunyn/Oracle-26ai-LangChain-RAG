@@ -56,7 +56,7 @@ class _StreamingStubMixin:
 
 
 def test_chat_stream_direct_mode_uses_oci_direct_agent(monkeypatch):
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     class StubAgentService(_StreamingStubMixin):
         async def run_chat(
@@ -126,7 +126,7 @@ def test_chat_stream_direct_mode_uses_oci_direct_agent(monkeypatch):
 
 
 def test_chat_stream_rag_mode_uses_oci_rag_runtime(monkeypatch):
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     class StubAgentService(_StreamingStubMixin):
         async def run_chat(

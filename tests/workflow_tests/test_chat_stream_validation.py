@@ -72,7 +72,7 @@ def test_langgraph_non_stream_run_endpoint_is_not_registered():
 
 
 def test_langgraph_stream_accepts_top_level_messages_and_context(monkeypatch):
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     class StubStreamService:
         def __init__(self) -> None:

@@ -114,7 +114,7 @@ def test_multi_message_history_is_accepted() -> None:
     import asyncio
 
     async def run() -> None:
-        from api.dependencies import get_graph_service
+        from api.deps.request import get_graph_service
         from api.main import app
 
         class StubAgentService(_RunChatStreamingMixin):
@@ -385,7 +385,7 @@ def test_new_turn_resets_stale_standalone_question_before_search(
             "thread_id": f"t_{uuid.uuid4().hex[:8]}",
         }
 
-        from api.dependencies import get_graph_service
+        from api.deps.request import get_graph_service
 
         app.dependency_overrides[get_graph_service] = lambda: recording_graph_service
         try:

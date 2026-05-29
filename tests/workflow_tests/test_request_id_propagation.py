@@ -9,7 +9,7 @@ from src.rag_agent.runtime.streaming import v3_raw_event
 
 
 def test_request_id_propagates_into_stream_runtime():
-    from api.dependencies import get_graph_service
+    from api.deps.request import get_graph_service
 
     class StubStreamService:
         async def get_state(self, _run_config: dict[str, object]) -> object:
