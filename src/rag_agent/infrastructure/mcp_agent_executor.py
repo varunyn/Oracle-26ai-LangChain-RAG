@@ -4,7 +4,6 @@ import asyncio
 import inspect
 import json
 import logging
-import re
 import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -32,15 +31,6 @@ from .oci_models import get_llm
 
 logger = logging.getLogger(__name__)
 
-_PSEUDO_TOOL_BLOCK = re.compile(
-    r"<\|python_start\|>\s*([A-Za-z0-9_.]+)\((.*?)\)\s*<\|python_end\|>",
-    re.DOTALL,
-)
-_LITERAL_TOOL_CALL_RETRY_INSTRUCTION = (
-    "You output literal tool-call text instead of an actual tool invocation. "
-    "Continue from prior tool results and call tools directly (do not print "
-    "tool_name(...)). Complete the task before giving the final answer."
-)
 ToolProgressCallback = Callable[[dict[str, object]], None]
 
 
@@ -774,36 +764,6 @@ def _extract_tool_invocations(agent_state: Mapping[str, object]) -> list[dict[st
     return invocations
 
 
-def _extract_literal_tool_call_names(answer: str, tool_names: Sequence[str]) -> set[str]:
-    if not answer.strip() or not tool_names:
-        return set()
-    found: set[str] = set()
-    for tool_name in tool_names:
-        escaped = re.escape(tool_name)
-        if re.search(rf"\b{escaped}\s*\(", answer):
-            found.add(tool_name)
-    return found
-
-
-def _should_retry_for_literal_tool_text(
-    *,
-    answer: str,
-    tools: Sequence[BaseTool],
-) -> bool:
-    if not answer.strip():
-        return False
-    tool_names = [str(getattr(tool, "name", "") or "").strip() for tool in tools]
-    tool_names = [name for name in tool_names if name]
-    if not tool_names:
-        return False
-
-    mentioned_tools = _extract_literal_tool_call_names(answer, tool_names)
-    if not mentioned_tools:
-        return False
-
-    return True
-
-
 def _tool_message_has_error(msg: object) -> bool:
     status = str(getattr(msg, "status", "") or "").strip().lower()
     if status == "error":
@@ -985,19 +945,7 @@ async def get_mcp_answer_with_langchain_agent_async(
                     agent_state=response_state,
                 )
                 continue
-            if not _should_retry_for_literal_tool_text(
-                answer=answer,
-                tools=tools,
-            ):
-                break
-
-            state_messages = response_state.get("messages")
-            if not isinstance(state_messages, Sequence) or isinstance(state_messages, (str, bytes)):
-                break
-            current_messages = [
-                *cast(list[object], list(state_messages)),
-                HumanMessage(_LITERAL_TOOL_CALL_RETRY_INSTRUCTION),
-            ]
+            break
 
         if require_tool_call and not tools_used:
             return "MCP tool call required but none was produced after retry. Please try again.", [], []

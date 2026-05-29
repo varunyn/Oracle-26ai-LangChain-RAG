@@ -955,36 +955,11 @@ def test_extract_answer_and_tools_reads_additional_kwargs_tool_calls_from_ai_mes
     assert tools_used == ["calculator_calculate"]
 
 
-def test_executor_retries_when_literal_calculator_tool_text_is_emitted(
+def test_executor_does_not_retry_literal_tool_text_without_tool_requirement(
     monkeypatch,
 ) -> None:
-    fake_agent = _FakeSequencedAgent(
-        [
-            {
-                "messages": [
-                    AIMessage(
-                        content='<|python_start|>Calculator_calculate(expression="12/16")<|python_end|>'
-                    )
-                ]
-            },
-            {
-                "messages": [
-                    AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "name": "Calculator_calculate",
-                                "args": {"expression": "12/16"},
-                                "id": "call_1",
-                            }
-                        ],
-                    ),
-                    ToolMessage(content="0.75", tool_call_id="call_1", name="Calculator_calculate"),
-                    AIMessage(content="12/16 is 0.75."),
-                ]
-            },
-        ]
-    )
+    literal_answer = '<|python_start|>Calculator_calculate(expression="12/16")<|python_end|>'
+    fake_agent = _FakeSequencedAgent([{"messages": [AIMessage(content=literal_answer)]}])
 
     monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=4))
     monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
@@ -1001,16 +976,10 @@ def test_executor_retries_when_literal_calculator_tool_text_is_emitted(
         )
     )
 
-    assert answer == "12/16 is 0.75."
-    assert tools_used == ["Calculator_calculate"]
-    assert invocations == [
-        {
-            "tool_name": "Calculator_calculate",
-            "args": {"expression": "12/16"},
-            "result": "0.75",
-        }
-    ]
-    assert len(fake_agent.calls) == 2
+    assert answer == literal_answer
+    assert tools_used == []
+    assert invocations == []
+    assert len(fake_agent.calls) == 1
 
 
 def test_extract_tool_invocations_pairs_ai_tool_calls_with_tool_messages() -> None:
@@ -1042,135 +1011,3 @@ def test_extract_tool_invocations_pairs_ai_tool_calls_with_tool_messages() -> No
             "result": "log line one\nlog line two",
         },
     ]
-
-
-def test_executor_retries_when_literal_tool_call_text_is_emitted(monkeypatch) -> None:
-    fake_agent = _FakeSequencedAgent(
-        [
-            {
-                "messages": [
-                    AIMessage(content='Now I will verify via oracle_retrieval(query="Summit payment terms").')
-                ]
-            },
-            {
-                "messages": [
-                    AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "name": "oracle_retrieval",
-                                "args": {"query": "Summit payment terms"},
-                                "id": "call_1",
-                            }
-                        ],
-                    ),
-                    ToolMessage(content="Found net 30", tool_call_id="call_1", name="oracle_retrieval"),
-                    AIMessage(content="Verified payment terms and completed processing."),
-                ]
-            },
-        ]
-    )
-
-    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=4))
-    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
-    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
-
-    import asyncio
-
-    answer, tools_used, invocations = asyncio.run(
-        mod.get_mcp_answer_with_langchain_agent_async(
-            question="process invoices and verify payment terms",
-            chat_history=None,
-            model_id=None,
-            tools=[SimpleNamespace(name="oracle_retrieval", description="retrieve")],
-            run_config=None,
-            require_tool_call=False,
-        )
-    )
-
-    assert answer == "Verified payment terms and completed processing."
-    assert tools_used == ["oracle_retrieval"]
-    assert invocations == [
-        {
-            "tool_name": "oracle_retrieval",
-            "args": {"query": "Summit payment terms"},
-            "result": "Found net 30",
-        }
-    ]
-    assert len(fake_agent.calls) == 2
-
-
-def test_executor_retries_when_literal_tool_call_text_uses_already_called_tool(
-    monkeypatch,
-) -> None:
-    fake_agent = _FakeSequencedAgent(
-        [
-            {
-                "messages": [
-                    AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "name": "oracle_retrieval",
-                                "args": {"query": "Northway Solutions payment terms"},
-                                "id": "call_1",
-                            }
-                        ],
-                    ),
-                    ToolMessage(content="", tool_call_id="call_1", name="oracle_retrieval"),
-                    AIMessage(
-                        content=(
-                            "The payment terms are not specified. Let me try a different query.\n\n"
-                            '[oracle_retrieval(query="Northway Solutions payment terms and conditions")]'
-                            "<|python_end|><|header_start|>assistant<|header_end|>\n\n"
-                            "<|python_start|>"
-                            '[oracle_retrieval(query="Northway Solutions payment terms and conditions")]'
-                            "<|python_end|>"
-                        )
-                    ),
-                ]
-            },
-            {
-                "messages": [
-                    AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "name": "oracle_retrieval",
-                                "args": {
-                                    "query": "Northway Solutions payment terms and conditions"
-                                },
-                                "id": "call_2",
-                            }
-                        ],
-                    ),
-                    ToolMessage(content="Net 30 days", tool_call_id="call_2", name="oracle_retrieval"),
-                    AIMessage(content="Northway Solutions payment terms are Net 30 days."),
-                ]
-            },
-        ]
-    )
-
-    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=4))
-    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
-    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
-
-    answer, tools_used, invocations = asyncio.run(
-        mod.get_mcp_answer_with_langchain_agent_async(
-            question="What are the payment terms for Northway Solutions?",
-            chat_history=None,
-            model_id=None,
-            tools=[SimpleNamespace(name="oracle_retrieval", description="retrieve")],
-            run_config=None,
-            require_tool_call=False,
-        )
-    )
-
-    assert answer == "Northway Solutions payment terms are Net 30 days."
-    assert tools_used == ["oracle_retrieval"]
-    assert invocations[-1] == {
-        "tool_name": "oracle_retrieval",
-        "args": {"query": "Northway Solutions payment terms and conditions"},
-        "result": "Net 30 days",
-    }
-    assert len(fake_agent.calls) == 2
