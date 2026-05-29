@@ -2,12 +2,14 @@ from langchain_core.documents import Document
 
 from src.rag_agent.infrastructure.retrieval import (
     _apply_metadata_filters,
+    normalize_collection_name,
     normalize_search_mode,
     search_documents,
 )
 
 
 class FakeVectorStore:
+    last_collection_name: str | None = None
     last_query: str | None = None
     last_k: int | None = None
     last_filter: dict[str, object] | None = None
@@ -47,16 +49,32 @@ def test_normalize_search_mode_only_allows_vector() -> None:
     assert normalize_search_mode("text") == "vector"
 
 
+def test_normalize_collection_name_uppercases_simple_oracle_identifiers() -> None:
+    assert normalize_collection_name("oracle_web_embeddings") == "ORACLE_WEB_EMBEDDINGS"
+    assert normalize_collection_name(" Rag_Knowledge_Base ") == "RAG_KNOWLEDGE_BASE"
+
+
+def test_normalize_collection_name_preserves_explicit_or_special_identifiers() -> None:
+    assert normalize_collection_name('"oracle_web_embeddings"') == '"oracle_web_embeddings"'
+    assert normalize_collection_name("schema.collection") == "schema.collection"
+
+
 def test_search_documents_passes_metadata_filters_to_oraclevs(monkeypatch) -> None:
     fake_store = FakeVectorStore()
+
+    def fake_get_oracle_vs(conn, collection_name, embed_model):
+        _ = conn, embed_model
+        FakeVectorStore.last_collection_name = collection_name
+        return fake_store
+
     monkeypatch.setattr(
         "src.rag_agent.infrastructure.retrieval.get_oracle_vs",
-        lambda conn, collection_name, embed_model: fake_store,
+        fake_get_oracle_vs,
     )
 
     docs = search_documents(
         conn=object(),
-        collection_name="COLL_A",
+        collection_name="coll_a",
         embed_model=object(),
         query="hello",
         top_k=3,
@@ -65,6 +83,7 @@ def test_search_documents_passes_metadata_filters_to_oraclevs(monkeypatch) -> No
     )
 
     assert [doc.page_content for doc in docs] == ["alpha", "beta"]
+    assert FakeVectorStore.last_collection_name == "COLL_A"
     assert FakeVectorStore.last_query == "hello"
     assert FakeVectorStore.last_k == 3
     assert FakeVectorStore.last_filter == {"language": "en"}
