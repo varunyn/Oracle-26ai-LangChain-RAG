@@ -63,6 +63,7 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_DEFAULT_FLOW_MODE: ${NEXT_PUBLIC_DEFAULT_FLOW_MODE:-mixed}
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:3002}
         FASTAPI_BACKEND_URL: http://backend:3002
     image: custom-rag-agent-frontend:latest
     container_name: rag-frontend
@@ -72,6 +73,7 @@ services:
       - "4000:3000"
     environment:
       - FASTAPI_BACKEND_URL=http://backend:3002
+      - NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE:-http://localhost:3002}
       - NEXT_PUBLIC_DEFAULT_FLOW_MODE=${NEXT_PUBLIC_DEFAULT_FLOW_MODE:-mixed}
       - NODE_ENV=production
     depends_on:

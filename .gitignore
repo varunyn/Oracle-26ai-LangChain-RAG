@@ -56,3 +56,5 @@ local-data/*
 skills-lock.json
 .worktrees/
 .codegraph/
+.codex/
+.cursor/

@@ -20,6 +20,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ARG NEXT_PUBLIC_DEFAULT_FLOW_MODE=mixed
+ARG NEXT_PUBLIC_API_BASE=http://localhost:3002
 ARG FASTAPI_BACKEND_URL=http://localhost:3002
 
 # Next.js collects completely anonymous telemetry data about general usage.
@@ -27,6 +28,7 @@ ARG FASTAPI_BACKEND_URL=http://localhost:3002
 # Uncomment the following line in case you want to disable telemetry during the build.
 ENV NEXT_TELEMETRY_DISABLED 1
 ENV NEXT_PUBLIC_DEFAULT_FLOW_MODE=${NEXT_PUBLIC_DEFAULT_FLOW_MODE}
+ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
 ENV FASTAPI_BACKEND_URL=${FASTAPI_BACKEND_URL}
 
 RUN pnpm build
@@ -39,6 +41,7 @@ ENV NODE_ENV production
 # Uncomment the following line in case you want to disable telemetry during runtime.
 ENV NEXT_TELEMETRY_DISABLED 1
 ENV NEXT_PUBLIC_DEFAULT_FLOW_MODE mixed
+ENV NEXT_PUBLIC_API_BASE http://localhost:3002
 ENV FASTAPI_BACKEND_URL http://localhost:3002
 
 # Don't run as root
