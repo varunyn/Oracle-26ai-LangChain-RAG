@@ -405,14 +405,14 @@ def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> N
             return AIMessage(content="Oracle 23ai introduces AI Vector Search. [1]")
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_pooled_connection", fake_get_pooled_connection
+        "src.rag_agent.runtime.rag_runtime.get_pooled_connection", fake_get_pooled_connection
     )
-    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_embedding_model", lambda: object())
+    monkeypatch.setattr("src.rag_agent.runtime.rag_runtime.get_embedding_model", lambda: object())
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.search_documents", fake_search_documents
+        "src.rag_agent.runtime.rag_runtime.search_documents", fake_search_documents
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_llm", lambda model_id=None: FakeLLM()
+        "src.rag_agent.runtime.rag_runtime.get_llm", lambda model_id=None: FakeLLM()
     )
 
     result = asyncio.run(
@@ -512,17 +512,17 @@ def test_graph_service_rag_mode_uses_native_reranker_when_enabled(monkeypatch) -
             return AIMessage(content="Best matching chunk [1]")
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_pooled_connection", fake_get_pooled_connection
+        "src.rag_agent.runtime.rag_runtime.get_pooled_connection", fake_get_pooled_connection
     )
-    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_embedding_model", lambda: object())
+    monkeypatch.setattr("src.rag_agent.runtime.rag_runtime.get_embedding_model", lambda: object())
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.search_documents", fake_search_documents
-    )
-    monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.rerank_documents", fake_rerank_documents
+        "src.rag_agent.runtime.rag_runtime.search_documents", fake_search_documents
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_llm", lambda model_id=None: FakeLLM()
+        "src.rag_agent.runtime.rag_runtime.oci_rerank_documents", fake_rerank_documents
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.rag_runtime.get_llm", lambda model_id=None: FakeLLM()
     )
 
     result = asyncio.run(
@@ -584,14 +584,17 @@ def test_graph_service_rag_mode_contextualizes_followup_before_retrieval(monkeyp
 
     fake_llm = FakeLLM()
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_pooled_connection", fake_get_pooled_connection
+        "src.rag_agent.runtime.rag_runtime.get_pooled_connection", fake_get_pooled_connection
     )
-    monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_embedding_model", lambda: object())
+    monkeypatch.setattr("src.rag_agent.runtime.rag_runtime.get_embedding_model", lambda: object())
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.search_documents", fake_search_documents
+        "src.rag_agent.runtime.rag_runtime.search_documents", fake_search_documents
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_llm", lambda model_id=None: fake_llm
+        "src.rag_agent.runtime.memory.get_llm", lambda model_id=None: fake_llm
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.rag_runtime.get_llm", lambda model_id=None: fake_llm
     )
 
     result = asyncio.run(

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import sys
-from collections.abc import Callable, Sequence
-from typing import Any, cast
+from collections.abc import Sequence
+from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables.config import RunnableConfig
@@ -11,13 +10,6 @@ from langchain_core.runnables.config import RunnableConfig
 from src.rag_agent.infrastructure.oci_models import get_llm
 
 from .llm_invocation import invoke_llm_with_optional_config
-
-
-def _compat_get_llm() -> Callable[..., object]:
-    graph_service = sys.modules.get("src.rag_agent.runtime.chat_service")
-    if graph_service is not None and hasattr(graph_service, "get_llm"):
-        return cast(Callable[..., object], getattr(graph_service, "get_llm"))
-    return cast(Callable[..., object], get_llm)
 
 
 def to_langchain_messages(messages: list[dict[str, object]]) -> list[Any]:
@@ -98,7 +90,7 @@ async def contextualize_question(
         f"Conversation history:\n{transcript}\n\n"
         f"Latest user question:\n{question}"
     )
-    llm = _compat_get_llm()(model_id=model_id)
+    llm = get_llm(model_id=model_id)
     response = await asyncio.to_thread(
         invoke_llm_with_optional_config,
         llm,

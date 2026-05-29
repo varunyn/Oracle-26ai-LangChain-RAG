@@ -25,16 +25,9 @@ def test_oracle_retrieval_tool_returns_error_content_when_vector_search_fails(
         _ = kwargs
         raise RuntimeError("Failed due to a DB error: ORA-22275: invalid LOB locator specified")
 
-    def fake_dependency(name: str, fallback: object) -> object:
-        _ = fallback
-        dependencies: dict[str, object] = {
-            "get_pooled_connection": lambda: FakeConnectionContext(),
-            "get_embedding_model": lambda: object(),
-            "search_documents": failing_search_documents,
-        }
-        return dependencies[name]
-
-    monkeypatch.setattr(rag_runtime, "_compat_dependency", fake_dependency)
+    monkeypatch.setattr(rag_runtime, "get_pooled_connection", lambda: FakeConnectionContext())
+    monkeypatch.setattr(rag_runtime, "get_embedding_model", lambda: object())
+    monkeypatch.setattr(rag_runtime, "search_documents", failing_search_documents)
 
     tool = rag_runtime.build_oracle_retrieval_tool(
         collection_name="ORACLE_WEB_EMBEDDINGS",

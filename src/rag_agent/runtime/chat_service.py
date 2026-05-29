@@ -15,9 +15,7 @@ from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 
 from api.settings import get_settings
-from src.rag_agent.infrastructure import db_utils as _db_utils
 from src.rag_agent.infrastructure import oci_models as _oci_models
-from src.rag_agent.infrastructure import retrieval as _retrieval
 from src.rag_agent.infrastructure.direct_mcp_tools import get_mcp_tools_async
 from src.rag_agent.infrastructure.mcp_agent import get_mcp_answer_async
 from src.rag_agent.infrastructure.mcp_settings import get_mcp_servers_config
@@ -57,27 +55,8 @@ class _MCPAgentTurn:
     resolved_model_id: str
 
 
-def get_pooled_connection() -> Any:
-    return _db_utils.get_pooled_connection()
-
-
-def get_embedding_model() -> Any:
-    return _oci_models.get_embedding_model()
-
-
 def get_llm(model_id: str | None = None) -> Any:
     return _oci_models.get_llm(model_id=model_id)
-
-
-get_oracle_vs = _oci_models.get_oracle_vs
-
-
-def search_documents(**kwargs: object) -> list[Document]:
-    return cast(list[Document], _retrieval.search_documents(**cast(Any, kwargs)))
-
-
-def rerank_documents(query: str, docs: list[Document]) -> list[Document]:
-    return _oci_models.rerank_documents(query, docs)
 
 
 def _build_run_config(

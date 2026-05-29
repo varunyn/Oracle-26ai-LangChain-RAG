@@ -3,9 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-import sys
 from collections.abc import Callable
-from typing import Any, cast
+from typing import cast
 
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
@@ -30,13 +29,6 @@ from .observability import extract_usage
 logger = logging.getLogger(__name__)
 
 
-def _compat_dependency(name: str, fallback: Callable[..., Any]) -> Callable[..., Any]:
-    graph_service = sys.modules.get("src.rag_agent.runtime.chat_service")
-    if graph_service is not None and hasattr(graph_service, name):
-        return cast(Callable[..., Any], getattr(graph_service, name))
-    return fallback
-
-
 def build_oracle_retrieval_tool(
     *,
     collection_name: str | None,
@@ -48,11 +40,11 @@ def build_oracle_retrieval_tool(
     def retrieve_context(query: str) -> tuple[str, list[Document]]:
         """Retrieve Oracle knowledge-base and documentation context for a user question."""
         try:
-            with _compat_dependency("get_pooled_connection", get_pooled_connection)() as conn:
-                embed_model = _compat_dependency("get_embedding_model", get_embedding_model)()
+            with get_pooled_connection() as conn:
+                embed_model = get_embedding_model()
                 docs = cast(
                     list[Document],
-                    _compat_dependency("search_documents", search_documents)(
+                    search_documents(
                         conn=conn,
                         collection_name=collection,
                         embed_model=embed_model,
@@ -99,11 +91,11 @@ def retrieve_oracle_docs(*, query: str, collection_name: str | None, k: int) -> 
 
     search_mode = str(get_settings().RAG_SEARCH_MODE or "vector").strip().lower()
 
-    with _compat_dependency("get_pooled_connection", get_pooled_connection)() as conn:
-        embed_model = _compat_dependency("get_embedding_model", get_embedding_model)()
+    with get_pooled_connection() as conn:
+        embed_model = get_embedding_model()
         docs = cast(
             list[Document],
-            _compat_dependency("search_documents", search_documents)(
+            search_documents(
                 conn=conn,
                 collection_name=collection,
                 embed_model=embed_model,
@@ -135,7 +127,7 @@ async def synthesize_rag_answer(
     context = format_retrieved_docs(docs)
     prompt = RAG_ANSWER_PROMPT_TEMPLATE.format(question=question, context=context)
     answer_messages = [HumanMessage(content=prompt)]
-    llm = _compat_dependency("get_llm", get_llm)(model_id=model_id)
+    llm = get_llm(model_id=model_id)
     final_message = await asyncio.to_thread(
         invoke_llm_with_optional_config,
         llm,
@@ -190,10 +182,7 @@ def rerank_retrieved_docs(
     if enable_reranker is not True:
         return docs
     try:
-        return cast(
-            list[Document],
-            _compat_dependency("rerank_documents", oci_rerank_documents)(query, docs),
-        )
+        return cast(list[Document], oci_rerank_documents(query, docs))
     except Exception:
         logger.exception("oci_rerank_failed docs=%d query_len=%d", len(docs), len(query or ""))
         return filter_retrieved_docs(query, docs)
