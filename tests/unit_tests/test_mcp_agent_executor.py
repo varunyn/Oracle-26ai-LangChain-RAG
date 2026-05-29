@@ -205,6 +205,33 @@ def test_langchain_executor_returns_final_answer_and_tools(monkeypatch) -> None:
     assert len(fake_agent.calls) == 1
 
 
+def test_langchain_executor_does_not_install_callback_progress_fallback(monkeypatch) -> None:
+    fake_agent = _FakeAgent({"messages": [AIMessage(content="done")]})
+    progress_events: list[dict[str, object]] = []
+
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
+    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
+
+    answer, tools_used, invocations = asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="finish",
+            chat_history=None,
+            model_id=None,
+            tools=[SimpleNamespace(name="finish", description="finish")],
+            run_config=None,
+            require_tool_call=False,
+            tool_progress_callback=progress_events.append,
+        )
+    )
+
+    assert answer == "done"
+    assert tools_used == []
+    assert invocations == []
+    assert fake_agent.calls[0]["config"] == {}
+    assert progress_events == []
+
+
 def test_langchain_executor_streams_tool_progress_events(monkeypatch) -> None:
     tool_call_id = str(uuid.uuid4())
     fake_agent = _FakeStreamingAgent(
