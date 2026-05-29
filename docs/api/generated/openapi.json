@@ -617,6 +617,23 @@
               }
             ],
             "title": "Session Id"
+          },
+          "stream_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Mode"
           }
         },
         "title": "RunInput",
@@ -922,33 +939,26 @@
               }
             ],
             "title": "Session Id"
+          },
+          "stream_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Mode"
           }
         },
         "title": "ThreadRunRequest",
-        "type": "object"
-      },
-      "ThreadRunResponse": {
-        "properties": {
-          "output": {
-            "additionalProperties": true,
-            "title": "Output",
-            "type": "object"
-          },
-          "run_id": {
-            "title": "Run Id",
-            "type": "string"
-          },
-          "thread_id": {
-            "title": "Thread Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "run_id",
-          "thread_id",
-          "output"
-        ],
-        "title": "ThreadRunResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -1246,6 +1256,50 @@
         ]
       }
     },
+    "/api/documents/jobs/{job_id}": {
+      "get": {
+        "operationId": "get_document_ingestion_job_api_documents_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Document Ingestion Job Api Documents Jobs  Job Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Document Ingestion Job",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/api/documents/source": {
       "delete": {
         "operationId": "delete_document_source_api_documents_source_delete",
@@ -1537,58 +1591,6 @@
           }
         },
         "summary": "Get Thread History",
-        "tags": [
-          "langgraph-runtime"
-        ]
-      }
-    },
-    "/api/langgraph/threads/{thread_id}/runs": {
-      "post": {
-        "operationId": "run_thread_api_langgraph_threads__thread_id__runs_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "title": "Thread Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ThreadRunRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ThreadRunResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Run Thread",
         "tags": [
           "langgraph-runtime"
         ]

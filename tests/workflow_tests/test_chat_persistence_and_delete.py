@@ -1,6 +1,6 @@
 # pyright: reportUnknownParameterType=false, reportMissingParameterType=false, reportAny=false, reportUnusedParameter=false, reportUnusedImport=false, reportUnannotatedClassAttribute=false, reportExplicitAny=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportPrivateUsage=false
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -11,6 +11,44 @@ from httpx import ASGITransport
 from langchain_core.messages import AnyMessage
 from pytest import MonkeyPatch
 
+from src.rag_agent.runtime.streaming import v3_raw_event
+
+
+class _RunChatStreamingMixin:
+    async def get_state(self, _run_config: dict[str, object]) -> object:
+        return type("StateSnapshot", (), {"values": {}})()
+
+    async def astream_events(
+        self,
+        input_payload: dict[str, object],
+        *,
+        config: dict[str, object],
+        version: str,
+    ) -> AsyncIterator[dict[str, object]]:
+        assert version == "v3"
+        configurable = cast(dict[str, object], config.get("configurable") or {})
+        result = await self.run_chat(
+            messages=cast(list[dict[str, object]], input_payload.get("messages") or []),
+            model_id=cast(str | None, configurable.get("model_id")),
+            thread_id=cast(str | None, configurable.get("thread_id")),
+            session_id=cast(str | None, configurable.get("session_id")),
+            collection_name=cast(str | None, configurable.get("collection_name")),
+            enable_reranker=cast(bool | None, configurable.get("enable_reranker")),
+            enable_tracing=cast(bool | None, configurable.get("enable_tracing")),
+            mode=cast(str | None, configurable.get("mode")),
+            mcp_server_keys=cast(list[str] | None, configurable.get("mcp_server_keys")),
+            stream=True,
+        )
+        yield v3_raw_event(
+            method="messages",
+            data=(
+                {
+                    "event": "content-block-delta",
+                    "delta": {"type": "text-delta", "text": result.get("final_answer") or ""},
+                },
+                {"langgraph_node": "test"},
+            ),
+        )
 
 def _langgraph_run_payload(
     *, messages: list[dict[str, object]], mode: str | None = None
@@ -60,7 +98,7 @@ def test_langgraph_run_validation_errors_return_422() -> None:
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
             resp = await client.post(
-                "/api/langgraph/threads/thread-validation/runs",
+                "/api/langgraph/threads/thread-validation/runs/stream",
                 headers=headers,
                 json={"assistant_id": "mcp_agent_executor"},
             )
@@ -79,7 +117,7 @@ def test_multi_message_history_is_accepted() -> None:
         from api.dependencies import get_graph_service
         from api.main import app
 
-        class StubAgentService:
+        class StubAgentService(_RunChatStreamingMixin):
             async def run_chat(self, **kwargs: object) -> dict[str, object]:
                 _ = kwargs
                 return {
@@ -105,7 +143,7 @@ def test_multi_message_history_is_accepted() -> None:
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
             resp = await client.post(
-                "/api/langgraph/threads/thread-history/runs",
+                "/api/langgraph/threads/thread-history/runs/stream",
                 headers=headers,
                 json=_langgraph_run_payload(
                     messages=cast(list[dict[str, object]], payload["messages"]),
@@ -140,7 +178,7 @@ def test_persistence_across_two_calls_messages_length_is_4(
                 "messages": [{"type": "human", "content": "Hello"}],
             }
             r1 = await client.post(
-                f"/api/langgraph/threads/{thread_id}/runs",
+                f"/api/langgraph/threads/{thread_id}/runs/stream",
                 headers=headers,
                 json=_langgraph_run_payload(
                     messages=cast(list[dict[str, object]], payload1["messages"]),
@@ -154,7 +192,7 @@ def test_persistence_across_two_calls_messages_length_is_4(
                 "messages": [{"type": "human", "content": "What did I just say?"}],
             }
             r2 = await client.post(
-                f"/api/langgraph/threads/{thread_id}/runs",
+                f"/api/langgraph/threads/{thread_id}/runs/stream",
                 headers=headers,
                 json=_langgraph_run_payload(
                     messages=cast(list[dict[str, object]], payload2["messages"]),
@@ -201,7 +239,7 @@ def test_followup_run_hydrates_persisted_thread_history(
         ) as client:
             headers = {"Content-Type": "application/json"}
             first = await client.post(
-                f"/api/langgraph/threads/{thread_id}/runs",
+                f"/api/langgraph/threads/{thread_id}/runs/stream",
                 headers=headers,
                 json=_langgraph_run_payload(
                     messages=[{"type": "human", "content": "Remember the color blue."}],
@@ -210,7 +248,7 @@ def test_followup_run_hydrates_persisted_thread_history(
             )
             assert first.status_code == 200
             second = await client.post(
-                f"/api/langgraph/threads/{thread_id}/runs",
+                f"/api/langgraph/threads/{thread_id}/runs/stream",
                 headers=headers,
                 json=_langgraph_run_payload(
                     messages=[{"type": "human", "content": "What color did I mention?"}],
@@ -251,7 +289,7 @@ def test_delete_thread_clears_memory_and_is_idempotent(
                     "messages": [{"type": "human", "content": content}],
                 }
                 resp = await client.post(
-                    f"/api/langgraph/threads/{thread_id}/runs",
+                    f"/api/langgraph/threads/{thread_id}/runs/stream",
                     headers=headers,
                     json=_langgraph_run_payload(
                         messages=cast(list[dict[str, object]], payload["messages"]),
@@ -287,7 +325,7 @@ def test_new_turn_resets_stale_standalone_question_before_search(
     async def run() -> None:
         from api.main import app
 
-        class RecordingChatRuntimeService:
+        class RecordingChatRuntimeService(_RunChatStreamingMixin):
             def __init__(self) -> None:
                 self.captured_state: dict[str, object] | None = None
 
@@ -355,7 +393,7 @@ def test_new_turn_resets_stale_standalone_question_before_search(
                 transport=ASGITransport(app=app), base_url="http://testserver"
             ) as client:
                 resp = await client.post(
-                    f"/api/langgraph/threads/{payload['thread_id']}/runs",
+                    f"/api/langgraph/threads/{payload['thread_id']}/runs/stream",
                     headers=headers,
                     json=_langgraph_run_payload(
                         messages=cast(list[dict[str, object]], payload["messages"]),
@@ -394,7 +432,7 @@ def test_direct_run_persists_thread_state_without_legacy_turn_state_helper() -> 
             headers = {"Content-Type": "application/json"}
             payload = {"messages": [{"type": "human", "content": "hello runtime"}]}
             resp = await client.post(
-                f"/api/langgraph/threads/{thread_id}/runs",
+                f"/api/langgraph/threads/{thread_id}/runs/stream",
                 headers=headers,
                 json=_langgraph_run_payload(
                     messages=cast(list[dict[str, object]], payload["messages"]),

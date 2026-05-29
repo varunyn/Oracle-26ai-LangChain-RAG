@@ -39,6 +39,12 @@ Do not edit manually.
 - tags: config
 - summary: Test Mcp Server Connection Api
 
+## GET `/api/documents/jobs/{job_id}`
+
+- operationId: `get_document_ingestion_job_api_documents_jobs__job_id__get`
+- tags: documents
+- summary: Get Document Ingestion Job
+
 ## DELETE `/api/documents/source`
 
 - operationId: `delete_document_source_api_documents_source_delete`
@@ -74,12 +80,6 @@ Do not edit manually.
 - operationId: `get_thread_history_api_langgraph_threads__thread_id__history_post`
 - tags: langgraph-runtime
 - summary: Get Thread History
-
-## POST `/api/langgraph/threads/{thread_id}/runs`
-
-- operationId: `run_thread_api_langgraph_threads__thread_id__runs_post`
-- tags: langgraph-runtime
-- summary: Run Thread
 
 ## POST `/api/langgraph/threads/{thread_id}/runs/stream`
 

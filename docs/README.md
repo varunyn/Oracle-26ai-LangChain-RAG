@@ -40,14 +40,14 @@ config:
 ---
 graph TD;
     __start__([<p>__start__</p>]):::first
-    ChatRequest["POST /api/langgraph/threads/{thread_id}/runs(/stream)"]
+    ChatRequest["POST /api/langgraph/threads/{thread_id}/runs/stream"]
     Mode{"mode"}
     RAG["RAG path<br/>vector search + prompt"]
     MCP["MCP path<br/>create_agent + MCP tools"]
     Mixed["Mixed path<br/>oracle_retrieval + MCP tools"]
     Direct["Direct path<br/>LLM on history"]
     Persist["Store thread state by thread_id"]
-    Stream["AI SDK stream / JSON response"]
+    Stream["AI SDK stream"]
     __end__([<p>__end__</p>]):::last
     __start__ --> ChatRequest
     ChatRequest --> Mode

@@ -18,13 +18,6 @@
     },
     {
       "method": "POST",
-      "path": "/api/langgraph/threads/{thread_id}/runs",
-      "mode": "curated",
-      "name": "Chat",
-      "output": "bruno/CustomRAGAgent/Chat/chat-json.bru"
-    },
-    {
-      "method": "POST",
       "path": "/api/langgraph/threads/{thread_id}/runs/stream",
       "mode": "curated",
       "name": "Chat Stream",
@@ -128,6 +121,15 @@
       "bodyKind": "none",
       "output": "bruno/CustomRAGAgent/Documents/delete-source.bru",
       "seq": 2
+    },
+    {
+      "method": "GET",
+      "path": "/api/documents/jobs/{job_id}",
+      "mode": "generated",
+      "name": "Get Document Ingestion Job",
+      "bodyKind": "none",
+      "output": "bruno/CustomRAGAgent/Documents/get-job.bru",
+      "seq": 4
     },
     {
       "method": "GET",

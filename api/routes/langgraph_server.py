@@ -17,10 +17,9 @@ from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 from api.dependencies import generate_request_id, get_graph_service, log_conversation_out
 from api.routes.langgraph_middleware import merge_runtime_context
-from api.routes.responses import chat_completion_response_json
 from api.serialization import make_metadata_safe
 from src.rag_agent.core.citations import normalize_citations
-from src.rag_agent.runtime.agent import RuntimeAgent
+from src.rag_agent.runtime.agent import normalize_messages
 from src.rag_agent.runtime.streaming import astream_v3_raw_events, runtime_events_from_v3
 
 router = APIRouter(tags=["langgraph-runtime"])
@@ -118,12 +117,6 @@ class ThreadRunRequest(BaseModel):
         if isinstance(self.message, str) and self.message.strip():
             return self
         raise ValueError("Provide input, messages, or message.")
-
-
-class ThreadRunResponse(BaseModel):
-    run_id: str
-    thread_id: str
-    output: dict[str, Any]
 
 
 class ThreadHistoryRequest(BaseModel):
@@ -292,8 +285,7 @@ async def stream_thread_run(
 ) -> StreamingResponse:
     run_input = _effective_run_input(request)
     _ = request.assistant_id
-    runtime_agent = RuntimeAgent(chat_runtime_service)
-    messages = runtime_agent.normalize_messages(run_input.messages, run_input.message)
+    messages = normalize_messages(run_input.messages, run_input.message)
 
     async def _stream() -> Any:
         turn_id = uuid.uuid4().hex[:12]
@@ -493,74 +485,6 @@ async def get_thread_history(
                 }
             ]
         ),
-    )
-
-
-@router.post("/api/langgraph/threads/{thread_id}/runs", response_model=ThreadRunResponse)
-async def run_thread(
-    thread_id: str,
-    request: ThreadRunRequest,
-    chat_runtime_service: Any = Depends(get_graph_service),
-) -> ThreadRunResponse | JSONResponse:
-    run_input = _effective_run_input(request)
-    _ = request.assistant_id
-    runtime_agent = RuntimeAgent(chat_runtime_service)
-    messages = runtime_agent.normalize_messages(run_input.messages, run_input.message)
-
-    result = await runtime_agent.invoke(
-        messages=messages,
-        model_id=run_input.model,
-        thread_id=thread_id,
-        session_id=run_input.session_id,
-        collection_name=run_input.collection_name,
-        enable_reranker=run_input.enable_reranker,
-        enable_tracing=run_input.enable_tracing,
-        mode=run_input.mode,
-        mcp_server_keys=run_input.mcp_server_keys,
-    )
-    answer = str(result.get("final_answer") or "").strip()
-    err = cast(str | None, result.get("error"))
-    standalone = cast(str | None, result.get("standalone_question"))
-    citations = cast(list[dict[str, object]], result.get("citations") or [])
-    reranker_docs = cast(list[dict[str, object]], result.get("reranker_docs") or [])
-    context_usage = cast(dict[str, object] | None, result.get("context_usage"))
-    usage = cast(dict[str, object] | None, result.get("usage"))
-    trace_id = cast(str | None, result.get("trace_id"))
-    resolved_model_id = cast(str | None, result.get("model_id")) or run_input.model
-    mcp_tools_used = cast(list[Any] | None, result.get("mcp_tools_used"))
-
-    log_conversation_out(
-        final_answer=answer,
-        error=err,
-        mcp_used=cast(bool | None, result.get("mcp_used")),
-        mcp_tools_used=mcp_tools_used,
-        standalone_question=standalone,
-    )
-
-    if err:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "run_id": f"run-{uuid.uuid4().hex[:24]}",
-                "thread_id": thread_id,
-                "output": {"error": err, "content": answer or "", "trace_id": trace_id},
-            },
-        )
-    output = chat_completion_response_json(
-        content=answer,
-        model_id=resolved_model_id,
-        completion_id=f"chatcmpl-{uuid.uuid4().hex[:24]}",
-        standalone_question=standalone,
-        citations=citations,
-        reranker_docs=reranker_docs,
-        context_usage=context_usage,
-        usage=usage,
-        trace_id=trace_id,
-    )
-    return ThreadRunResponse(
-        run_id=f"run-{uuid.uuid4().hex[:24]}",
-        thread_id=thread_id,
-        output=cast(dict[str, Any], output),
     )
 
 

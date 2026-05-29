@@ -4,12 +4,12 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import cast
 
-from src.rag_agent.runtime.agent import RuntimeAgent
+from src.rag_agent.runtime.agent import normalize_messages
 from src.rag_agent.runtime.chat_service import ChatRuntimeService
 
 
 def test_runtime_agent_normalize_messages_accepts_langchain_types() -> None:
-    messages = RuntimeAgent.normalize_messages(
+    messages = normalize_messages(
         [
             {"type": "human", "content": "hello"},
             {"type": "ai", "content": "hi"},
@@ -23,7 +23,7 @@ def test_runtime_agent_normalize_messages_accepts_langchain_types() -> None:
 
 
 def test_runtime_agent_normalize_messages_falls_back_to_message_field() -> None:
-    messages = RuntimeAgent.normalize_messages(None, "fallback")
+    messages = normalize_messages(None, "fallback")
     assert len(messages) == 1
     assert messages[0].role == "user"
     assert messages[0].content == "fallback"

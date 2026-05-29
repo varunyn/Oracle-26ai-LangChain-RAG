@@ -3,7 +3,6 @@
 This app exposes thread/run chat endpoints:
 
 - `POST /api/langgraph/threads`
-- `POST /api/langgraph/threads/{thread_id}/runs`
 - `POST /api/langgraph/threads/{thread_id}/runs/stream`
 
 ## Request model highlights
@@ -21,9 +20,9 @@ This app exposes thread/run chat endpoints:
 Thread/run payloads must provide either `input.messages` (with at least one user/human message) or
 `input.message`.
 
-## POST `/api/langgraph/threads/{thread_id}/runs`
+## POST `/api/langgraph/threads/{thread_id}/runs/stream`
 
-### Non-stream example
+### Stream request example
 
 ```json
 {
@@ -46,22 +45,6 @@ Thread/run payloads must provide either `input.messages` (with at least one user
   "collection_name": "RAG_KNOWLEDGE_BASE"
 }
 ```
-
-### Non-stream response shape
-
-Returns a JSON object including:
-
-- `content`
-- `choices`
-- `usage`
-- `standalone_question`
-- `citations`
-- `reranker_docs`
-- `context_usage`
-
-### Stream example
-
-Use `POST /api/langgraph/threads/{thread_id}/runs/stream` with the same request body.
 
 ### Streaming behavior
 

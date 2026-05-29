@@ -35,21 +35,6 @@ curl -sS -N \
   http://localhost:3002/api/langgraph/threads/thread-1/runs/stream
 ```
 
-## Non-streaming (`stream: false`)
-
-When `stream: false`, use `POST /api/langgraph/threads/{thread_id}/runs` and read the `output` object.
-
-Example request:
-
-```bash
-curl -sS \
-  -H 'Content-Type: application/json' \
-  -d '{"assistant_id":"mcp_agent_executor","input":{"messages":[{"type":"human","content":"Hello"}]}}' \
-  http://localhost:3002/api/langgraph/threads/thread-1/runs
-```
-
----
-
 ## Server-owned memory: delta-only input + thread IDs
 
 - The server is the source of truth for conversation context in `ChatRuntimeService` (`src/rag_agent/runtime/chat_service.py`).

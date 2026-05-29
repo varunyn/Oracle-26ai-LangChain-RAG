@@ -185,6 +185,7 @@ Do not edit manually.
 - `mode`: `complex`
 - `model`: `complex`
 - `session_id`: `complex`
+- `stream_mode`: `complex`
 
 ## `SuggestionsRequest`
 
@@ -253,17 +254,7 @@ Do not edit manually.
 - `mode`: `complex`
 - `model`: `complex`
 - `session_id`: `complex`
-
-## `ThreadRunResponse`
-
-- type: `object`
-- required: `run_id`, `thread_id`, `output`
-
-### Properties
-
-- `output`: `object`
-- `run_id`: `string`
-- `thread_id`: `string`
+- `stream_mode`: `complex`
 
 ## `ValidationError`
 

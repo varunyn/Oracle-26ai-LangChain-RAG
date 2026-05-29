@@ -4,10 +4,10 @@ This app keeps chat memory on the backend in `ChatRuntimeService` (`src/rag_agen
 
 ## Key behaviors
 
-- API contract: `/api/langgraph/threads/{thread_id}/runs`
+- API contract: `/api/langgraph/threads/{thread_id}/runs/stream`
   - Request input should include at least one latest user/human message.
-  - `thread_id` identifies a conversation; if missing, the server generates one.
-  - Non-stream responses include top-level `thread_id`.
+  - `thread_id` identifies a conversation; create one with `POST /api/langgraph/threads`.
+  - Stream responses emit `event: values` SSE frames.
 - Storage model
   - Current implementation uses an in-memory per-process map (`self._thread_state`).
   - State includes normalized LangChain messages and the last answer metadata.

@@ -341,17 +341,6 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({service_name=\"rag-api\"} |= \"POST /api/langgraph/threads/\" |= \"/runs HTTP/1.1\" != \"/runs/stream\" [$__interval]))",
-          "legendFormat": "runs",
-          "queryType": "range",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "loki"
-          },
-          "editorMode": "code",
           "expr": "sum(count_over_time({service_name=\"rag-api\"} |~ \" (GET|POST) /api/langgraph/threads/.*/(state|history) HTTP/1.1\" [$__interval]))",
           "legendFormat": "state/history",
           "queryType": "range",

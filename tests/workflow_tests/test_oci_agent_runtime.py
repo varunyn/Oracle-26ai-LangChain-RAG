@@ -5,12 +5,60 @@ import httpx
 from httpx import ASGITransport
 
 from api.main import app
+from src.rag_agent.runtime.streaming import v3_raw_event
 
 
-def test_chat_nonstream_direct_mode_uses_oci_direct_agent(monkeypatch):
+class _StreamingStubMixin:
+    async def get_state(self, _run_config: dict[str, object]) -> object:
+        return type("StateSnapshot", (), {"values": {}})()
+
+    async def astream_events(
+        self,
+        input_payload: dict[str, object],
+        *,
+        config: dict[str, object],
+        version: str,
+    ):
+        assert version == "v3"
+        configurable = cast(dict[str, object], config.get("configurable") or {})
+        result = await self.run_chat(
+            messages=cast(list[object], input_payload.get("messages") or []),
+            model_id=cast(str | None, configurable.get("model_id")),
+            thread_id=cast(str | None, configurable.get("thread_id")),
+            session_id=cast(str | None, configurable.get("session_id")),
+            collection_name=cast(str | None, configurable.get("collection_name")),
+            enable_reranker=cast(bool | None, configurable.get("enable_reranker")),
+            enable_tracing=cast(bool | None, configurable.get("enable_tracing")),
+            mode=cast(str | None, configurable.get("mode")),
+            mcp_server_keys=cast(list[str] | None, configurable.get("mcp_server_keys")),
+            stream=True,
+        )
+        yield v3_raw_event(
+            method="messages",
+            data=(
+                {
+                    "event": "content-block-delta",
+                    "delta": {"type": "text-delta", "text": result.get("final_answer") or ""},
+                },
+                {"langgraph_node": "test"},
+            ),
+        )
+        yield v3_raw_event(
+            method="custom",
+            data={
+                "type": "references",
+                "data": {
+                    "citations": result.get("citations") or [],
+                    "reranker_docs": result.get("reranker_docs") or [],
+                },
+            },
+        )
+
+
+def test_chat_stream_direct_mode_uses_oci_direct_agent(monkeypatch):
     from api.dependencies import get_graph_service
 
-    class StubAgentService:
+    class StubAgentService(_StreamingStubMixin):
         async def run_chat(
             self,
             *,
@@ -63,17 +111,13 @@ def test_chat_nonstream_direct_mode_uses_oci_direct_agent(monkeypatch):
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
             resp = await client.post(
-                "/api/langgraph/threads/thread-oci-direct/runs",
+                "/api/langgraph/threads/thread-oci-direct/runs/stream",
                 headers=headers,
                 json=payload,
             )
             assert resp.status_code == 200
-            body = cast(dict[str, object], resp.json())
-            output = cast(dict[str, object], body.get("output") or {})
-            assert (
-                output.get("content")
-                == "You can create a visual application from the Oracle APEX App Builder."
-            )
+            body = b"".join([chunk async for chunk in resp.aiter_bytes()])
+            assert b"You can create a visual application from the Oracle APEX App Builder." in body
 
     try:
         asyncio.run(run())
@@ -81,10 +125,10 @@ def test_chat_nonstream_direct_mode_uses_oci_direct_agent(monkeypatch):
         app.dependency_overrides.clear()
 
 
-def test_chat_nonstream_rag_mode_uses_oci_rag_runtime(monkeypatch):
+def test_chat_stream_rag_mode_uses_oci_rag_runtime(monkeypatch):
     from api.dependencies import get_graph_service
 
-    class StubAgentService:
+    class StubAgentService(_StreamingStubMixin):
         async def run_chat(
             self,
             *,
@@ -142,15 +186,14 @@ def test_chat_nonstream_rag_mode_uses_oci_rag_runtime(monkeypatch):
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
             resp = await client.post(
-                "/api/langgraph/threads/thread-oci-rag/runs",
+                "/api/langgraph/threads/thread-oci-rag/runs/stream",
                 headers=headers,
                 json=payload,
             )
             assert resp.status_code == 200
-            body = cast(dict[str, object], resp.json())
-            output = cast(dict[str, object], body.get("output") or {})
-            assert output.get("content") == "Oracle 23ai introduces AI Vector Search. [1]"
-            assert output.get("citations") == [{"source": "Doc1", "page": "1"}]
+            body = b"".join([chunk async for chunk in resp.aiter_bytes()])
+            assert b"Oracle 23ai introduces AI Vector Search. [1]" in body
+            assert b"Doc1" in body
 
     try:
         asyncio.run(run())

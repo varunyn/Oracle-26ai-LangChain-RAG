@@ -71,14 +71,14 @@ Recommended workflow:
 
 ## Important contract notes
 
-### `/api/langgraph/threads/{thread_id}/runs`
+### `/api/langgraph/threads/{thread_id}/runs/stream`
 
 Thread/run endpoints are the primary contract for frontend chat:
 
 - `messages` must contain **at least one** user message
 - the **final** message must have `role="user"`
 - earlier system/user/assistant messages are treated as chat history
-- use `/runs/stream` for SSE `event: values` frames
+- responses use SSE `event: values` frames
 - stream completion is transport close (no `[DONE]`)
 
 See `20-chat/README.md` for details.

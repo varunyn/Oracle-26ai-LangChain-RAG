@@ -55,6 +55,15 @@
       ]
     },
     {
+      "method": "GET",
+      "operationId": "get_document_ingestion_job_api_documents_jobs__job_id__get",
+      "path": "/api/documents/jobs/{job_id}",
+      "summary": "Get Document Ingestion Job",
+      "tags": [
+        "documents"
+      ]
+    },
+    {
       "method": "DELETE",
       "operationId": "delete_document_source_api_documents_source_delete",
       "path": "/api/documents/source",
@@ -104,15 +113,6 @@
       "operationId": "get_thread_history_api_langgraph_threads__thread_id__history_post",
       "path": "/api/langgraph/threads/{thread_id}/history",
       "summary": "Get Thread History",
-      "tags": [
-        "langgraph-runtime"
-      ]
-    },
-    {
-      "method": "POST",
-      "operationId": "run_thread_api_langgraph_threads__thread_id__runs_post",
-      "path": "/api/langgraph/threads/{thread_id}/runs",
-      "summary": "Run Thread",
       "tags": [
         "langgraph-runtime"
       ]

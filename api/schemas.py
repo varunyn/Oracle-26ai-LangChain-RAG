@@ -1,6 +1,6 @@
 """Pydantic request/response models for the RAG Agent API."""
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -49,43 +49,6 @@ class ChatMessage(BaseModel):
         if normalized == "ai":
             return "assistant"
         return normalized
-
-
-class Citation(BaseModel):
-    source: str
-    page: str | None = None
-
-
-class RerankerDoc(BaseModel):
-    page_content: str
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class ChatCompletionChoice(BaseModel):
-    index: int
-    message: dict[str, Any]
-    finish_reason: str | None = None
-
-
-class ChatCompletionUsage(BaseModel):
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
-
-
-class ChatCompletionResponse(BaseModel):
-    id: str
-    object: str = "chat.completion"
-    created: int
-    model: str
-    choices: list[ChatCompletionChoice]
-    usage: ChatCompletionUsage
-    content: str
-    standalone_question: str | None = None
-    citations: list[Citation] | None = None
-    reranker_docs: list[RerankerDoc] | None = None
-    context_usage: dict[str, Any] | None = None
-    trace_id: str | None = None
 
 
 class FeedbackRequest(BaseModel):

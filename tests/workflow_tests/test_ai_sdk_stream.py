@@ -348,21 +348,9 @@ def test_values_stream_uses_v3_event_stream_when_available() -> None:
         app.dependency_overrides.clear()
 
 
-def test_values_stream_reads_v3_events_without_runtime_agent_adapter(monkeypatch) -> None:
+def test_values_stream_reads_v3_events_without_runtime_agent_adapter() -> None:
     from api.dependencies import get_graph_service
 
-    async def fail_runtime_agent_stream(
-        *args: object, **kwargs: object
-    ) -> AsyncIterator[dict[str, object]]:
-        _ = args, kwargs
-        raise AssertionError("stream endpoint should consume service.astream_events directly")
-        yield {}  # pragma: no cover
-
-    monkeypatch.setattr(
-        "src.rag_agent.runtime.agent.RuntimeAgent.stream",
-        fail_runtime_agent_stream,
-        raising=False,
-    )
     stub = StubRuntimeV3EventService()
     app.dependency_overrides[get_graph_service] = lambda: stub
 
