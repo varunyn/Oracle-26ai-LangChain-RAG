@@ -246,14 +246,11 @@ def _enforce_workflow_policy(
     tool_capability_map = cast(dict[str, list[str]], policy.get("tool_capability_map") or {})
     if not required_capabilities or not tool_capability_map:
         return False, [], None
-    called_tool_names = {str(name).strip().lower() for name in tools_used if str(name).strip()}
-    called_tool_names.update(
-        str(inv.get("tool_name") or "").strip().lower()
-        for inv in tool_invocations
-        if isinstance(inv, dict)
-    )
     called_capabilities: set[str] = set()
-    for tool_name in called_tool_names:
+    for tool_name in _called_tool_names(
+        tools_used=tools_used,
+        tool_invocations=tool_invocations,
+    ):
         for capability in tool_capability_map.get(tool_name, []):
             called_capabilities.add(capability.lower())
     missing = [cap for cap in required_capabilities if cap.lower() not in called_capabilities]
@@ -294,6 +291,21 @@ def _tool_failure_summary(tool_invocations: list[dict[str, object]]) -> str | No
     return f"Workflow failed because tool execution failed: {joined}. See tool output for details."
 
 
+def _called_tool_names(
+    *,
+    tools_used: list[str],
+    tool_invocations: list[dict[str, object]],
+) -> set[str]:
+    names = {str(name).strip().lower() for name in tools_used if str(name).strip()}
+    names.update(
+        str(invocation.get("tool_name") or "").strip().lower()
+        for invocation in tool_invocations
+        if isinstance(invocation, dict)
+        and str(invocation.get("tool_name") or "").strip()
+    )
+    return names
+
+
 def _tool_was_called(
     *,
     tool_name: str,
@@ -301,13 +313,10 @@ def _tool_was_called(
     tool_invocations: list[dict[str, object]],
 ) -> bool:
     expected = tool_name.strip().lower()
-    called_tool_names = {str(name).strip().lower() for name in tools_used if str(name).strip()}
-    called_tool_names.update(
-        str(invocation.get("tool_name") or "").strip().lower()
-        for invocation in tool_invocations
-        if isinstance(invocation, dict)
+    return expected in _called_tool_names(
+        tools_used=tools_used,
+        tool_invocations=tool_invocations,
     )
-    return expected in called_tool_names
 
 
 def _oracle_retrieval_used_without_context(
@@ -491,14 +500,6 @@ class ChatRuntimeService:
         tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
         langfuse_trace: LangfuseChatTrace | None = None,
     ) -> dict[str, object]:
-        _ = (
-            session_id,
-            collection_name,
-            enable_reranker,
-            enable_tracing,
-            mcp_server_keys,
-            stream,
-        )
         normalized_mode = _resolve_effective_mode(mode)
         incoming_messages = messages
         conversation_messages = self._hydrate_thread_messages(thread_id, incoming_messages)

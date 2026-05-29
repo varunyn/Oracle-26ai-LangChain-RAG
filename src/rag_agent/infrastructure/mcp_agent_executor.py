@@ -977,31 +977,14 @@ async def get_mcp_answer_with_langchain_agent_async(
     settings = get_settings()
     llm_model = get_llm(model_id=model_id)
 
-    def _create_mcp_agent(
-        *,
-        use_tool_selector: bool | None = None,
-        use_tool_retry: bool = True,
-        tool_call_run_limit: int | None = None,
-    ) -> Any:
-        return create_agent(
+    try:
+        agent = create_agent(
             model=cast(Any, llm_model),
             tools=list(tools),
             system_prompt=_build_system_prompt(question, tools, run_config),
-            middleware=cast(
-                Any,
-                _build_middleware(
-                    settings,
-                    tools,
-                    use_tool_selector=use_tool_selector,
-                    use_tool_retry=use_tool_retry,
-                    tool_call_run_limit=tool_call_run_limit,
-                ),
-            ),
+            middleware=cast(Any, _build_middleware(settings, tools)),
             name="mcp_agent_executor",
         )
-
-    try:
-        agent = _create_mcp_agent()
         current_messages: list[object] = cast(list[object], _build_messages(chat_history, question))
         response_state: Mapping[str, object] | None = None
         answer = ""

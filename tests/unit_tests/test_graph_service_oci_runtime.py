@@ -8,7 +8,18 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 
+from src.rag_agent.runtime import chat_service as mod
 from src.rag_agent.runtime.chat_service import ChatRuntimeService
+
+
+def test_called_tool_names_combines_tools_used_and_invocations() -> None:
+    assert mod._called_tool_names(
+        tools_used=["oracle_retrieval", " "],
+        tool_invocations=[
+            {"tool_name": "Calculator_calculate", "result": "50"},
+            {"tool_name": None},
+        ],
+    ) == {"oracle_retrieval", "calculator_calculate"}
 
 
 def test_graph_service_run_chat_direct_mode_uses_oci_llm(monkeypatch) -> None:
