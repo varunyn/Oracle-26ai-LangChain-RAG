@@ -30,6 +30,14 @@ from .oci_models import get_llm
 logger = logging.getLogger(__name__)
 
 ToolProgressCallback = Callable[[dict[str, object]], None]
+_TOOL_SELECTOR_SYSTEM_PROMPT = """Select all tools that may be needed for the user's next step.
+
+Use the tool names and descriptions exactly as provided.
+Prefer a focused set, but include every plausibly relevant tool when the request is ambiguous.
+For explicit workflows, include tools for queue discovery, per-item processing, supporting lookup/context, and finalization when those phases are relevant.
+For data-grounded answers, keep oracle_retrieval available whenever it is present so the main model can ground the answer in the selected collection.
+For math, database, CLI, or API requests, include the most specific tool plus any helper or inspection tool that may be needed to choose correct arguments.
+Do not include tools that are clearly unrelated to the user's request."""
 
 
 class OCIToolCallContentMiddleware(AgentMiddleware):
@@ -372,25 +380,21 @@ def _build_middleware(
     settings: object,
     tools: Sequence[BaseTool],
     *,
-    use_tool_selector: bool | None = None,
     use_tool_retry: bool = True,
     tool_call_run_limit: int | None = None,
 ) -> list[object]:
     middleware: list[object] = []
-    selector_enabled = (
-        bool(getattr(settings, "MCP_USE_LLM_TOOL_SELECTOR", False))
-        if use_tool_selector is None
-        else use_tool_selector
-    )
 
     middleware.append(OCIToolCallContentMiddleware())
     middleware.append(ModelRetryMiddleware(max_retries=1))
     if use_tool_retry:
         middleware.append(ToolRetryMiddleware(max_retries=1))
-    if selector_enabled:
-        middleware.append(
-            LLMToolSelectorMiddleware(always_include=_tool_names_to_always_include(tools))
+    middleware.append(
+        LLMToolSelectorMiddleware(
+            system_prompt=_TOOL_SELECTOR_SYSTEM_PROMPT,
+            always_include=_tool_names_to_always_include(tools),
         )
+    )
 
     max_rounds = (
         tool_call_run_limit

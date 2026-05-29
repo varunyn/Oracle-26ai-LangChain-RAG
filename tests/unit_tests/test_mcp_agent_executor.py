@@ -708,23 +708,32 @@ def test_langchain_executor_enforces_require_tool_call_when_answer_empty(monkeyp
     assert invocations == []
 
 
-def test_build_middleware_defaults_to_single_agent_retry_and_limit_controls() -> None:
+def test_build_middleware_always_enables_tool_selector_and_limit_controls() -> None:
     settings = SimpleNamespace(MCP_MAX_ROUNDS=2)
     middleware = mod._build_middleware(
         settings,
-        [SimpleNamespace(name="calculator.add", description="add")],
+        [
+            SimpleNamespace(name="oracle_retrieval", description="retrieve"),
+            SimpleNamespace(name="calculator.add", description="add"),
+        ],
     )
     names = [type(m).__name__ for m in middleware]
     assert names == [
         "OCIToolCallContentMiddleware",
         "ModelRetryMiddleware",
         "ToolRetryMiddleware",
+        "LLMToolSelectorMiddleware",
         "ToolCallLimitMiddleware",
     ]
+    selector = middleware[3]
+    assert selector.always_include == ["oracle_retrieval"]
+    assert selector.max_tools is None
+    assert "select all tools that may be needed" in selector.system_prompt.lower()
+    assert "oracle_retrieval" in selector.system_prompt
     assert middleware[-1].run_limit == 2
 
 
-def test_build_middleware_can_enable_selector_for_large_catalogs() -> None:
+def test_build_middleware_keeps_selector_when_tool_retry_is_disabled() -> None:
     settings = SimpleNamespace(MCP_MAX_ROUNDS=0)
     middleware = mod._build_middleware(
         settings,
@@ -732,7 +741,6 @@ def test_build_middleware_can_enable_selector_for_large_catalogs() -> None:
             SimpleNamespace(name="oracle_retrieval", description="retrieve"),
             SimpleNamespace(name="calculator.add", description="add"),
         ],
-        use_tool_selector=True,
         use_tool_retry=False,
     )
 
@@ -746,7 +754,6 @@ def test_build_middleware_can_disable_tool_retry() -> None:
     middleware = mod._build_middleware(
         settings,
         [SimpleNamespace(name="calculator.add", description="add")],
-        use_tool_selector=False,
         use_tool_retry=False,
     )
 
@@ -754,6 +761,7 @@ def test_build_middleware_can_disable_tool_retry() -> None:
     assert names == [
         "OCIToolCallContentMiddleware",
         "ModelRetryMiddleware",
+        "LLMToolSelectorMiddleware",
     ]
 
 
@@ -811,7 +819,7 @@ def test_langchain_executor_retries_tool_error_in_same_agent_harness(
 
     monkeypatch.setattr(
         "api.settings.get_settings",
-        lambda: SimpleNamespace(MCP_MAX_ROUNDS=2, MCP_USE_LLM_TOOL_SELECTOR=False),
+        lambda: SimpleNamespace(MCP_MAX_ROUNDS=2),
     )
     monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
     monkeypatch.setattr(mod, "create_agent", fake_create_agent)
@@ -843,7 +851,7 @@ def test_langchain_executor_retries_tool_error_in_same_agent_harness(
     ]
     assert len(created_agents) == 1
     middleware_names = [type(m).__name__ for m in created_agents[0]["middleware"]]
-    assert "LLMToolSelectorMiddleware" not in middleware_names
+    assert "LLMToolSelectorMiddleware" in middleware_names
     assert "ToolRetryMiddleware" in middleware_names
     assert created_agents[0]["middleware"][-1].run_limit == 2
     assert "transformers" not in created_agents[0]
