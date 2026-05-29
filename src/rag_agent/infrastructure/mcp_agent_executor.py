@@ -293,15 +293,13 @@ def _build_middleware(
     settings: object,
     tools: Sequence[BaseTool],
     *,
-    use_tool_retry: bool = True,
     tool_call_run_limit: int | None = None,
 ) -> list[object]:
     middleware: list[object] = []
 
     middleware.append(OCIToolCallContentMiddleware())
     middleware.append(ModelRetryMiddleware(max_retries=1))
-    if use_tool_retry:
-        middleware.append(ToolRetryMiddleware(max_retries=1))
+    middleware.append(ToolRetryMiddleware(max_retries=1))
     middleware.append(
         LLMToolSelectorMiddleware(
             system_prompt=_TOOL_SELECTOR_SYSTEM_PROMPT,

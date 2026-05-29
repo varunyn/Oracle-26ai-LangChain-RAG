@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import uuid
 from types import SimpleNamespace
 from typing import Any
@@ -713,36 +714,10 @@ def test_build_middleware_always_enables_tool_selector_and_limit_controls() -> N
     assert middleware[-1].run_limit == 2
 
 
-def test_build_middleware_keeps_selector_when_tool_retry_is_disabled() -> None:
-    settings = SimpleNamespace(MCP_MAX_ROUNDS=0)
-    middleware = mod._build_middleware(
-        settings,
-        [
-            SimpleNamespace(name="oracle_retrieval", description="retrieve"),
-            SimpleNamespace(name="calculator.add", description="add"),
-        ],
-        use_tool_retry=False,
-    )
+def test_build_middleware_has_no_tool_retry_opt_out() -> None:
+    signature = inspect.signature(mod._build_middleware)
 
-    selector = middleware[2]
-    assert type(selector).__name__ == "LLMToolSelectorMiddleware"
-    assert selector.always_include == ["oracle_retrieval"]
-
-
-def test_build_middleware_can_disable_tool_retry() -> None:
-    settings = SimpleNamespace(MCP_MAX_ROUNDS=0)
-    middleware = mod._build_middleware(
-        settings,
-        [SimpleNamespace(name="calculator.add", description="add")],
-        use_tool_retry=False,
-    )
-
-    names = [type(m).__name__ for m in middleware]
-    assert names == [
-        "OCIToolCallContentMiddleware",
-        "ModelRetryMiddleware",
-        "LLMToolSelectorMiddleware",
-    ]
+    assert "use_tool_retry" not in signature.parameters
 
 
 def test_langchain_executor_does_not_rerun_agent_after_tool_error(
