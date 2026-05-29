@@ -6,7 +6,6 @@ type MessageLike = {
   id?: string;
   role?: string;
   content?: unknown;
-  parts?: { type?: string; text?: string }[];
 };
 
 function fetchSuggestions(

@@ -6,9 +6,11 @@ and delegates runtime execution to ``ChatRuntimeService``.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import uuid
-from typing import Any, cast
+from collections.abc import AsyncIterator
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Response
 from fastapi.encoders import jsonable_encoder
@@ -18,10 +20,10 @@ from pydantic import AliasChoices, BaseModel, Field, model_validator
 from api.dependencies import generate_request_id, log_conversation_out
 from api.deps.request import get_graph_service
 from api.routes.langgraph_middleware import merge_runtime_context
+from api.schemas import ChatMessage
 from api.serialization import make_metadata_safe
 from src.rag_agent.core.citations import normalize_citations
 from src.rag_agent.runtime.agent import normalize_messages
-from src.rag_agent.runtime.streaming import astream_v3_raw_events, runtime_events_from_v3
 
 router = APIRouter(tags=["langgraph-runtime"])
 logger = logging.getLogger(__name__)
@@ -32,6 +34,107 @@ def _json_response_body(content: object) -> str:
     if isinstance(body, memoryview):
         body = body.tobytes()
     return body.decode()
+
+
+def _stream_input_payload(messages: list[ChatMessage]) -> dict[str, object]:
+    return {"messages": [message.model_dump() for message in messages]}
+
+
+def _stream_config(
+    *,
+    thread_id: str,
+    run_input: RunInput,
+) -> dict[str, object]:
+    return {
+        "configurable": {
+            "thread_id": thread_id,
+            "model_id": run_input.model,
+            "session_id": run_input.session_id,
+            "collection_name": run_input.collection_name,
+            "enable_reranker": run_input.enable_reranker,
+            "enable_tracing": run_input.enable_tracing,
+            "mode": run_input.mode,
+            "mcp_server_keys": run_input.mcp_server_keys,
+        }
+    }
+
+
+async def _astream_v3_raw_events(
+    runtime_service: Any,
+    *,
+    messages: list[ChatMessage],
+    thread_id: str,
+    run_input: RunInput,
+) -> AsyncIterator[dict[str, object]]:
+    event_streamer = getattr(runtime_service, "astream_events", None)
+    if not callable(event_streamer):
+        raise AttributeError("Runtime service must expose astream_events(..., version='v3').")
+
+    raw_stream = event_streamer(
+        _stream_input_payload(messages),
+        config=_stream_config(thread_id=thread_id, run_input=run_input),
+        version="v3",
+    )
+    if inspect.isawaitable(raw_stream):
+        raw_stream = await raw_stream
+
+    async for raw_event in raw_stream:
+        yield cast(dict[str, object], raw_event)
+
+
+def _events_from_v3(raw_event: object) -> list[dict[str, object]]:
+    if not isinstance(raw_event, dict):
+        return []
+    method = raw_event.get("method")
+    params = raw_event.get("params")
+    if not isinstance(params, dict):
+        return []
+    data = params.get("data")
+    if method == "messages":
+        return _events_from_v3_message(data)
+    if method == "tool_calls":
+        safe_data = data if isinstance(data, dict) else {"event": str(data)}
+        return [{"type": "tool_event", "data": cast(dict[str, object], safe_data)}]
+    if method == "custom":
+        return _events_from_v3_custom(data)
+    return []
+
+
+def _events_from_v3_message(data: object) -> list[dict[str, object]]:
+    payload: object
+    if isinstance(data, tuple) and data:
+        payload = data[0]
+    else:
+        payload = data
+    if not isinstance(payload, dict):
+        return []
+
+    event_name = payload.get("event")
+    if event_name != "content-block-delta":
+        return []
+    delta = payload.get("delta")
+    if not isinstance(delta, dict):
+        return []
+    delta_type = delta.get("type")
+    if delta_type == "text-delta":
+        text = delta.get("text")
+        if isinstance(text, str) and text:
+            return [{"type": "text", "delta": text}]
+    if delta_type in {"tool-call-delta", "tool_call_chunk"}:
+        return [{"type": "tool_event", "data": cast(dict[str, object], delta)}]
+    return []
+
+
+def _events_from_v3_custom(data: object) -> list[dict[str, object]]:
+    if not isinstance(data, dict):
+        return []
+    event_type = data.get("type")
+    if event_type not in {"references", "tool_event"}:
+        return []
+    payload = data.get("data")
+    if not isinstance(payload, dict):
+        payload = {}
+    return [{"type": cast(Literal["references", "tool_event"], event_type), "data": payload}]
 
 
 class ThreadCreateRequest(BaseModel):
@@ -354,19 +457,13 @@ async def stream_thread_run(
             return f"event: values\ndata: {_json_response_body(payload)}\n\n"
 
         try:
-            async for raw_event in astream_v3_raw_events(
+            async for raw_event in _astream_v3_raw_events(
                 chat_runtime_service,
                 messages=messages,
-                model_id=run_input.model,
                 thread_id=thread_id,
-                session_id=run_input.session_id,
-                collection_name=run_input.collection_name,
-                enable_reranker=run_input.enable_reranker,
-                enable_tracing=run_input.enable_tracing,
-                mode=run_input.mode,
-                mcp_server_keys=run_input.mcp_server_keys,
+                run_input=run_input,
             ):
-                for event in runtime_events_from_v3(raw_event):
+                for event in _events_from_v3(raw_event):
                     if event.get("type") == "text":
                         delta = str(event.get("delta") or "")
                         if delta:

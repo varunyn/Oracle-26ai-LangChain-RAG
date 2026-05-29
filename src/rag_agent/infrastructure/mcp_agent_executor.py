@@ -419,31 +419,59 @@ def _extract_tool_invocations(agent_state: Mapping[str, object]) -> list[dict[st
         else:
             orphan_ai_calls.append(rec)
 
-    def _complete_tool_result(*, tool_call_id: str, tool_name: str, content: object) -> None:
+    def _with_tool_error_status(rec: dict[str, object], *, error_text: str | None) -> dict[str, object]:
+        if not error_text:
+            return rec
+        return {**rec, "error": error_text}
+
+    def _complete_tool_result(
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        content: object,
+        status: str | None,
+    ) -> None:
         text = _truncate_tool_text(_normalize_message_content(content))
+        error_text = text if status == "error" else None
         if tool_call_id:
             rec = pending_by_id.pop(tool_call_id, None)
             if rec is None:
                 invocations.append(
-                    {
-                        "tool_name": tool_name,
-                        "args": None,
-                        "result": text,
-                    }
+                    _with_tool_error_status(
+                        {
+                            "tool_name": tool_name,
+                            "args": None,
+                            "result": text,
+                        },
+                        error_text=error_text,
+                    )
                 )
             else:
-                invocations.append({**rec, "result": text})
+                invocations.append(
+                    _with_tool_error_status(
+                        {**rec, "result": text},
+                        error_text=error_text,
+                    )
+                )
             return
         if orphan_ai_calls:
             rec = orphan_ai_calls.popleft()
-            invocations.append({**rec, "result": text})
+            invocations.append(
+                _with_tool_error_status(
+                    {**rec, "result": text},
+                    error_text=error_text,
+                )
+            )
             return
         invocations.append(
-            {
-                "tool_name": tool_name,
-                "args": None,
-                "result": text,
-            }
+            _with_tool_error_status(
+                {
+                    "tool_name": tool_name,
+                    "args": None,
+                    "result": text,
+                },
+                error_text=error_text,
+            )
         )
 
     for msg in cast(Sequence[object], messages_raw):
@@ -466,7 +494,13 @@ def _extract_tool_invocations(agent_state: Mapping[str, object]) -> list[dict[st
             tc_id = str(getattr(msg, "tool_call_id", "") or "").strip()
             content = getattr(msg, "content", "")
             name = str(getattr(msg, "name", "") or "").strip()
-            _complete_tool_result(tool_call_id=tc_id, tool_name=name, content=content)
+            status = str(getattr(msg, "status", "") or "").strip()
+            _complete_tool_result(
+                tool_call_id=tc_id,
+                tool_name=name,
+                content=content,
+                status=status,
+            )
             continue
 
     return invocations

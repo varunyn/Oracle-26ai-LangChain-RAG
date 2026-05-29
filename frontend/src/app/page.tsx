@@ -73,15 +73,11 @@ type ChatPageContentProps = {
 type ChatMessageLike = {
   role?: string;
   content?: string;
-  parts?: { type?: string; text?: string }[];
 };
 
 function deriveThreadTitle(messages: ChatMessageLike[]): string | null {
   const firstUserMessage = messages.find((message) => message.role === "user");
-  const content =
-    firstUserMessage?.content ||
-    firstUserMessage?.parts?.find((part) => part.type === "text")?.text ||
-    "";
+  const content = firstUserMessage?.content || "";
   const normalized = content.replace(/\s+/g, " ").trim();
   if (!normalized) return null;
   return normalized.length > 56 ? `${normalized.slice(0, 53)}...` : normalized;

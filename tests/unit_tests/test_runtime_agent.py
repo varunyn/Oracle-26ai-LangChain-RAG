@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
 from typing import cast
 
 from src.rag_agent.runtime.agent import normalize_messages
@@ -30,17 +29,31 @@ def test_runtime_agent_normalize_messages_falls_back_to_message_field() -> None:
 
 
 def test_chat_runtime_service_exposes_v3_event_stream(monkeypatch) -> None:
-    async def fake_stream_runtime_events(
+    calls: list[dict[str, object]] = []
+
+    async def fake_run_chat(
         self: ChatRuntimeService,
         **kwargs: object,
-    ) -> AsyncIterator[dict[str, object]]:
+    ) -> dict[str, object]:
         _ = self
-        _ = kwargs
-        yield {"type": "tool_event", "data": {"phase": "start", "tool_name": "lookup"}}
-        yield {"type": "text", "delta": "Hello"}
-        yield {"type": "references", "data": {"standalone_question": "Hello?"}}
+        calls.append(kwargs)
+        progress = cast(
+            object,
+            kwargs.get("tool_progress_callback"),
+        )
+        if callable(progress):
+            progress({"phase": "start", "tool_name": "lookup"})
+        return {
+            "final_answer": "Hello",
+            "standalone_question": "Hello?",
+            "citations": [],
+            "reranker_docs": [],
+            "context_usage": None,
+            "mcp_used": True,
+            "mcp_tools_used": ["lookup"],
+        }
 
-    monkeypatch.setattr(ChatRuntimeService, "_stream_runtime_events", fake_stream_runtime_events)
+    monkeypatch.setattr(ChatRuntimeService, "run_chat", fake_run_chat)
     service = ChatRuntimeService()
 
     async def run() -> list[dict[str, object]]:
@@ -55,6 +68,7 @@ def test_chat_runtime_service_exposes_v3_event_stream(monkeypatch) -> None:
 
     events = asyncio.run(run())
 
+    assert calls[0]["stream"] is True
     assert events[0]["method"] == "tool_calls"
     assert events[1]["method"] == "messages"
     message_params = cast(dict[str, object], events[1]["params"])

@@ -257,11 +257,8 @@ def _tool_failure_summary(tool_invocations: list[dict[str, object]]) -> str | No
         if not isinstance(invocation, dict):
             continue
         tool_name = str(invocation.get("tool_name") or "").strip()
-        result_text = str(invocation.get("result") or "").strip()
-        if not result_text:
-            continue
-        lowered = result_text.lower()
-        if "failed after" in lowered or "toolexception" in lowered or "error" in lowered:
+        error_text = str(invocation.get("error") or "").strip()
+        if error_text:
             if tool_name and tool_name not in failed_tools:
                 failed_tools.append(tool_name)
     if not failed_tools:
@@ -499,23 +496,20 @@ class ChatRuntimeService:
             thread_id=thread_id,
             input_payload={"question": question} if question else None,
         ) as langfuse_trace:
-            try:
-                result = await self._run_chat_impl(
-                    messages=messages,
-                    model_id=model_id,
-                    thread_id=thread_id,
-                    session_id=session_id,
-                    collection_name=collection_name,
-                    enable_reranker=enable_reranker,
-                    enable_tracing=enable_tracing,
-                    mode=mode,
-                    mcp_server_keys=mcp_server_keys,
-                    stream=stream,
-                    tool_progress_callback=tool_progress_callback,
-                    langfuse_trace=langfuse_trace,
-                )
-            except BaseException:
-                raise
+            result = await self._run_chat_impl(
+                messages=messages,
+                model_id=model_id,
+                thread_id=thread_id,
+                session_id=session_id,
+                collection_name=collection_name,
+                enable_reranker=enable_reranker,
+                enable_tracing=enable_tracing,
+                mode=mode,
+                mcp_server_keys=mcp_server_keys,
+                stream=stream,
+                tool_progress_callback=tool_progress_callback,
+                langfuse_trace=langfuse_trace,
+            )
             if langfuse_trace.trace_id:
                 result["trace_id"] = langfuse_trace.trace_id
             langfuse_trace.update_output(
@@ -786,74 +780,6 @@ class ChatRuntimeService:
         self._store_thread_state(thread_id, incoming_messages, direct_result)
         return direct_result
 
-    async def _stream_runtime_events(
-        self,
-        *,
-        messages: list[dict[str, object]],
-        model_id: str | None,
-        thread_id: str | None,
-        session_id: str | None,
-        collection_name: str | None,
-        enable_reranker: bool | None,
-        enable_tracing: bool | None,
-        mode: str | None,
-        mcp_server_keys: list[str] | None,
-    ) -> AsyncIterator[dict[str, object]]:
-        result: dict[str, object] = {}
-        error: BaseException | None = None
-        progress_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
-        run_done = asyncio.Event()
-        loop = asyncio.get_running_loop()
-
-        def _emit_tool_progress(payload: dict[str, object]) -> None:
-            loop.call_soon_threadsafe(
-                lambda: progress_queue.put_nowait({"type": "tool_event", "data": payload}),
-            )
-
-        async def _run() -> None:
-            nonlocal result, error
-            try:
-                result = await self.run_chat(
-                    messages=messages,
-                    model_id=model_id,
-                    thread_id=thread_id,
-                    session_id=session_id,
-                    collection_name=collection_name,
-                    enable_reranker=enable_reranker,
-                    enable_tracing=enable_tracing,
-                    mode=mode,
-                    mcp_server_keys=mcp_server_keys,
-                    stream=True,
-                    tool_progress_callback=_emit_tool_progress,
-                )
-            except BaseException as exc:  # noqa: BLE001
-                error = exc
-            finally:
-                run_done.set()
-
-        run_task = asyncio.create_task(_run())
-        while True:
-            if run_done.is_set() and progress_queue.empty():
-                break
-            try:
-                progress = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
-                yield progress
-            except TimeoutError:
-                continue
-
-        await run_task
-        if error is not None:
-            raise error
-        answer = str(result.get("final_answer") or "")
-        if answer:
-            yield {"type": "text", "delta": answer}
-
-        references = _references_from_result(
-            result,
-            include_empty_core=True,
-        )
-        yield {"type": "references", "data": references}
-
     async def astream_events(
         self,
         input_payload: dict[str, object],
@@ -871,39 +797,70 @@ class ChatRuntimeService:
         configurable = config.get("configurable") if isinstance(config, dict) else None
         cfg = cast(dict[str, object], configurable if isinstance(configurable, dict) else {})
 
-        async for event in self._stream_runtime_events(
-            messages=messages,
-            model_id=cast(str | None, cfg.get("model_id")),
-            thread_id=cast(str | None, cfg.get("thread_id")),
-            session_id=cast(str | None, cfg.get("session_id")),
-            collection_name=cast(str | None, cfg.get("collection_name")),
-            enable_reranker=cast(bool | None, cfg.get("enable_reranker")),
-            enable_tracing=cast(bool | None, cfg.get("enable_tracing")),
-            mode=cast(str | None, cfg.get("mode")),
-            mcp_server_keys=cast(list[str] | None, cfg.get("mcp_server_keys")),
-        ):
-            event_type = event.get("type")
-            if event_type == "text":
-                text = str(event.get("delta") or "")
-                if not text:
-                    continue
-                yield v3_raw_event(
-                    method="messages",
-                    data=(
-                        {
-                            "event": "content-block-delta",
-                            "delta": {"type": "text-delta", "text": text},
-                        },
-                        {"langgraph_node": "chat_runtime"},
-                    ),
+        result: dict[str, object] = {}
+        error: BaseException | None = None
+        progress_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        run_done = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def _emit_tool_progress(payload: dict[str, object]) -> None:
+            loop.call_soon_threadsafe(progress_queue.put_nowait, payload)
+
+        async def _run() -> None:
+            nonlocal result, error
+            try:
+                result = await self.run_chat(
+                    messages=messages,
+                    model_id=cast(str | None, cfg.get("model_id")),
+                    thread_id=cast(str | None, cfg.get("thread_id")),
+                    session_id=cast(str | None, cfg.get("session_id")),
+                    collection_name=cast(str | None, cfg.get("collection_name")),
+                    enable_reranker=cast(bool | None, cfg.get("enable_reranker")),
+                    enable_tracing=cast(bool | None, cfg.get("enable_tracing")),
+                    mode=cast(str | None, cfg.get("mode")),
+                    mcp_server_keys=cast(list[str] | None, cfg.get("mcp_server_keys")),
+                    stream=True,
+                    tool_progress_callback=_emit_tool_progress,
                 )
-            elif event_type == "tool_event":
-                yield v3_raw_event(method="tool_calls", data=event.get("data") or {})
-            elif event_type == "references":
-                yield v3_raw_event(
-                    method="custom",
-                    data={"type": "references", "data": event.get("data") or {}},
-                )
+            except BaseException as exc:  # noqa: BLE001
+                error = exc
+            finally:
+                run_done.set()
+
+        run_task = asyncio.create_task(_run())
+        while True:
+            if run_done.is_set() and progress_queue.empty():
+                break
+            try:
+                progress = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
+            except TimeoutError:
+                continue
+            yield v3_raw_event(method="tool_calls", data=progress)
+
+        await run_task
+        if error is not None:
+            raise error
+
+        answer = str(result.get("final_answer") or "")
+        if answer:
+            yield v3_raw_event(
+                method="messages",
+                data=(
+                    {
+                        "event": "content-block-delta",
+                        "delta": {"type": "text-delta", "text": answer},
+                    },
+                    {"langgraph_node": "chat_runtime"},
+                ),
+            )
+
+        yield v3_raw_event(
+            method="custom",
+            data={
+                "type": "references",
+                "data": _references_from_result(result, include_empty_core=True),
+            },
+        )
 
     def _build_oracle_retrieval_tool(self, collection_name: str | None) -> StructuredTool:
         return rag_runtime.build_oracle_retrieval_tool(

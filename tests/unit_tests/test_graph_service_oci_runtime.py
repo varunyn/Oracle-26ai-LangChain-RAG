@@ -1757,7 +1757,8 @@ def test_graph_service_mixed_mode_replaces_trivial_answer_with_tool_failure_summ
                 {
                     "tool_name": "oic_CREATE_INVOICE",
                     "args": {"InvoiceData": {}},
-                    "result": "Tool 'oic_CREATE_INVOICE' failed after 2 attempts with ToolException: validation error",
+                    "result": None,
+                    "error": "validation error",
                 }
             ],
         )

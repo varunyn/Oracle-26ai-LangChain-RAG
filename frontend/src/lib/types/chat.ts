@@ -13,6 +13,7 @@ export type McpToolInvocation = {
   tool_name: string;
   args?: unknown;
   result?: string | null;
+  error?: string | null;
 };
 
 /** Streaming MCP tool lifecycle event emitted while a run is in progress */
@@ -23,6 +24,14 @@ export type McpProgressEvent = {
   args?: unknown;
   result?: string | null;
   error?: string | null;
+};
+
+/** Runtime context window usage for the current answer */
+export type ContextUsage = {
+  tokens: number;
+  max: number;
+  percent: number;
+  model_id?: string;
 };
 
 /** References attached to an assistant message (citations, reranker docs, MCP, errors) */
@@ -36,6 +45,7 @@ export type MessageReferences = {
   }[];
   mcp_used?: boolean;
   mcp_tools_used?: string[];
+  context_usage?: ContextUsage;
   /** Populated when the runtime returns per-call args/results from the agent */
   mcp_tool_invocations?: McpToolInvocation[];
   /** Streaming MCP tool progress while the run is still in-flight */

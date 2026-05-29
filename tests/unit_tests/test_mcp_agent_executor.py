@@ -995,6 +995,40 @@ def test_extract_tool_invocations_pairs_ai_tool_calls_with_tool_messages() -> No
     ]
 
 
+def test_extract_tool_invocations_preserves_tool_message_error_status() -> None:
+    state = {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "oic_CREATE_INVOICE",
+                        "args": {"InvoiceData": {}},
+                        "id": "call_1",
+                    },
+                ],
+            ),
+            ToolMessage(
+                content="validation failed",
+                tool_call_id="call_1",
+                name="oic_CREATE_INVOICE",
+                status="error",
+            ),
+            AIMessage(content="."),
+        ]
+    }
+
+    invocations = mod._extract_tool_invocations(state)
+    assert invocations == [
+        {
+            "tool_name": "oic_CREATE_INVOICE",
+            "args": {"InvoiceData": {}},
+            "result": "validation failed",
+            "error": "validation failed",
+        },
+    ]
+
+
 def test_extract_tool_invocations_ignores_mapping_messages() -> None:
     state = {
         "messages": [

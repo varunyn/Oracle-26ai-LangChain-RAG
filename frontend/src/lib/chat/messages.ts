@@ -3,22 +3,22 @@
  * Extracted from page.tsx for testability and reuse
  */
 
-/** AI SDK message part shape (text part) */
+/** Optional legacy text-part shape from older persisted UI messages */
 interface MessagePart {
   type?: string;
   text?: string;
 }
 
-/** Message with parts array (AI SDK useChat format) */
-interface MessageWithParts {
+/** Message shape accepted by frontend chat helpers */
+interface ChatMessageContent {
   content?: unknown;
   parts?: MessagePart[];
 }
 
 /**
- * Safely extract text content from AI SDK message parts.
+ * Safely extract text content from LangChain content or legacy text parts.
  */
-export function getMessageContent(message: MessageWithParts | null | undefined): string {
+export function getMessageContent(message: ChatMessageContent | null | undefined): string {
   try {
     if (typeof message?.content === "string") return message.content;
     if (Array.isArray(message?.content)) {

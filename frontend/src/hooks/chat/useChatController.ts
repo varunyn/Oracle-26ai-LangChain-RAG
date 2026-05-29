@@ -13,41 +13,25 @@ import { useChatBodyParams, type FlowMode } from "@/hooks/useChatBodyParams";
 import { useScrollToBottom } from "@/hooks/useScrollToBottom";
 import { getClientApiBase, toApiUrl } from "@/lib/api-base";
 import { getMessageContent } from "@/lib/chat/messages";
-import type { McpProgressEvent, McpToolInvocation } from "@/lib/types/chat";
-
-type ContextUsage = {
-  tokens: number;
-  max: number;
-  percent: number;
-  model_id?: string;
-};
+import type {
+  ContextUsage,
+  McpProgressEvent,
+  McpToolInvocation,
+  MessageReferences,
+} from "@/lib/types/chat";
 
 type ToastApi = {
   error: (description: string, title?: string) => void;
   success: (description: string, title?: string) => void;
 };
 
-type ReferencePayload = {
-  trace_id?: string;
-  standalone_question?: string;
-  citations?: { source: string; page: string }[];
-  reranker_docs?: {
-    page_content: string;
-    metadata: Record<string, unknown>;
-  }[];
-  context_usage?: ContextUsage;
-  mcp_used?: boolean;
-  mcp_tools_used?: string[];
-  mcp_tool_invocations?: McpToolInvocation[];
-  mcp_progress_events?: McpProgressEvent[];
-  error?: string;
-};
+type ReferencePayload = MessageReferences;
 
 type MessageLike = {
   id?: string;
   role?: string;
   content?: string;
-  parts?: { type?: string; text?: string; data?: unknown }[];
+  references?: ReferencePayload | null;
 };
 type PendingUserMessage = MessageLike & {
   submittedMessageCount: number;
@@ -247,15 +231,12 @@ function toMessageFromRawValue(rawMessage: unknown, index: number): MessageLike 
 
   const text = readText(data.content);
   const refData = toReferencesFromRawMessage(data);
-  const parts: { type?: string; text?: string; data?: unknown }[] = [];
-  if (text) parts.push({ type: "text", text });
-  if (refData) parts.push({ type: "data-references", data: refData });
 
   return {
     id: typeof data.id === "string" ? data.id : `value-message-${index}`,
     role,
     content: text,
-    parts,
+    references: refData,
   };
 }
 
@@ -269,17 +250,12 @@ function hasVisibleUserMessageWithText(messages: MessageLike[], text: string): b
 }
 
 function traceIdFromMessage(message: MessageLike): string | undefined {
-  const refPart = message.parts?.find((part) => part.type === "data-references");
-  const data = refPart?.data;
-  if (!data || typeof data !== "object") return undefined;
-  const traceId = (data as ReferencePayload).trace_id;
+  const traceId = message.references?.trace_id;
   return typeof traceId === "string" && traceId.trim() ? traceId : undefined;
 }
 
 function referencePayloadFromMessage(message: MessageLike): ReferencePayload | null {
-  const refPart = message.parts?.find((part) => part.type === "data-references");
-  const data = refPart?.data;
-  return data && typeof data === "object" ? (data as ReferencePayload) : null;
+  return message.references ?? null;
 }
 
 function stringifyToolPayload(value: unknown): string | null {
@@ -355,7 +331,7 @@ function withLiveToolProgress(
         id: `live-tool-progress-${latestEvent?.tool_run_id ?? latestEvent?.tool_name ?? "tool"}`,
         role: "assistant",
         content: "",
-        parts: [{ type: "data-references", data: progressReferences }],
+        references: progressReferences,
       },
     ];
   }
@@ -378,10 +354,9 @@ function withLiveToolProgress(
     error: currentReferences?.error,
   };
   const next = [...messages];
-  const nextParts = (target.parts ?? []).filter((part) => part.type !== "data-references");
   next[assistantIndex] = {
     ...target,
-    parts: [...nextParts, { type: "data-references", data: mergedReferences }],
+    references: mergedReferences,
   };
   return next;
 }
@@ -425,7 +400,6 @@ function createPendingUserMessage(
     id: `pending-user-${Date.now()}`,
     role: "user",
     content: text,
-    parts: [{ type: "text", text }],
     submittedMessageCount,
   };
 }
@@ -507,17 +481,12 @@ function summarizeBaseMessage(message: BaseMessageWithKwargs, index: number): Re
 }
 
 function summarizeVisibleMessage(message: MessageLike, index: number): Record<string, unknown> {
-  const refPart = message.parts?.find((part) => part.type === "data-references");
-  const refs =
-    refPart?.data && typeof refPart.data === "object"
-      ? (refPart.data as ReferencePayload)
-      : null;
   return {
     index,
     id: message.id,
     role: message.role,
     text: getMessageContent(message).slice(0, 240),
-    refs: summarizeReferencePayload(refs),
+    refs: summarizeReferencePayload(message.references ?? null),
   };
 }
 
@@ -672,14 +641,11 @@ export function useChatController({
     const mapped = raw.map((message, index) => {
       const text = readText(message.content);
       const refData = toReferences(message);
-      const parts: { type?: string; text?: string; data?: unknown }[] = [];
-      if (text) parts.push({ type: "text", text });
-      if (refData) parts.push({ type: "data-references", data: refData });
       return {
         id: typeof message.id === "string" ? message.id : `message-${index}`,
         role: toRole(message),
         content: text,
-        parts,
+        references: refData,
       };
     });
 
@@ -693,8 +659,7 @@ export function useChatController({
       .filter((message): message is MessageLike => message != null);
 
     const hasValueProgress = valueMapped.some((message) => {
-      const refPart = message.parts?.find((part) => part.type === "data-references");
-      const data = refPart?.data;
+      const data = message.references;
       return (
         data != null &&
         typeof data === "object" &&
@@ -741,9 +706,7 @@ export function useChatController({
       return withLiveToolProgress(visibleMessages, liveToolProgressEvents);
     }
     const target = visibleMessages[lastAssistantIdx];
-    const hasRefsAlready =
-      Array.isArray(target.parts) &&
-      target.parts.some((part) => part?.type === "data-references" && part.data != null);
+    const hasRefsAlready = target.references != null;
     if (hasRefsAlready) {
       return withLiveToolProgress(visibleMessages, liveToolProgressEvents);
     }
@@ -751,7 +714,7 @@ export function useChatController({
     const next = [...visibleMessages];
     next[lastAssistantIdx] = {
       ...target,
-      parts: [...(target.parts ?? []), { type: "data-references", data: fallbackRefs }],
+      references: fallbackRefs,
     };
     return withLiveToolProgress(next, liveToolProgressEvents);
   }, [liveToolProgressEvents, pendingUserMessage, streamMessages, streamValues]);
@@ -814,10 +777,8 @@ export function useChatController({
     const lastAssistant = [...messages]
       .reverse()
       .find((msg) => msg.role === "assistant");
-    if (!lastAssistant?.parts) return;
-    const refPart = lastAssistant.parts.find((part) => part.type === "data-references");
-    if (!refPart?.data || typeof refPart.data !== "object") return;
-    const refs = refPart.data as ReferencePayload;
+    const refs = lastAssistant?.references;
+    if (!refs) return;
     const contextUsagePayload = refs.context_usage;
     if (contextUsagePayload) {
       startTransition(() => {

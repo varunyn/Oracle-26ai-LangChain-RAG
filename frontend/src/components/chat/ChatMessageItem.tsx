@@ -503,57 +503,67 @@ function ChatMessageItemInner({
           {showToolCards ? (
             <div className="mb-2 space-y-1.5">
               {toolInvocations.length > 0
-                ? toolInvocations.map((inv, index) => (
-                    <Tool
-                      key={`${inv.tool_name}-${index}`}
-                      type={inv.tool_name}
-                      state="output-available"
-                      defaultOpen={index === toolInvocations.length - 1}
-                    >
-                      <div className="w-full min-w-0">
-                        <div className="flex min-w-0 items-start justify-between gap-2">
-                          <code className="min-w-0 flex-1 break-words rounded border border-border/60 bg-background/50 px-1.5 py-0.5 font-mono text-[10px] leading-snug text-foreground">
-                            <span className="text-muted-foreground">
-                              {index + 1}.{" "}
-                            </span>
-                            {inv.tool_name}
-                          </code>
-                          <ToolStatusBadge
-                            state="output-available"
-                            className="mt-0.5 shrink-0"
-                          />
-                        </div>
-                        <details className="group mt-2 w-full min-w-0 border-t border-border/50 pt-2">
-                          <summary className="cursor-pointer list-none text-[10px] font-medium text-muted-foreground marker:hidden hover:text-foreground">
-                            <span className="group-open:hidden">
-                              Input & output
-                            </span>
-                            <span className="hidden group-open:inline">
-                              Hide input & output
-                            </span>
-                          </summary>
-                          <div className="mt-2 space-y-2">
-                            <div>
-                              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                Input
-                              </div>
-                              <ToolInput input={inv.args ?? {}} />
-                            </div>
-                            <div>
-                              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                Output
-                              </div>
-                              <ToolOutput
-                                output={
-                                  inv.result ?? "(no tool output in response)"
-                                }
-                              />
-                            </div>
+                ? toolInvocations.map((inv, index) => {
+                    const hasError =
+                      typeof inv.error === "string" &&
+                      inv.error.trim().length > 0;
+                    const state: ToolState = hasError
+                      ? "output-error"
+                      : "output-available";
+                    return (
+                      <Tool
+                        key={`${inv.tool_name}-${index}`}
+                        type={inv.tool_name}
+                        state={state}
+                        defaultOpen={index === toolInvocations.length - 1}
+                      >
+                        <div className="w-full min-w-0">
+                          <div className="flex min-w-0 items-start justify-between gap-2">
+                            <code className="min-w-0 flex-1 break-words rounded border border-border/60 bg-background/50 px-1.5 py-0.5 font-mono text-[10px] leading-snug text-foreground">
+                              <span className="text-muted-foreground">
+                                {index + 1}.{" "}
+                              </span>
+                              {inv.tool_name}
+                            </code>
+                            <ToolStatusBadge
+                              state={state}
+                              className="mt-0.5 shrink-0"
+                            />
                           </div>
-                        </details>
-                      </div>
-                    </Tool>
-                  ))
+                          <details className="group mt-2 w-full min-w-0 border-t border-border/50 pt-2">
+                            <summary className="cursor-pointer list-none text-[10px] font-medium text-muted-foreground marker:hidden hover:text-foreground">
+                              <span className="group-open:hidden">
+                                Input & output
+                              </span>
+                              <span className="hidden group-open:inline">
+                                Hide input & output
+                              </span>
+                            </summary>
+                            <div className="mt-2 space-y-2">
+                              <div>
+                                <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  Input
+                                </div>
+                                <ToolInput input={inv.args ?? {}} />
+                              </div>
+                              <div>
+                                <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  {hasError ? "Error" : "Output"}
+                                </div>
+                                <ToolOutput
+                                  output={
+                                    inv.error ??
+                                    inv.result ??
+                                    "(no tool output in response)"
+                                  }
+                                />
+                              </div>
+                            </div>
+                          </details>
+                        </div>
+                      </Tool>
+                    );
+                  })
                 : progressToolRuns.length > 0
                   ? progressToolRuns.map((run, index) => {
                       return (

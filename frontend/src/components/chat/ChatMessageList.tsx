@@ -10,7 +10,8 @@ import { ChatMessageItem } from "@/components/chat/ChatMessageItem";
 type MessageLike = {
   id?: string;
   role?: string;
-  parts?: { type?: string; text?: string; data?: unknown }[];
+  content?: string;
+  references?: MessageReferences | null;
 };
 
 type ChatMessageListProps = {
@@ -28,32 +29,9 @@ type ChatMessageListProps = {
   showOptimisticSuggestion: boolean;
 };
 
-const TOOL_PREFIX_PATTERNS: RegExp[] = [
-  /^⚡\s*Used tool:\s*([^\n]+)\n\n?/i,
-  /^(?:🔌\s*\n+)?MCP:\s*([^\n]+)\n+/i,
-];
-
-function extractToolHeader(text: string): { toolName: string | null; displayContent: string } {
-  for (const pattern of TOOL_PREFIX_PATTERNS) {
-    const match = text.match(pattern);
-    if (!match) continue;
-    const rawToolName = (match[1] ?? "").trim();
-    const nextContent = text.replace(pattern, "").trimStart();
-    return {
-      toolName: rawToolName || null,
-      displayContent: nextContent,
-    };
-  }
-  return { toolName: null, displayContent: text };
-}
-
 function hasAssistantProgress(message: MessageLike): boolean {
-  const refPart =
-    Array.isArray(message.parts) && message.role === "assistant"
-      ? message.parts.find((part) => part?.type === "data-references")
-      : null;
-  if (!refPart?.data || typeof refPart.data !== "object") return false;
-  const progressEvents = (refPart.data as MessageReferences).mcp_progress_events;
+  if (message.role !== "assistant") return false;
+  const progressEvents = message.references?.mcp_progress_events;
   return Array.isArray(progressEvents) && progressEvents.length > 0;
 }
 
@@ -111,91 +89,10 @@ export function ChatMessageList({
           const isLastMessage = index === messages.length - 1;
           const isStreaming =
             isLastMessage && (status === "submitted" || status === "streaming");
-          const parsedHeader = isStreaming
-            ? { toolName: null, displayContent: textContent }
-            : extractToolHeader(textContent);
-          const toolName = parsedHeader.toolName;
-          const displayContent = parsedHeader.displayContent;
-          const refPart =
-            message.role === "assistant" &&
-            Array.isArray(
-              (message as { parts?: { type?: string; data?: unknown }[] }).parts,
-            )
-              ? (
-                  message as { parts: { type?: string; data?: unknown }[] }
-                ).parts.find((p) => p?.type === "data-references")
-              : null;
-          const refFromParts: MessageReferences | null =
-            refPart && refPart.data && typeof refPart.data === "object"
-              ? ({
-                  ...(refPart.data as Record<string, unknown>),
-                  citations: Array.isArray(
-                    (refPart.data as MessageReferences).citations,
-                  )
-                    ? (refPart.data as MessageReferences).citations
-                    : [],
-                  reranker_docs: Array.isArray(
-                    (refPart.data as MessageReferences).reranker_docs,
-                  )
-                    ? (refPart.data as MessageReferences).reranker_docs
-                    : [],
-                } as MessageReferences)
-              : null;
-          const sourceParts =
-            message.role === "assistant" &&
-            Array.isArray(
-              (message as {
-                parts?: {
-                  type?: string;
-                  sourceId?: string;
-                  url?: string;
-                  title?: string;
-                }[];
-              }).parts,
-            )
-              ? (
-                  message as {
-                    parts: {
-                      type?: string;
-                      sourceId?: string;
-                      url?: string;
-                      title?: string;
-                    }[];
-                  }
-                ).parts
-              : [];
-
-          const sourceCitations =
-            sourceParts.length > 0
-              ? sourceParts
-                  .filter((p) => p?.type === "source-document" || p?.type === "source-url")
-                  .map((p) => ({
-                    source:
-                      typeof p.url === "string" && p.url
-                        ? p.url
-                        : typeof p.sourceId === "string" && p.sourceId
-                          ? p.sourceId
-                          : typeof p.title === "string"
-                            ? p.title
-                            : "",
-                    page: "",
-                  }))
-                  .filter((c) => c.source.length > 0)
-              : [];
-          const dedupedSourceCitations = sourceCitations.filter(
-            (citation, index, arr) => arr.findIndex((c) => c.source === citation.source) === index,
-          );
-
+          const toolName = null;
+          const displayContent = textContent;
           const messageReferences: MessageReferences | null =
-            message.role === "assistant"
-              ? (refFromParts ??
-                (dedupedSourceCitations.length > 0
-                  ? {
-                      citations: dedupedSourceCitations,
-                      reranker_docs: [],
-                    }
-                  : null))
-              : null;
+            message.role === "assistant" ? (message.references ?? null) : null;
           const hasLiveProgress =
             Array.isArray(messageReferences?.mcp_progress_events) &&
             messageReferences.mcp_progress_events.length > 0;
