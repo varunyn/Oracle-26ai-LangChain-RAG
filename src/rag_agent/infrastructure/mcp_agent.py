@@ -11,7 +11,7 @@ from langchain_core.tools import BaseTool
 
 from ..prompts.mcp_agent_prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_MIXED
 from .async_utils import run_coroutine_sync
-from .direct_mcp_tools import get_mcp_tools_async
+from .mcp_adapter_runtime import load_adapter_tools
 from .mcp_agent_executor import get_mcp_answer_with_langchain_agent_async
 from .mcp_settings import get_mcp_settings
 
@@ -35,7 +35,7 @@ async def _get_mcp_answer_impl(
 
     resolved_tools = tools
     if resolved_tools is None:
-        resolved_tools = await get_mcp_tools_async(server_keys=server_keys, run_config=run_config)
+        resolved_tools = await load_adapter_tools(server_keys=server_keys, run_config=run_config)
 
     if not resolved_tools:
         return "MCP tools are currently unavailable. Please try again.", [], []

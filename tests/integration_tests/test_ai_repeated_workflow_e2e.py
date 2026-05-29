@@ -71,13 +71,13 @@ def test_ai_repeated_workflow_controller_processes_every_local_tool_item(monkeyp
         summaries.append(summary)
         return json.dumps({"status": "sent"})
 
-    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+    async def fake_load_adapter_tools(server_keys=None, run_config=None):
         _ = server_keys, run_config
         return [list_work_items, mark_item_done, send_summary]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
-        fake_get_mcp_tools_async,
+        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        fake_load_adapter_tools,
     )
 
     service = ChatRuntimeService()
@@ -194,7 +194,7 @@ def test_ai_repeated_workflow_reuses_shared_context_for_same_vendor(monkeypatch)
         summaries.append(summary)
         return json.dumps({"status": "sent"})
 
-    async def fake_get_mcp_tools_async(server_keys=None, run_config=None):
+    async def fake_load_adapter_tools(server_keys=None, run_config=None):
         _ = server_keys, run_config
         return [
             list_vendor_work_items,
@@ -204,8 +204,8 @@ def test_ai_repeated_workflow_reuses_shared_context_for_same_vendor(monkeypatch)
         ]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_tools_async",
-        fake_get_mcp_tools_async,
+        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        fake_load_adapter_tools,
     )
 
     service = ChatRuntimeService()

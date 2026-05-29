@@ -16,7 +16,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 
 from api.settings import get_settings
 from src.rag_agent.infrastructure import oci_models as _oci_models
-from src.rag_agent.infrastructure.direct_mcp_tools import get_mcp_tools_async
+from src.rag_agent.infrastructure.mcp_adapter_runtime import load_adapter_tools
 from src.rag_agent.infrastructure.mcp_agent import get_mcp_answer_async
 from src.rag_agent.infrastructure.mcp_settings import get_mcp_servers_config
 from src.rag_agent.utils.langfuse_tracing import (
@@ -407,7 +407,7 @@ class ChatRuntimeService:
             trace_context=langfuse_trace.trace_context if langfuse_trace else None,
         )
         tool_load_started = time.perf_counter()
-        mcp_tools = await get_mcp_tools_async(
+        mcp_tools = await load_adapter_tools(
             server_keys=mcp_server_keys,
             run_config=run_cfg,
         )

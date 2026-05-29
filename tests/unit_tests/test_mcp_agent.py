@@ -45,7 +45,7 @@ def test_get_mcp_answer_loads_tools_and_uses_executor(monkeypatch) -> None:
         assert len(kwargs["tools"]) == 1
         return "4", ["calculator.add"], []
 
-    monkeypatch.setattr(mcp_agent, "get_mcp_tools_async", _tools_loader)
+    monkeypatch.setattr(mcp_agent, "load_adapter_tools", _tools_loader)
     monkeypatch.setattr(mcp_agent, "get_mcp_answer_with_langchain_agent_async", _executor)
 
     answer, tools_used, invocations = mcp_agent.get_mcp_answer("2+2")
