@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
 import json
 import logging
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import suppress
 from typing import Any, cast
 
 from langchain.agents import create_agent
@@ -66,43 +64,6 @@ def _sanitize_model_request_for_oci(request: ModelRequest) -> ModelRequest:
     return request.override(messages=messages)
 
 
-def _tool_progress_from_stream_event(event: Mapping[str, object]) -> dict[str, object] | None:
-    if event.get("method") != "tools":
-        return None
-    params = event.get("params")
-    if not isinstance(params, Mapping):
-        return None
-    data = params.get("data")
-    if not isinstance(data, Mapping):
-        return None
-
-    event_type = data.get("event")
-    tool_call_id = str(data.get("tool_call_id") or "")
-    tool_name = str(data.get("tool_name") or "").strip() or "unknown_tool"
-    if event_type == "tool-started":
-        return {
-            "phase": "start",
-            "tool_name": tool_name,
-            "args": data.get("input"),
-            "tool_run_id": tool_call_id,
-        }
-    if event_type == "tool-finished":
-        return {
-            "phase": "end",
-            "tool_name": tool_name,
-            "result": _serialize_tool_output(data.get("output")),
-            "tool_run_id": tool_call_id,
-        }
-    if event_type == "tool-error":
-        return {
-            "phase": "error",
-            "tool_name": tool_name,
-            "error": _truncate_tool_text(str(data.get("message") or "Tool execution failed.")),
-            "tool_run_id": tool_call_id,
-        }
-    return None
-
-
 async def _ainvoke_or_stream_agent(
     agent: Any,
     payload: dict[str, object],
@@ -116,35 +77,14 @@ async def _ainvoke_or_stream_agent(
 
     raw_stream = agent.astream_events(cast(Any, payload), config=config, version="v3")
     stream = await raw_stream if inspect.isawaitable(raw_stream) else raw_stream
-    if hasattr(stream, "tool_calls") and hasattr(stream, "output"):
-        tool_task = asyncio.create_task(
-            _consume_tool_call_projection(stream, tool_progress_callback)
+    if not hasattr(stream, "tool_calls") or not hasattr(stream, "output"):
+        raise RuntimeError(
+            "LangChain stream_events(version='v3') did not expose typed stream projections."
         )
-        try:
-            output = await _resolve_stream_output(stream)
-            await tool_task
-        except BaseException:
-            tool_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await tool_task
-            raise
-        return cast(Mapping[str, object], output or {})
 
-    latest_values: Mapping[str, object] | None = None
-    async for event in stream:
-        if not isinstance(event, Mapping):
-            continue
-        if event.get("method") == "values":
-            params = event.get("params")
-            if isinstance(params, Mapping) and isinstance(params.get("data"), Mapping):
-                latest_values = cast(Mapping[str, object], params["data"])
-            continue
-        progress = _tool_progress_from_stream_event(event)
-        if progress is not None:
-            tool_progress_callback(progress)
-    if latest_values is not None:
-        return latest_values
-    return cast(Mapping[str, object], await _resolve_stream_output(stream))
+    await _consume_tool_call_projection(stream, tool_progress_callback)
+    output = await _resolve_stream_output(stream)
+    return cast(Mapping[str, object], output or {})
 
 
 async def _resolve_stream_output(stream: Any) -> object:

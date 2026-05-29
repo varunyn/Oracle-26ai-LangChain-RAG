@@ -232,7 +232,7 @@ def test_langchain_executor_does_not_install_callback_progress_fallback(monkeypa
     assert progress_events == []
 
 
-def test_langchain_executor_streams_tool_progress_events(monkeypatch) -> None:
+def test_langchain_executor_requires_typed_event_stream_projections(monkeypatch) -> None:
     tool_call_id = str(uuid.uuid4())
     fake_agent = _FakeStreamingAgent(
         [
@@ -291,44 +291,24 @@ def test_langchain_executor_streams_tool_progress_events(monkeypatch) -> None:
     monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
     monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
 
-    import asyncio
-
-    answer, tools_used, invocations = asyncio.run(
-        mod.get_mcp_answer_with_langchain_agent_async(
-            question="solve",
-            chat_history=None,
-            model_id=None,
-            tools=[SimpleNamespace(name="Calculator_solve_equation", description="solve")],
-            run_config=None,
-            require_tool_call=False,
-            tool_progress_callback=progress_events.append,
+    try:
+        asyncio.run(
+            mod.get_mcp_answer_with_langchain_agent_async(
+                question="solve",
+                chat_history=None,
+                model_id=None,
+                tools=[SimpleNamespace(name="Calculator_solve_equation", description="solve")],
+                run_config=None,
+                require_tool_call=False,
+                tool_progress_callback=progress_events.append,
+            )
         )
-    )
+    except RuntimeError as exc:
+        assert "typed stream projections" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError for stream without typed projections")
 
-    assert fake_agent.calls[0]["version"] == "v3"
-    assert answer == "x = 2 and x = 3"
-    assert tools_used == ["Calculator_solve_equation"]
-    assert invocations == [
-        {
-            "tool_name": "Calculator_solve_equation",
-            "args": {"equation": "x^2 - 5x + 6 = 0"},
-            "result": '{"solutions":"[2, 3]"}',
-        }
-    ]
-    assert progress_events == [
-        {
-            "phase": "start",
-            "tool_name": "Calculator_solve_equation",
-            "args": {"equation": "x^2 - 5x + 6 = 0"},
-            "tool_run_id": tool_call_id,
-        },
-        {
-            "phase": "end",
-            "tool_name": "Calculator_solve_equation",
-            "result": '{"solutions": "[2, 3]"}',
-            "tool_run_id": tool_call_id,
-        },
-    ]
+    assert progress_events == []
 
 
 def test_sanitize_agent_payload_removes_oci_unsupported_tool_call_content() -> None:
