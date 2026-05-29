@@ -1015,6 +1015,21 @@ def test_executor_does_not_retry_literal_tool_text_without_tool_requirement(
     assert len(fake_agent.calls) == 1
 
 
+def test_agent_state_has_tool_error_ignores_mapping_messages() -> None:
+    state = {
+        "messages": [
+            {
+                "type": "tool",
+                "status": "error",
+                "name": "calculator_calculate",
+                "content": '{"error":"failed"}',
+            }
+        ]
+    }
+
+    assert mod._agent_state_has_tool_error(state) is False
+
+
 def test_extract_tool_invocations_pairs_ai_tool_calls_with_tool_messages() -> None:
     state = {
         "messages": [

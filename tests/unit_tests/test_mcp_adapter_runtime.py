@@ -23,6 +23,21 @@ def test_select_server_keys_defaults_to_all_configured_when_no_filters() -> None
     assert selected == ["default", "calculator"]
 
 
+def test_select_server_keys_ignores_legacy_mcp_url_filter() -> None:
+    configured = {
+        "default": {"url": "http://localhost:9000/mcp"},
+        "calculator": {"url": "http://localhost:9001/mcp"},
+    }
+
+    selected = mod._select_server_keys(
+        configured_servers=configured,
+        server_keys=None,
+        run_config={"configurable": {"mcp_url": "http://localhost:9000/mcp"}},
+    )
+
+    assert selected == ["default", "calculator"]
+
+
 def test_build_adapter_server_configs_applies_jwt_headers_when_enabled(monkeypatch) -> None:
     monkeypatch.setattr(
         mod,

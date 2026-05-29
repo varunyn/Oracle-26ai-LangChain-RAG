@@ -65,14 +65,6 @@ def _extract_server_keys_from_run_config(run_config: Mapping[str, Any] | None) -
     return keys or None
 
 
-def _extract_mcp_url_from_run_config(run_config: Mapping[str, Any] | None) -> str | None:
-    configurable = _extract_configurable(run_config)
-    mcp_url = configurable.get("mcp_url")
-    if isinstance(mcp_url, str) and mcp_url.strip():
-        return mcp_url.strip()
-    return None
-
-
 def _extract_config_override(
     run_config: Mapping[str, Any] | None,
 ) -> Mapping[str, Mapping[str, Any]] | None:
@@ -107,15 +99,6 @@ def _select_server_keys(
     if requested_keys:
         return [key for key in requested_keys if key in configured_servers]
 
-    mcp_url = _extract_mcp_url_from_run_config(run_config)
-    if mcp_url:
-        matched = [
-            key
-            for key, server_cfg in configured_servers.items()
-            if isinstance(server_cfg.get("url"), str) and server_cfg.get("url") == mcp_url
-        ]
-        if matched:
-            return matched
     return configured_keys
 
 

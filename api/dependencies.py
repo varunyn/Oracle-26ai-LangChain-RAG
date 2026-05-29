@@ -79,11 +79,10 @@ def build_chat_config(
         elif server_keys is None:
             _cfg_raw = get_mcp_servers_config()
             _cfg = _cfg_raw if isinstance(_cfg_raw, dict) else {}
-            _entry = _cfg.get("default") or (next(iter(_cfg.values()), None) if _cfg else None)
-            mcp_url = (_entry or {}).get("url", "").strip() or None
-            if mcp_url:
-                out["configurable"]["mcp_url"] = mcp_url
-                logger.debug("MCP: chat config mcp_url set (do not log URL)")
+            default_key = "default" if "default" in _cfg else (next(iter(_cfg), None) if _cfg else None)
+            if isinstance(default_key, str) and default_key.strip():
+                out["configurable"]["mcp_server_keys"] = [default_key]
+                logger.debug("MCP: chat config default mcp_server_keys selected")
     return out
 
 

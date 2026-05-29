@@ -592,22 +592,6 @@ def _agent_state_has_tool_error(agent_state: Mapping[str, object]) -> bool:
     for msg in cast(Sequence[object], messages_raw):
         if isinstance(msg, ToolMessage) and _tool_message_has_error(msg):
             return True
-        if isinstance(msg, Mapping):
-            msg_type = str(msg.get("type") or msg.get("role") or "").strip().lower()
-            if msg_type != "tool":
-                continue
-            status = str(msg.get("status") or "").strip().lower()
-            if status == "error":
-                return True
-            content = _normalize_message_content(msg.get("content", ""))
-            try:
-                parsed = json.loads(content)
-            except Exception:  # noqa: BLE001
-                if "tool call limit exceeded" in content.lower():
-                    return True
-                continue
-            if isinstance(parsed, Mapping) and "error" in parsed:
-                return True
     return False
 
 

@@ -140,6 +140,29 @@ class TestBuildChatConfig:
 
     @patch("api.dependencies.get_settings")
     @patch("api.dependencies.get_mcp_servers_config")
+    def test_default_mcp_server_key_is_explicit_in_run_config(self, mock_mcp_config, mock_settings):
+        mock_settings.return_value = MagicMock(
+            LLM_MODEL_ID="test-model",
+            EMBED_MODEL_TYPE="test-embed",
+            ENABLE_RERANKER=True,
+            DEFAULT_COLLECTION="test-collection",
+            MCP_MAX_ROUNDS=3,
+            ENABLE_MCP_TOOLS=True,
+            RAG_SEARCH_MODE="vector",
+            MCP_SERVER_KEYS=None,
+        )
+        mock_mcp_config.return_value = {
+            "default": {"url": "http://default.example.com/mcp"},
+            "secondary": {"url": "http://secondary.example.com/mcp"},
+        }
+
+        result = build_chat_config()
+
+        assert result["configurable"]["mcp_server_keys"] == ["default"]
+        assert "mcp_url" not in result["configurable"]
+
+    @patch("api.dependencies.get_settings")
+    @patch("api.dependencies.get_mcp_servers_config")
     def test_run_config_shape_unchanged(self, mock_mcp_config, mock_settings):
         """Test that run_config output shape is unchanged."""
         mock_settings.return_value = MagicMock(
