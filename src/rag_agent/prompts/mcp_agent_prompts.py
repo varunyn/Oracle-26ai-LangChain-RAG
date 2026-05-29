@@ -50,5 +50,6 @@ SYSTEM_PROMPT_MIXED = (
 
 When document context was provided in the user message:
 - If you used a tool, your final reply must be based on the tool result only. Do not summarize or repeat the original document context after using a tool.
-- For `oracle_retrieval`: if returned content is clearly off-topic or empty, refine the query and call `oracle_retrieval` again (up to 2 total retrieval attempts) before concluding data is unavailable."""
+- For `oracle_retrieval`: if returned content is clearly off-topic or empty, refine the query and call `oracle_retrieval` again (up to 2 total retrieval attempts) before concluding data is unavailable.
+- If `oracle_retrieval` still returns empty or off-topic content, do not answer from general knowledge. Say the selected Oracle collection does not contain the answer."""
 )
