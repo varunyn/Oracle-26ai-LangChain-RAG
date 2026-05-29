@@ -102,7 +102,7 @@ Next.js UI → streamed answer + citations
 | LLM and embeddings | OCI Generative AI through `langchain-oci`; optional OpenAI-compatible model wiring |
 | Reranking | Native OCI Gen AI rerank with local lexical fallback |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS v4, Radix UI, Streamdown |
-| Streaming protocol | AI SDK-style streams and LangGraph-compatible `event: values` streams |
+| Streaming protocol | LangGraph-compatible SSE `event: values` streams consumed by `@langchain/react` |
 | Optional observability | OpenTelemetry OTLP, Grafana, Tempo, Loki, OCI APM, Langfuse |
 | Tooling | Python 3.11, `uv`, `pnpm`, Docker Compose, Playwright, Ruff, Black, Mypy, Pytest |
 

@@ -47,7 +47,7 @@ graph TD;
     Mixed["Mixed path<br/>oracle_retrieval + MCP tools"]
     Direct["Direct path<br/>LLM on history"]
     Persist["Store thread state by thread_id"]
-    Stream["AI SDK stream"]
+    Stream["LangGraph SSE stream"]
     __end__([<p>__end__</p>]):::last
     __start__ --> ChatRequest
     ChatRequest --> Mode

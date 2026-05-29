@@ -6,7 +6,7 @@ Next.js frontend for the **OCI Custom RAG Agent**: a chat app powered by **Oracl
 
 ## What this app does
 
-- **Chat** with OCI-hosted models (e.g. Llama, Grok) via the AI SDK; streaming responses with citations.
+- **Chat** with OCI-hosted models (e.g. Llama, Grok) via `@langchain/react`; streaming responses with citations.
 - **RAG**: query a configurable document collection with an optional reranker.
 - **Flow modes**: RAG only, MCP tools only, mixed (RAG + tools), or direct (no RAG, no tools).
 - **Model selector**: switch models from the header.
@@ -55,5 +55,5 @@ When adding or changing code: prefer primitive or memoized dependencies in `useC
 
 - **Next.js 16** (App Router), **React 19**, **TypeScript**
 - **Tailwind CSS**, **shadcn-style** UI primitives
-- **AI SDK** (`@ai-sdk/react`, `ai`) for chat and streaming
+- **@langchain/react** for LangGraph-compatible chat streaming
 - **streamdown** / **katex** for message rendering; **shiki** for code blocks

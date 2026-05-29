@@ -348,7 +348,7 @@ def test_values_stream_uses_v3_event_stream_when_available() -> None:
         app.dependency_overrides.clear()
 
 
-def test_values_stream_reads_v3_events_without_runtime_agent_adapter() -> None:
+def test_values_stream_reads_v3_events_without_runtime_stream_bridge() -> None:
     from api.deps.request import get_graph_service
 
     stub = StubRuntimeV3EventService()

@@ -517,7 +517,6 @@ test.describe('chat streaming', () => {
               headers: {
                 'cache-control': 'no-cache',
                 'content-type': 'text/event-stream',
-                'x-vercel-ai-ui-message-stream': 'v1',
               },
             }),
           )

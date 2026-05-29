@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Streaming smoke test script for regression guard
-# Checks that streaming response includes required header and terminates with [DONE]
+# Checks that the LangGraph stream returns SSE values events and closes cleanly.
 
 API_HOST="127.0.0.1"
 API_PORT="3002"
@@ -37,18 +37,18 @@ if ! curl -N -X POST "${API_URL}/api/langgraph/threads/smoke-thread/runs/stream"
     exit 1
 fi
 
-# Check required header
-if ! grep -qi '^x-vercel-ai-ui-message-stream: v1' "$HEADER_FILE"; then
-    echo -e "${RED}❌ Missing required header: x-vercel-ai-ui-message-stream: v1${NC}"
+# Check SSE content type
+if ! grep -qi '^content-type: text/event-stream' "$HEADER_FILE"; then
+    echo -e "${RED}❌ Missing required content type: text/event-stream${NC}"
     echo -e "${YELLOW}Response headers:${NC}"
     cat "$HEADER_FILE"
     rm -f "$SMOKE_OUTPUT" "$HEADER_FILE"
     exit 1
 fi
 
-# Check stream terminates with [DONE]
-if ! grep -q "^data: \[DONE\]$" "$SMOKE_OUTPUT"; then
-    echo -e "${RED}❌ Stream does not end with [DONE]${NC}"
+# Check stream emits LangGraph values events. Completion is stream close.
+if ! grep -q "^event: values$" "$SMOKE_OUTPUT"; then
+    echo -e "${RED}❌ Stream did not emit a values event${NC}"
     echo -e "${YELLOW}Last 10 lines of stream output:${NC}"
     tail -10 "$SMOKE_OUTPUT"
     rm -f "$SMOKE_OUTPUT" "$HEADER_FILE"
