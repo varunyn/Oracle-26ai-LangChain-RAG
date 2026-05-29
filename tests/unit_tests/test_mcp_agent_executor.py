@@ -955,10 +955,62 @@ def test_extract_answer_and_tools_reads_additional_kwargs_tool_calls_from_ai_mes
     assert tools_used == ["calculator_calculate"]
 
 
-def test_clean_leaked_tool_syntax_for_calculator_expression() -> None:
-    leaked = '<|python_start|>calculator_calculate(expression="12/16")<|python_end|>'
-    cleaned = mod._clean_leaked_tool_syntax(leaked, [])
-    assert cleaned == "3/4"
+def test_executor_retries_when_literal_calculator_tool_text_is_emitted(
+    monkeypatch,
+) -> None:
+    fake_agent = _FakeSequencedAgent(
+        [
+            {
+                "messages": [
+                    AIMessage(
+                        content='<|python_start|>Calculator_calculate(expression="12/16")<|python_end|>'
+                    )
+                ]
+            },
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "Calculator_calculate",
+                                "args": {"expression": "12/16"},
+                                "id": "call_1",
+                            }
+                        ],
+                    ),
+                    ToolMessage(content="0.75", tool_call_id="call_1", name="Calculator_calculate"),
+                    AIMessage(content="12/16 is 0.75."),
+                ]
+            },
+        ]
+    )
+
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=4))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
+    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
+
+    answer, tools_used, invocations = asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="Calculate 12/16 using tools",
+            chat_history=None,
+            model_id=None,
+            tools=[SimpleNamespace(name="Calculator_calculate", description="calculate")],
+            run_config=None,
+            require_tool_call=False,
+        )
+    )
+
+    assert answer == "12/16 is 0.75."
+    assert tools_used == ["Calculator_calculate"]
+    assert invocations == [
+        {
+            "tool_name": "Calculator_calculate",
+            "args": {"expression": "12/16"},
+            "result": "0.75",
+        }
+    ]
+    assert len(fake_agent.calls) == 2
 
 
 def test_extract_tool_invocations_pairs_ai_tool_calls_with_tool_messages() -> None:

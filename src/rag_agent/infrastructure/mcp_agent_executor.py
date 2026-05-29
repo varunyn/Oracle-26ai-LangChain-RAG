@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import asyncio
 import inspect
 import json
@@ -10,7 +9,6 @@ import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
-from fractions import Fraction
 from typing import Any, cast
 from uuid import UUID
 
@@ -38,7 +36,6 @@ _PSEUDO_TOOL_BLOCK = re.compile(
     r"<\|python_start\|>\s*([A-Za-z0-9_.]+)\((.*?)\)\s*<\|python_end\|>",
     re.DOTALL,
 )
-_CALC_EXPR_ARG = re.compile(r'expression\s*=\s*["\']([^"\']+)["\']')
 _LITERAL_TOOL_CALL_RETRY_INSTRUCTION = (
     "You output literal tool-call text instead of an actual tool invocation. "
     "Continue from prior tool results and call tools directly (do not print "
@@ -777,62 +774,6 @@ def _extract_tool_invocations(agent_state: Mapping[str, object]) -> list[dict[st
     return invocations
 
 
-def _safe_eval_arithmetic(expr: str) -> Fraction:
-    node = ast.parse(expr, mode="eval")
-
-    def _visit(n: ast.AST) -> Fraction:
-        if isinstance(n, ast.Expression):
-            return _visit(n.body)
-        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
-            if isinstance(n.value, int):
-                return Fraction(n.value, 1)
-            return Fraction(str(n.value))
-        if isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.UAdd, ast.USub)):
-            val = _visit(n.operand)
-            return val if isinstance(n.op, ast.UAdd) else -val
-        if isinstance(n, ast.BinOp) and isinstance(n.op, (ast.Add, ast.Sub, ast.Mult, ast.Div)):
-            left = _visit(n.left)
-            right = _visit(n.right)
-            if isinstance(n.op, ast.Add):
-                return left + right
-            if isinstance(n.op, ast.Sub):
-                return left - right
-            if isinstance(n.op, ast.Mult):
-                return left * right
-            return left / right
-        raise ValueError("Unsupported expression")
-
-    return _visit(node)
-
-
-def _clean_leaked_tool_syntax(answer: str, tools_used: Sequence[str]) -> str:
-    if tools_used:
-        return answer
-    raw = answer.strip()
-    if not raw:
-        return raw
-    match = _PSEUDO_TOOL_BLOCK.search(raw)
-    if not match:
-        return raw
-
-    tool_name = match.group(1).strip()
-    args_block = match.group(2)
-    if "calculator" in tool_name.lower():
-        expr_match = _CALC_EXPR_ARG.search(args_block)
-        if expr_match:
-            expr = expr_match.group(1).strip()
-            try:
-                value = _safe_eval_arithmetic(expr)
-                if value.denominator == 1:
-                    return str(value.numerator)
-                return f"{value.numerator}/{value.denominator}"
-            except Exception:  # noqa: BLE001
-                pass
-
-    cleaned = _PSEUDO_TOOL_BLOCK.sub("", raw).strip()
-    return cleaned or raw
-
-
 def _extract_literal_tool_call_names(answer: str, tool_names: Sequence[str]) -> set[str]:
     if not answer.strip() or not tool_names:
         return set()
@@ -1014,7 +955,6 @@ async def get_mcp_answer_with_langchain_agent_async(
             _normalize_ai_tool_call_ids(response_state)
             answer, tools_used = _extract_answer_and_tools(response_state)
             tool_invocations = _extract_tool_invocations(response_state)
-            answer = _clean_leaked_tool_syntax(answer, tools_used)
             if retry_idx >= 1:
                 break
             if require_tool_call and not tools_used:
