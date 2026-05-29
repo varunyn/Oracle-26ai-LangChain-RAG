@@ -1765,6 +1765,7 @@ dependencies = [
     { name = "langchain-core" },
     { name = "langchain-openai" },
     { name = "langgraph" },
+    { name = "numpy" },
     { name = "oci" },
     { name = "oci-openai" },
     { name = "openai" },
@@ -1774,22 +1775,24 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.12.14" },
-    { name = "deepagents", marker = "python_full_version >= '3.11' and python_full_version < '3.14' and extra == 'deep-research'", specifier = ">=0.4.0" },
+    { name = "deepagents", marker = "python_full_version >= '3.11' and python_full_version < '3.14' and extra == 'deepagents'", specifier = ">=0.6.1" },
     { name = "langchain", marker = "python_full_version < '3.10'", specifier = ">=0.3.20,<1.0.0" },
     { name = "langchain", marker = "python_full_version >= '3.10'", specifier = ">=1.0.0,<2.0.0" },
     { name = "langchain-core", marker = "python_full_version < '3.10'", specifier = ">=0.3.78,<1.0.0" },
-    { name = "langchain-core", marker = "python_full_version >= '3.10'", specifier = ">=1.1.0,<2.0.0" },
+    { name = "langchain-core", marker = "python_full_version >= '3.10'", specifier = ">=1.4.0,<2.0.0" },
     { name = "langchain-openai", marker = "python_full_version < '3.10'", specifier = ">=0.3.35,<1.0.0" },
     { name = "langchain-openai", marker = "python_full_version >= '3.10'", specifier = ">=1.1.0,<2.0.0" },
-    { name = "langchain-oracledb", marker = "extra == 'deep-research'", specifier = ">=1.2.0" },
+    { name = "langchain-oracledb", marker = "extra == 'deepagents'", specifier = ">=1.3.0" },
     { name = "langgraph", specifier = ">=0.2.0,<2.0.0" },
+    { name = "langgraph-oracledb", marker = "python_full_version >= '3.10' and extra == 'deepagents'", specifier = ">=1.0.1" },
+    { name = "numpy", specifier = ">=1.24" },
     { name = "oci", specifier = ">=2.173.0" },
     { name = "oci-openai", specifier = ">=1.0.0" },
     { name = "openai", specifier = ">=2.6.1" },
-    { name = "opensearch-py", marker = "extra == 'deep-research'", specifier = ">=2.4.0" },
+    { name = "opensearch-py", marker = "extra == 'deepagents'", specifier = ">=2.4.0" },
     { name = "pydantic", specifier = ">=2,<3" },
 ]
-provides-extras = ["deep-research"]
+provides-extras = ["deepagents"]
 
 [[package]]
 name = "langchain-openai"
