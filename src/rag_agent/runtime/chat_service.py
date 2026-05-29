@@ -4,31 +4,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
 from typing import Any, cast
 
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables.config import RunnableConfig
-from langchain_core.tools import BaseTool, StructuredTool
+from langchain_core.tools import StructuredTool
 
 from api.settings import get_settings
 from src.rag_agent.infrastructure import oci_models as _oci_models
-from src.rag_agent.infrastructure.mcp_adapter_runtime import load_adapter_tools
-from src.rag_agent.infrastructure.mcp_agent import get_mcp_answer_async
 from src.rag_agent.infrastructure.mcp_settings import get_mcp_servers_config
 from src.rag_agent.utils.langfuse_tracing import (
     LangfuseChatTrace,
     add_langfuse_callbacks,
     start_langfuse_chat_trace,
 )
-from src.rag_agent.workflows.mcp_repeated import run_repeated_mcp_workflow
-from src.rag_agent.workflows.workflow_intent import should_use_repeated_workflow
 
 from . import rag_runtime
 from .llm_invocation import invoke_llm_with_optional_config
+from .mcp_turn import run_mcp_agent_turn, tool_failure_summary
 from .memory import (
     chat_history_before_latest_user,
     contextualize_question,
@@ -45,14 +40,6 @@ logger = logging.getLogger(__name__)
 
 _ORACLE_RETRIEVAL_TOOL_NAME = "oracle_retrieval"
 _NO_ORACLE_CONTEXT_ANSWER = "I don't know the answer from the selected Oracle collection."
-
-
-@dataclass(frozen=True)
-class _MCPAgentTurn:
-    answer: str
-    tools_used: list[str]
-    tool_invocations: list[dict[str, object]]
-    resolved_model_id: str
 
 
 def get_llm(model_id: str | None = None) -> Any:
@@ -133,25 +120,6 @@ def _resolve_effective_mode(mode: str | None) -> str:
     if enable_mcp_tools and bool(mcp_config):
         return "mixed"
     return "rag"
-
-
-def _question_explicitly_references_mcp_tools(
-    question: str,
-    mcp_tools: list[BaseTool],
-) -> bool:
-    lower_question = question.strip().lower()
-    if not lower_question:
-        return False
-    for tool in mcp_tools:
-        tool_name = str(getattr(tool, "name", "") or "").strip().lower()
-        if not tool_name:
-            continue
-        if tool_name in lower_question:
-            return True
-        humanized = tool_name.replace("_", " ")
-        if humanized in lower_question:
-            return True
-    return False
 
 
 def _to_string_list(raw: object) -> list[str]:
@@ -249,22 +217,6 @@ def _is_trivial_answer(answer: str) -> bool:
     if not stripped:
         return True
     return not any(ch.isalnum() for ch in stripped)
-
-
-def _tool_failure_summary(tool_invocations: list[dict[str, object]]) -> str | None:
-    failed_tools: list[str] = []
-    for invocation in tool_invocations:
-        if not isinstance(invocation, dict):
-            continue
-        tool_name = str(invocation.get("tool_name") or "").strip()
-        error_text = str(invocation.get("error") or "").strip()
-        if error_text:
-            if tool_name and tool_name not in failed_tools:
-                failed_tools.append(tool_name)
-    if not failed_tools:
-        return None
-    joined = ", ".join(failed_tools)
-    return f"Workflow failed because tool execution failed: {joined}. See tool output for details."
 
 
 def _called_tool_names(
@@ -380,97 +332,6 @@ class ChatRuntimeService:
         self._thread_state: dict[str, dict[str, Any]] = {}
         self._thread_state_store = thread_state_store
 
-    async def _run_mcp_agent_turn(
-        self,
-        *,
-        question: str,
-        chat_history: list[object],
-        model_id: str | None,
-        thread_id: str | None,
-        session_id: str | None,
-        mode: str,
-        mcp_server_keys: list[str] | None,
-        enable_tracing: bool | None,
-        langfuse_trace: LangfuseChatTrace | None,
-        tool_progress_callback: Callable[[dict[str, object]], None] | None,
-        extra_tools: list[BaseTool] | None = None,
-        require_mcp_tool_call_when_referenced: bool = False,
-    ) -> _MCPAgentTurn:
-        resolved_model_id = model_id or get_llm().model_id
-        run_cfg = _prepare_run_config(
-            thread_id=thread_id,
-            mcp_server_keys=mcp_server_keys,
-            mode=mode,
-            model_id=resolved_model_id,
-            session_id=session_id,
-            enable_tracing=enable_tracing,
-            trace_context=langfuse_trace.trace_context if langfuse_trace else None,
-        )
-        tool_load_started = time.perf_counter()
-        mcp_tools = await load_adapter_tools(
-            server_keys=mcp_server_keys,
-            run_config=run_cfg,
-        )
-        logger.info(
-            "chat_runtime_mcp_tools_loaded mode=%s tool_count=%d elapsed_ms=%.1f",
-            mode,
-            len(mcp_tools),
-            (time.perf_counter() - tool_load_started) * 1000,
-        )
-        agent_tools = [*(extra_tools or []), *mcp_tools]
-        explicit_mcp_required = (
-            require_mcp_tool_call_when_referenced
-            and _question_explicitly_references_mcp_tools(question, mcp_tools)
-        )
-        require_tool_call = _require_tool_call_enabled() or explicit_mcp_required
-        repeated_result = None
-        repeated_workflow_selected = (
-            _repeated_workflow_controller_enabled()
-            and await should_use_repeated_workflow(
-                question=question,
-                tools=agent_tools,
-                model_id=resolved_model_id,
-                run_config=run_cfg,
-            )
-        )
-        if repeated_workflow_selected:
-            repeated_result = await run_repeated_mcp_workflow(
-                question=question,
-                model_id=resolved_model_id,
-                tools=agent_tools,
-                run_config=run_cfg,
-                require_tool_call=require_tool_call,
-                get_answer=get_mcp_answer_async,
-                checkpoint_path=_workflow_checkpoint_path(),
-                tool_progress_callback=tool_progress_callback,
-                chat_history=chat_history,
-            )
-        if repeated_result is None and not repeated_workflow_selected:
-            answer, tools_used, tool_invocations = await get_mcp_answer_async(
-                question,
-                chat_history=chat_history,
-                model_id=resolved_model_id,
-                tools=agent_tools,
-                run_config=run_cfg,
-                require_tool_call=require_tool_call,
-                tool_progress_callback=tool_progress_callback,
-            )
-        elif repeated_result is None:
-            answer = (
-                "I could not identify a work queue from the discovery tool results, "
-                "so I stopped before processing individual work units."
-            )
-            tools_used = []
-            tool_invocations = []
-        else:
-            answer, tools_used, tool_invocations = repeated_result
-        return _MCPAgentTurn(
-            answer=answer,
-            tools_used=tools_used,
-            tool_invocations=cast(list[dict[str, object]], tool_invocations),
-            resolved_model_id=resolved_model_id,
-        )
-
     async def run_chat(
         self,
         *,
@@ -546,16 +407,26 @@ class ChatRuntimeService:
             chat_history = self._chat_history_before_latest_user(conversation_messages)
 
             retrieval_tool = self._build_oracle_retrieval_tool(collection_name)
-            mcp_turn = await self._run_mcp_agent_turn(
+            resolved_model_id = model_id or get_llm().model_id
+            run_cfg = _prepare_run_config(
+                thread_id=thread_id,
+                mcp_server_keys=mcp_server_keys,
+                mode=normalized_mode,
+                model_id=resolved_model_id,
+                session_id=session_id,
+                enable_tracing=enable_tracing,
+                trace_context=langfuse_trace.trace_context if langfuse_trace else None,
+            )
+            mcp_turn = await run_mcp_agent_turn(
                 question=latest_user_message,
                 chat_history=chat_history,
-                model_id=model_id,
-                thread_id=thread_id,
-                session_id=session_id,
+                resolved_model_id=resolved_model_id,
+                run_config=run_cfg,
                 mode=normalized_mode,
                 mcp_server_keys=mcp_server_keys,
-                enable_tracing=enable_tracing,
-                langfuse_trace=langfuse_trace,
+                require_tool_call=_require_tool_call_enabled(),
+                repeated_workflow_enabled=_repeated_workflow_controller_enabled(),
+                workflow_checkpoint_path=_workflow_checkpoint_path(),
                 tool_progress_callback=tool_progress_callback,
                 extra_tools=[retrieval_tool],
                 require_mcp_tool_call_when_referenced=True,
@@ -577,7 +448,7 @@ class ChatRuntimeService:
             )
             if policy_error:
                 final_answer = policy_error
-            tool_failure_error = _tool_failure_summary(
+            tool_failure_error = tool_failure_summary(
                 cast(list[dict[str, object]], tool_invocations)
             )
             if not policy_error and _is_trivial_answer(final_answer) and tool_failure_error:
@@ -628,16 +499,26 @@ class ChatRuntimeService:
                 question = self._latest_user_message(conversation_messages)
                 chat_history = self._chat_history_before_latest_user(conversation_messages)
 
-                mcp_turn = await self._run_mcp_agent_turn(
+                resolved_model_id = model_id or get_llm().model_id
+                run_cfg = _prepare_run_config(
+                    thread_id=thread_id,
+                    mcp_server_keys=mcp_server_keys,
+                    mode=normalized_mode,
+                    model_id=resolved_model_id,
+                    session_id=session_id,
+                    enable_tracing=enable_tracing,
+                    trace_context=langfuse_trace.trace_context if langfuse_trace else None,
+                )
+                mcp_turn = await run_mcp_agent_turn(
                     question=question,
                     chat_history=chat_history,
-                    model_id=model_id,
-                    thread_id=thread_id,
-                    session_id=session_id,
+                    resolved_model_id=resolved_model_id,
+                    run_config=run_cfg,
                     mode=normalized_mode,
                     mcp_server_keys=mcp_server_keys,
-                    enable_tracing=enable_tracing,
-                    langfuse_trace=langfuse_trace,
+                    require_tool_call=_require_tool_call_enabled(),
+                    repeated_workflow_enabled=_repeated_workflow_controller_enabled(),
+                    workflow_checkpoint_path=_workflow_checkpoint_path(),
                     tool_progress_callback=tool_progress_callback,
                 )
                 mcp_result: dict[str, object] = {
@@ -651,7 +532,7 @@ class ChatRuntimeService:
                     "mcp_tools_used": mcp_turn.tools_used,
                     "mcp_tool_invocations": mcp_turn.tool_invocations,
                 }
-                tool_failure_error = _tool_failure_summary(
+                tool_failure_error = tool_failure_summary(
                     mcp_turn.tool_invocations
                 )
                 if (

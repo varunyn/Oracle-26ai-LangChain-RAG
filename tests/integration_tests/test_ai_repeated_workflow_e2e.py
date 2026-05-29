@@ -76,7 +76,7 @@ def test_ai_repeated_workflow_controller_processes_every_local_tool_item(monkeyp
         return [list_work_items, mark_item_done, send_summary]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
 
@@ -204,7 +204,7 @@ def test_ai_repeated_workflow_reuses_shared_context_for_same_vendor(monkeypatch)
         ]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
 

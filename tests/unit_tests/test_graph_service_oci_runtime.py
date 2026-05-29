@@ -162,10 +162,10 @@ def test_graph_service_run_chat_defaults_to_mixed_when_mcp_enabled(monkeypatch) 
         return ("mixed-default-answer", ["calculator_tool"], [])
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools", fake_load_adapter_tools
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools", fake_load_adapter_tools
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async", fake_get_mcp_answer_async
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async", fake_get_mcp_answer_async
     )
     monkeypatch.setattr(
         ChatRuntimeService,
@@ -225,11 +225,11 @@ def test_graph_service_run_chat_mcp_mode_uses_mcp_answer_async(monkeypatch) -> N
         return [calculator_tool]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(
@@ -299,10 +299,10 @@ def test_graph_service_mcp_mode_passes_prior_thread_history_to_agent(monkeypatch
         return [calculator_tool]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools", fake_load_adapter_tools
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools", fake_load_adapter_tools
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async", fake_get_mcp_answer_async
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async", fake_get_mcp_answer_async
     )
     monkeypatch.setattr(
         "src.rag_agent.runtime.chat_service.get_settings",
@@ -358,10 +358,10 @@ def test_graph_service_mcp_mode_honors_require_tool_call_setting(monkeypatch) ->
         lambda: type("Settings", (), {"REQUIRE_TOOL_CALL": True, "MCP_WORKFLOW_POLICY": {}})(),
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools", fake_load_adapter_tools
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools", fake_load_adapter_tools
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async", fake_get_mcp_answer_async
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async", fake_get_mcp_answer_async
     )
 
     result = asyncio.run(
@@ -649,7 +649,7 @@ def test_graph_service_run_chat_mixed_mode_uses_mcp_answer_async(monkeypatch) ->
         return [calculator_tool]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
@@ -658,7 +658,7 @@ def test_graph_service_run_chat_mixed_mode_uses_mcp_answer_async(monkeypatch) ->
         lambda self, collection_name=None: retrieval_tool,
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(
@@ -727,10 +727,10 @@ def test_graph_service_mixed_mode_honors_require_tool_call_setting(monkeypatch) 
         lambda self, collection_name=None: retrieval_tool,
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools", fake_load_adapter_tools
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools", fake_load_adapter_tools
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async", fake_get_mcp_answer_async
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async", fake_get_mcp_answer_async
     )
 
     result = asyncio.run(
@@ -792,10 +792,10 @@ def test_graph_service_mixed_mode_passes_prior_thread_history_to_agent(monkeypat
         return [calculator_tool]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools", fake_load_adapter_tools
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools", fake_load_adapter_tools
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async", fake_get_mcp_answer_async
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async", fake_get_mcp_answer_async
     )
     monkeypatch.setattr(
         ChatRuntimeService,
@@ -859,11 +859,11 @@ def test_graph_service_run_chat_mcp_mode_uses_all_servers_when_not_specified(mon
         return [routed_tool]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(
@@ -922,7 +922,7 @@ def test_graph_service_mixed_mode_invokes_mcp_answer_per_request(monkeypatch) ->
         return [calculator_tool]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
@@ -931,7 +931,7 @@ def test_graph_service_mixed_mode_invokes_mcp_answer_per_request(monkeypatch) ->
         lambda self, collection_name=None: retrieval_tool,
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
 
@@ -998,7 +998,7 @@ def test_graph_service_mixed_mode_includes_retrieval_references_when_available(m
         return [calculator_tool]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
@@ -1007,7 +1007,7 @@ def test_graph_service_mixed_mode_includes_retrieval_references_when_available(m
         lambda self, collection_name=None: _Tool(),
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
 
@@ -1059,7 +1059,7 @@ def test_graph_service_mixed_mode_uses_only_retrieval_tool_state_for_citations(
         return [calculator_tool]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
@@ -1074,7 +1074,7 @@ def test_graph_service_mixed_mode_uses_only_retrieval_tool_state_for_citations(
 
     monkeypatch.setattr(rag_runtime, "retrieve_oracle_docs", fail_if_direct_retrieval_called)
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
 
@@ -1132,7 +1132,7 @@ def test_graph_service_mixed_mode_does_not_run_direct_retrieval_after_tool_error
         raise AssertionError("direct retrieval should not run after tool error")
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
@@ -1142,7 +1142,7 @@ def test_graph_service_mixed_mode_does_not_run_direct_retrieval_after_tool_error
     )
     monkeypatch.setattr(rag_runtime, "retrieve_oracle_docs", fail_if_direct_retrieval_called)
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
 
@@ -1196,7 +1196,7 @@ def test_graph_service_mixed_mode_keeps_non_retrieval_mcp_answer_without_rag_ove
         raise AssertionError("direct retrieval should not run when non-retrieval MCP tools were used")
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
@@ -1205,7 +1205,7 @@ def test_graph_service_mixed_mode_keeps_non_retrieval_mcp_answer_without_rag_ove
         lambda self, collection_name=None: _Tool(),
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(rag_runtime, "retrieve_oracle_docs", fail_if_retrieval_called)
@@ -1267,7 +1267,7 @@ def test_graph_service_mixed_mode_keeps_metadata_answer_without_rag_override(
         raise AssertionError("direct retrieval should not override a substantive MCP answer")
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
@@ -1276,7 +1276,7 @@ def test_graph_service_mixed_mode_keeps_metadata_answer_without_rag_override(
         lambda self, collection_name=None: _Tool(),
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(rag_runtime, "retrieve_oracle_docs", fail_if_retrieval_called)
@@ -1343,11 +1343,11 @@ def test_graph_service_mixed_mode_requires_tool_call_when_mcp_tools_explicitly_r
         )
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(
@@ -1433,10 +1433,10 @@ def test_graph_service_mixed_mode_runs_repeated_workflow_before_normal_agent(
         return True
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools", fake_load_adapter_tools
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools", fake_load_adapter_tools
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async", fail_if_normal_agent_runs
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async", fail_if_normal_agent_runs
     )
     monkeypatch.setattr(
         "src.rag_agent.runtime.chat_service.get_settings",
@@ -1453,11 +1453,11 @@ def test_graph_service_mixed_mode_runs_repeated_workflow_before_normal_agent(
         )(),
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.should_use_repeated_workflow",
+        "src.rag_agent.runtime.mcp_turn.should_use_repeated_workflow",
         fake_should_use_repeated_workflow,
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.run_repeated_mcp_workflow",
+        "src.rag_agent.runtime.mcp_turn.run_repeated_mcp_workflow",
         fake_repeated_workflow,
     )
     monkeypatch.setattr(
@@ -1520,10 +1520,10 @@ def test_graph_service_mixed_mode_stops_when_repeated_workflow_has_no_queue(
         return True
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools", fake_load_adapter_tools
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools", fake_load_adapter_tools
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async", fake_get_mcp_answer_async
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async", fake_get_mcp_answer_async
     )
     monkeypatch.setattr(
         "src.rag_agent.runtime.chat_service.get_settings",
@@ -1540,11 +1540,11 @@ def test_graph_service_mixed_mode_stops_when_repeated_workflow_has_no_queue(
         )(),
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.should_use_repeated_workflow",
+        "src.rag_agent.runtime.mcp_turn.should_use_repeated_workflow",
         fake_should_use_repeated_workflow,
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.run_repeated_mcp_workflow",
+        "src.rag_agent.runtime.mcp_turn.run_repeated_mcp_workflow",
         fake_repeated_workflow,
     )
     monkeypatch.setattr(
@@ -1624,11 +1624,11 @@ def test_graph_service_mixed_mode_enforces_generic_workflow_policy_when_activate
 
     monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_settings", lambda: _Settings())
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(
@@ -1699,11 +1699,11 @@ def test_graph_service_mixed_mode_workflow_policy_does_not_apply_when_not_activa
 
     monkeypatch.setattr("src.rag_agent.runtime.chat_service.get_settings", lambda: _Settings())
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(
@@ -1768,11 +1768,11 @@ def test_graph_service_mixed_mode_replaces_trivial_answer_with_tool_failure_summ
         return [oic_create_invoice]
 
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.load_adapter_tools",
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
         fake_load_adapter_tools,
     )
     monkeypatch.setattr(
-        "src.rag_agent.runtime.chat_service.get_mcp_answer_async",
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
         fake_get_mcp_answer_async,
     )
     monkeypatch.setattr(
