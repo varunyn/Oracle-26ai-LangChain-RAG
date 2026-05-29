@@ -847,7 +847,6 @@ def _extract_literal_tool_call_names(answer: str, tool_names: Sequence[str]) -> 
 def _should_retry_for_literal_tool_text(
     *,
     answer: str,
-    tools_used: Sequence[str],
     tools: Sequence[BaseTool],
 ) -> bool:
     if not answer.strip():
@@ -861,8 +860,7 @@ def _should_retry_for_literal_tool_text(
     if not mentioned_tools:
         return False
 
-    used = {name.strip() for name in tools_used if name.strip()}
-    return any(name not in used for name in mentioned_tools)
+    return True
 
 
 def _tool_message_has_error(msg: object) -> bool:
@@ -1066,7 +1064,6 @@ async def get_mcp_answer_with_langchain_agent_async(
                 continue
             if not _should_retry_for_literal_tool_text(
                 answer=answer,
-                tools_used=tools_used,
                 tools=tools,
             ):
                 break

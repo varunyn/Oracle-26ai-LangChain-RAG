@@ -1046,3 +1046,79 @@ def test_executor_retries_when_literal_tool_call_text_is_emitted(monkeypatch) ->
         }
     ]
     assert len(fake_agent.calls) == 2
+
+
+def test_executor_retries_when_literal_tool_call_text_uses_already_called_tool(
+    monkeypatch,
+) -> None:
+    fake_agent = _FakeSequencedAgent(
+        [
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "oracle_retrieval",
+                                "args": {"query": "Northway Solutions payment terms"},
+                                "id": "call_1",
+                            }
+                        ],
+                    ),
+                    ToolMessage(content="", tool_call_id="call_1", name="oracle_retrieval"),
+                    AIMessage(
+                        content=(
+                            "The payment terms are not specified. Let me try a different query.\n\n"
+                            '[oracle_retrieval(query="Northway Solutions payment terms and conditions")]'
+                            "<|python_end|><|header_start|>assistant<|header_end|>\n\n"
+                            "<|python_start|>"
+                            '[oracle_retrieval(query="Northway Solutions payment terms and conditions")]'
+                            "<|python_end|>"
+                        )
+                    ),
+                ]
+            },
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "oracle_retrieval",
+                                "args": {
+                                    "query": "Northway Solutions payment terms and conditions"
+                                },
+                                "id": "call_2",
+                            }
+                        ],
+                    ),
+                    ToolMessage(content="Net 30 days", tool_call_id="call_2", name="oracle_retrieval"),
+                    AIMessage(content="Northway Solutions payment terms are Net 30 days."),
+                ]
+            },
+        ]
+    )
+
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=4))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
+    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
+
+    answer, tools_used, invocations = asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="What are the payment terms for Northway Solutions?",
+            chat_history=None,
+            model_id=None,
+            tools=[SimpleNamespace(name="oracle_retrieval", description="retrieve")],
+            run_config=None,
+            require_tool_call=False,
+        )
+    )
+
+    assert answer == "Northway Solutions payment terms are Net 30 days."
+    assert tools_used == ["oracle_retrieval"]
+    assert invocations[-1] == {
+        "tool_name": "oracle_retrieval",
+        "args": {"query": "Northway Solutions payment terms and conditions"},
+        "result": "Net 30 days",
+    }
+    assert len(fake_agent.calls) == 2
