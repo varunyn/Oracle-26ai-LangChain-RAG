@@ -80,6 +80,7 @@ export function ChatMessageList({
 }: ChatMessageListProps): React.ReactElement {
   const isStreamingTurn = status === "submitted" || status === "streaming";
   const showStreamingIndicator = isStreamingTurn && !hasActiveAssistantOutput(messages);
+  const showEmptyState = messages.length === 0 && !isStreamingTurn;
 
   return (
     <div
@@ -88,7 +89,7 @@ export function ChatMessageList({
       data-testid="chat-message-list"
       data-chat-status={status}
     >
-      {messages.length === 0 ? (
+      {showEmptyState ? (
         <div className="flex flex-1 items-center px-2 py-16 sm:px-4">
           <div className="max-w-xl space-y-3">
             <div className="text-foreground text-xl font-medium">
@@ -103,137 +104,135 @@ export function ChatMessageList({
       ) : null}
 
       <div className="space-y-6">
-
-      {messages.map((message, index) => {
-        const textContent = getMessageContent(
-          message as Parameters<typeof getMessageContent>[0],
-        );
-        const isLastMessage = index === messages.length - 1;
-        const isStreaming =
-          isLastMessage && (status === "submitted" || status === "streaming");
-        const parsedHeader = isStreaming
-          ? { toolName: null, displayContent: textContent }
-          : extractToolHeader(textContent);
-        const toolName = parsedHeader.toolName;
-        const displayContent = parsedHeader.displayContent;
-        const refPart =
-          message.role === "assistant" &&
-          Array.isArray(
-            (message as { parts?: { type?: string; data?: unknown }[] }).parts,
-          )
-            ? (
-                message as { parts: { type?: string; data?: unknown }[] }
-              ).parts.find((p) => p?.type === "data-references")
-            : null;
-        const refFromParts: MessageReferences | null =
-          refPart && refPart.data && typeof refPart.data === "object"
-            ? ({
-                ...(refPart.data as Record<string, unknown>),
-                citations: Array.isArray(
-                  (refPart.data as MessageReferences).citations,
-                )
-                  ? (refPart.data as MessageReferences).citations
-                  : [],
-                reranker_docs: Array.isArray(
-                  (refPart.data as MessageReferences).reranker_docs,
-                )
-                  ? (refPart.data as MessageReferences).reranker_docs
-                  : [],
-              } as MessageReferences)
-            : null;
-        const sourceParts =
-          message.role === "assistant" &&
-          Array.isArray(
-            (message as {
-              parts?: {
-                type?: string;
-                sourceId?: string;
-                url?: string;
-                title?: string;
-              }[];
-            }).parts,
-          )
-            ? (
-                message as {
-                  parts: {
-                    type?: string;
-                    sourceId?: string;
-                    url?: string;
-                    title?: string;
-                  }[];
-                }
-              ).parts
-            : [];
-
-        const sourceCitations =
-          sourceParts.length > 0
-            ? sourceParts
-                .filter((p) => p?.type === "source-document" || p?.type === "source-url")
-                .map((p) => ({
-                  source:
-                    typeof p.url === "string" && p.url
-                      ? p.url
-                      : typeof p.sourceId === "string" && p.sourceId
-                        ? p.sourceId
-                        : typeof p.title === "string"
-                          ? p.title
-                          : "",
-                  page: "",
-                }))
-                .filter((c) => c.source.length > 0)
-            : [];
-        const dedupedSourceCitations = sourceCitations.filter(
-          (citation, index, arr) => arr.findIndex((c) => c.source === citation.source) === index,
-        );
-
-        const messageReferences: MessageReferences | null =
-          message.role === "assistant"
-            ? (refFromParts ??
-              (dedupedSourceCitations.length > 0
-                ? {
-                    citations: dedupedSourceCitations,
-                    reranker_docs: [],
+        {messages.map((message, index) => {
+          const textContent = getMessageContent(
+            message as Parameters<typeof getMessageContent>[0],
+          );
+          const isLastMessage = index === messages.length - 1;
+          const isStreaming =
+            isLastMessage && (status === "submitted" || status === "streaming");
+          const parsedHeader = isStreaming
+            ? { toolName: null, displayContent: textContent }
+            : extractToolHeader(textContent);
+          const toolName = parsedHeader.toolName;
+          const displayContent = parsedHeader.displayContent;
+          const refPart =
+            message.role === "assistant" &&
+            Array.isArray(
+              (message as { parts?: { type?: string; data?: unknown }[] }).parts,
+            )
+              ? (
+                  message as { parts: { type?: string; data?: unknown }[] }
+                ).parts.find((p) => p?.type === "data-references")
+              : null;
+          const refFromParts: MessageReferences | null =
+            refPart && refPart.data && typeof refPart.data === "object"
+              ? ({
+                  ...(refPart.data as Record<string, unknown>),
+                  citations: Array.isArray(
+                    (refPart.data as MessageReferences).citations,
+                  )
+                    ? (refPart.data as MessageReferences).citations
+                    : [],
+                  reranker_docs: Array.isArray(
+                    (refPart.data as MessageReferences).reranker_docs,
+                  )
+                    ? (refPart.data as MessageReferences).reranker_docs
+                    : [],
+                } as MessageReferences)
+              : null;
+          const sourceParts =
+            message.role === "assistant" &&
+            Array.isArray(
+              (message as {
+                parts?: {
+                  type?: string;
+                  sourceId?: string;
+                  url?: string;
+                  title?: string;
+                }[];
+              }).parts,
+            )
+              ? (
+                  message as {
+                    parts: {
+                      type?: string;
+                      sourceId?: string;
+                      url?: string;
+                      title?: string;
+                    }[];
                   }
-                : null))
-            : null;
-        const hasLiveProgress =
-          Array.isArray(messageReferences?.mcp_progress_events) &&
-          messageReferences.mcp_progress_events.length > 0;
+                ).parts
+              : [];
 
-        if (!displayContent && !toolName && !hasLiveProgress) return null;
+          const sourceCitations =
+            sourceParts.length > 0
+              ? sourceParts
+                  .filter((p) => p?.type === "source-document" || p?.type === "source-url")
+                  .map((p) => ({
+                    source:
+                      typeof p.url === "string" && p.url
+                        ? p.url
+                        : typeof p.sourceId === "string" && p.sourceId
+                          ? p.sourceId
+                          : typeof p.title === "string"
+                            ? p.title
+                            : "",
+                    page: "",
+                  }))
+                  .filter((c) => c.source.length > 0)
+              : [];
+          const dedupedSourceCitations = sourceCitations.filter(
+            (citation, index, arr) => arr.findIndex((c) => c.source === citation.source) === index,
+          );
 
-        const showActions =
-          message.role === "assistant" && !!displayContent && !isStreaming;
+          const messageReferences: MessageReferences | null =
+            message.role === "assistant"
+              ? (refFromParts ??
+                (dedupedSourceCitations.length > 0
+                  ? {
+                      citations: dedupedSourceCitations,
+                      reranker_docs: [],
+                    }
+                  : null))
+              : null;
+          const hasLiveProgress =
+            Array.isArray(messageReferences?.mcp_progress_events) &&
+            messageReferences.mcp_progress_events.length > 0;
 
-        return (
-          <ChatMessageItem
-            key={message.id ?? `message-${index}`}
-            message={message}
-            displayContent={displayContent}
-            toolName={toolName}
-            isLastMessage={isLastMessage}
-            isStreaming={isStreaming}
-            showActions={showActions}
-            messageReferences={messageReferences}
-            maxCitationsToShow={maxCitationsToShow}
-            onRetry={onRetry}
-            onRecoverDirect={onRecoverDirect}
-            onRecoverRagOnly={onRecoverRagOnly}
-            onFeedback={(stars) => onFeedback(stars, index)}
-            feedbackSubmitted={feedbackSubmittedMessageIndexes.has(index)}
-            enableUserFeedback={enableUserFeedback}
-          />
-        );
-      })}
+          if (!displayContent && !toolName && !hasLiveProgress) return null;
+
+          const showActions =
+            message.role === "assistant" && !!displayContent && !isStreaming;
+
+          return (
+            <ChatMessageItem
+              key={message.id ?? `message-${index}`}
+              message={message}
+              displayContent={displayContent}
+              toolName={toolName}
+              isLastMessage={isLastMessage}
+              isStreaming={isStreaming}
+              showActions={showActions}
+              messageReferences={messageReferences}
+              maxCitationsToShow={maxCitationsToShow}
+              onRetry={onRetry}
+              onRecoverDirect={onRecoverDirect}
+              onRecoverRagOnly={onRecoverRagOnly}
+              onFeedback={(stars) => onFeedback(stars, index)}
+              feedbackSubmitted={feedbackSubmittedMessageIndexes.has(index)}
+              enableUserFeedback={enableUserFeedback}
+            />
+          );
+        })}
+        {showStreamingIndicator ? (
+          <Message from="assistant">
+            <MessageContent>
+              <StreamingIndicator status={status} />
+            </MessageContent>
+          </Message>
+        ) : null}
       </div>
-
-      {showStreamingIndicator ? (
-        <Message from="assistant">
-          <MessageContent>
-            <StreamingIndicator />
-          </MessageContent>
-        </Message>
-      ) : null}
 
       {showOptimisticSuggestion && pendingSuggestion != null ? (
         <div key="pending-suggestion" className="pt-2">

@@ -2,7 +2,17 @@
 
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { Children, memo } from "react";
-import { CopyIcon, Star } from "lucide-react";
+import {
+  AlertCircle,
+  Brain,
+  CheckCircle2,
+  CircleDashed,
+  CopyIcon,
+  LoaderCircle,
+  Star,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import type { Components } from "streamdown";
 import {
   InlineCitation,
@@ -25,6 +35,7 @@ import {
   ToolInput,
   ToolOutput,
   ToolStatusBadge,
+  type ToolState,
 } from "@/components/ai-elements/tool";
 import { CITATION_RUN_REGEX } from "@/constants/chat";
 import { splitContentByCitations } from "@/lib/chat/citations";
@@ -98,6 +109,165 @@ type ChatMessageItemProps = {
   enableUserFeedback?: boolean;
 };
 
+type ToolRunDisplay = {
+  key: string;
+  toolName: string;
+  args?: unknown;
+  result?: string | null;
+  error?: string | null;
+  state: ToolState;
+};
+
+type AssistantActivityProps = {
+  displayContent: string;
+  progressToolRuns: ToolRunDisplay[];
+};
+
+function buildProgressToolRuns(events: McpProgressEvent[]): ToolRunDisplay[] {
+  const runs = new Map<string, ToolRunDisplay>();
+  const order: string[] = [];
+
+  events.forEach((event, index) => {
+    const baseKey =
+      typeof event.tool_run_id === "string" && event.tool_run_id.trim()
+        ? event.tool_run_id
+        : `${event.tool_name}-${index}`;
+    const existing = runs.get(baseKey);
+    const state: ToolState =
+      event.phase === "error"
+        ? "output-error"
+        : event.phase === "end"
+          ? "output-available"
+          : "input-available";
+    const next: ToolRunDisplay = {
+      key: baseKey,
+      toolName: event.tool_name,
+      args: event.args ?? existing?.args,
+      result: event.result ?? existing?.result,
+      error: event.error ?? existing?.error,
+      state,
+    };
+    if (!existing) order.push(baseKey);
+    runs.set(baseKey, next);
+  });
+
+  return order.map((key) => runs.get(key)).filter((run): run is ToolRunDisplay => run != null);
+}
+
+function getAssistantActivity({
+  displayContent,
+  progressToolRuns,
+}: AssistantActivityProps): {
+  title: string;
+  detail: string;
+  tone: "neutral" | "active" | "done" | "error";
+  icon: LucideIcon;
+} {
+  const activeRun = [...progressToolRuns].reverse().find((run) => run.state === "input-available");
+  const erroredRun = [...progressToolRuns].reverse().find((run) => run.state === "output-error");
+  const completedRun = [...progressToolRuns]
+    .reverse()
+    .find((run) => run.state === "output-available");
+
+  if (erroredRun) {
+    return {
+      title: "Tool returned an error",
+      detail: `${erroredRun.toolName} failed. Retrying or preparing an error response.`,
+      tone: "error",
+      icon: AlertCircle,
+    };
+  }
+  if (activeRun) {
+    return {
+      title: `Calling ${activeRun.toolName}`,
+      detail: "Arguments are ready. Waiting for the tool result.",
+      tone: "active",
+      icon: Wrench,
+    };
+  }
+  if (displayContent.trim()) {
+    return {
+      title: "Writing answer",
+      detail: "Streaming the response text as it arrives.",
+      tone: "active",
+      icon: LoaderCircle,
+    };
+  }
+  if (completedRun) {
+    return {
+      title: "Processing tool result",
+      detail: `${completedRun.toolName} finished. Preparing the final answer.`,
+      tone: "done",
+      icon: CheckCircle2,
+    };
+  }
+  return {
+    title: "Thinking",
+    detail: "Choosing whether to answer directly or use a tool.",
+    tone: "neutral",
+    icon: Brain,
+  };
+}
+
+function AssistantActivity({
+  displayContent,
+  progressToolRuns,
+}: AssistantActivityProps): React.ReactElement {
+  const activity = getAssistantActivity({ displayContent, progressToolRuns });
+  const Icon = activity.icon;
+  const toneClass =
+    activity.tone === "error"
+      ? "border-destructive/25 bg-destructive/10 text-destructive"
+      : activity.tone === "done"
+        ? "border-emerald-600/25 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100"
+        : activity.tone === "active"
+          ? "border-sky-500/25 bg-sky-500/10 text-sky-950 dark:text-sky-100"
+          : "border-border bg-muted/25 text-foreground";
+
+  return (
+    <div
+      className={`mb-2 rounded-lg border px-3 py-2.5 ${toneClass}`}
+      data-testid="assistant-activity"
+    >
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-background/80 text-current ring-1 ring-border/60">
+          <Icon
+            className={`size-3.5 ${activity.icon === LoaderCircle ? "animate-spin" : ""}`}
+            aria-hidden
+          />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium leading-5 text-foreground">
+            {activity.title}
+          </div>
+          <div className="text-xs leading-5 text-muted-foreground">
+            {activity.detail}
+          </div>
+          {progressToolRuns.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {progressToolRuns.slice(-4).map((run) => (
+                <span
+                  key={run.key}
+                  className="inline-flex max-w-full items-center gap-1 rounded border border-border/60 bg-background/70 px-1.5 py-0.5 text-[10px] leading-4 text-muted-foreground"
+                >
+                  {run.state === "output-available" ? (
+                    <CheckCircle2 className="size-3 shrink-0 text-emerald-600" aria-hidden />
+                  ) : run.state === "output-error" ? (
+                    <AlertCircle className="size-3 shrink-0 text-destructive" aria-hidden />
+                  ) : (
+                    <CircleDashed className="size-3 shrink-0 animate-spin" aria-hidden />
+                  )}
+                  <span className="truncate font-mono">{run.toolName}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChatMessageItemInner({
   message,
   displayContent,
@@ -130,12 +300,13 @@ function ChatMessageItemInner({
       evt.tool_name.trim().length > 0 &&
       (evt.phase === "start" || evt.phase === "end" || evt.phase === "error"),
   );
+  const progressToolRuns = buildProgressToolRuns(progressEvents);
   const toolTimeline = [
     ...(toolName ? [toolName] : []),
     ...mcpToolsUsed.filter((tool) => tool !== toolName),
   ];
   const showToolCards =
-    progressEvents.length > 0 ||
+    progressToolRuns.length > 0 ||
     toolInvocations.length > 0 ||
     (!toolInvocations.length && toolTimeline.length > 0);
   const segments = splitContentByCitations(displayContent);
@@ -323,6 +494,12 @@ function ChatMessageItemInner({
               : undefined
           }
         >
+          {isStreaming ? (
+            <AssistantActivity
+              displayContent={displayContent}
+              progressToolRuns={progressToolRuns}
+            />
+          ) : null}
           {showToolCards ? (
             <div className="mb-2 space-y-1.5">
               {toolInvocations.length > 0
@@ -377,20 +554,14 @@ function ChatMessageItemInner({
                       </div>
                     </Tool>
                   ))
-                : progressEvents.length > 0
-                  ? progressEvents.map((evt, index) => {
-                      const toolState =
-                        evt.phase === "error"
-                          ? "output-error"
-                          : evt.phase === "end"
-                            ? "output-available"
-                            : "input-available";
+                : progressToolRuns.length > 0
+                  ? progressToolRuns.map((run, index) => {
                       return (
                         <Tool
-                          key={`${evt.tool_run_id ?? evt.tool_name}-${evt.phase}-${index}`}
-                          type={evt.tool_name}
-                          state={toolState}
-                          defaultOpen={index === progressEvents.length - 1}
+                          key={run.key}
+                          type={run.toolName}
+                          state={run.state}
+                          defaultOpen={index === progressToolRuns.length - 1}
                         >
                           <div className="w-full min-w-0">
                             <div className="flex min-w-0 items-start justify-between gap-2">
@@ -398,10 +569,10 @@ function ChatMessageItemInner({
                                 <span className="text-muted-foreground">
                                   {index + 1}.{" "}
                                 </span>
-                                {evt.tool_name}
+                                {run.toolName}
                               </code>
                               <ToolStatusBadge
-                                state={toolState}
+                                state={run.state}
                                 className="mt-0.5 shrink-0"
                               />
                             </div>
@@ -419,7 +590,7 @@ function ChatMessageItemInner({
                                   <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                                     Input
                                   </div>
-                                  <ToolInput input={evt.args ?? {}} />
+                                  <ToolInput input={run.args ?? {}} />
                                 </div>
                                 <div>
                                   <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -427,11 +598,11 @@ function ChatMessageItemInner({
                                   </div>
                                   <ToolOutput
                                     output={
-                                      evt.phase === "start"
+                                      run.state === "input-available"
                                         ? "Waiting for tool result..."
-                                        : evt.phase === "error"
-                                          ? evt.error ?? "Tool execution failed."
-                                          : evt.result ?? "Completed."
+                                        : run.state === "output-error"
+                                          ? run.error ?? "Tool execution failed."
+                                          : run.result ?? "Completed."
                                     }
                                   />
                                 </div>

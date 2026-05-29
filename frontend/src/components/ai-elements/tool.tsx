@@ -36,18 +36,25 @@ export function formatToolPayload(value: unknown): string {
 const toolPreClasses =
   "max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/70 bg-background/80 px-2 py-1.5 text-[10px] leading-relaxed text-foreground/90 [scrollbar-width:thin]";
 
-export type ToolState = "input-available" | "output-available" | "output-error";
+export type ToolState =
+  | "input-streaming"
+  | "input-available"
+  | "output-available"
+  | "output-error";
 
 const TOOL_STATE_LABEL: Record<ToolState, string> = {
-  "input-available": "Pending",
-  "output-available": "DONE",
+  "input-streaming": "Thinking",
+  "input-available": "Running",
+  "output-available": "Done",
   "output-error": "Error",
 };
 
 /** Outer tool call container */
 const TOOL_STATE_CLASS: Record<ToolState, string> = {
+  "input-streaming":
+    "border-border bg-muted/20 text-foreground shadow-none dark:bg-muted/15",
   "input-available":
-    "border-amber-300/50 bg-amber-100/40 text-amber-950 dark:text-amber-100",
+    "border-sky-500/35 bg-sky-500/10 text-sky-950 dark:text-sky-100",
   "output-available":
     "border-border bg-muted/35 text-foreground shadow-none dark:bg-muted/25",
   "output-error": "border-destructive/30 bg-destructive/10 text-destructive",
@@ -55,8 +62,10 @@ const TOOL_STATE_CLASS: Record<ToolState, string> = {
 
 /** Compact status pill (keeps success visible without coloring the whole card) */
 const TOOL_BADGE_CLASS: Record<ToolState, string> = {
+  "input-streaming":
+    "border-border bg-background/80 text-muted-foreground",
   "input-available":
-    "border-amber-400/50 bg-amber-100/70 text-amber-950 dark:text-amber-100",
+    "border-sky-500/40 bg-sky-500/12 text-sky-950 dark:text-sky-100",
   "output-available":
     "border-emerald-600/35 bg-emerald-500/12 text-emerald-900 dark:text-emerald-100",
   "output-error": "border-destructive/40 bg-destructive/15 text-destructive",
