@@ -150,32 +150,6 @@ def _sanitize_agent_payload_for_oci(payload: dict[str, object]) -> dict[str, obj
     return {**payload, "messages": sanitized}
 
 
-def _build_retry_messages_after_tool_error(
-    *,
-    chat_history: Sequence[object] | None,
-    question: str,
-    agent_state: Mapping[str, object],
-) -> list[object]:
-    """Summarize failed tool state without replaying provider-specific tool IDs."""
-    messages = cast(list[object], _build_messages(chat_history, question))
-    invocations = _extract_tool_invocations(agent_state)
-    observations = (
-        json.dumps(invocations, ensure_ascii=True)
-        if invocations
-        else "The prior tool attempt failed before producing a usable result."
-    )
-    messages.append(
-        HumanMessage(
-            "The prior tool attempt returned an error or unusable result. "
-            f"Tool observations: {observations}\n"
-            "Re-evaluate the request using the full available tool catalog. "
-            "Choose the best tool based on its name, description, and schema, "
-            "then answer from the tool result."
-        )
-    )
-    return messages
-
-
 def _sanitize_ai_message_content_for_oci(message: object) -> object:
     if not isinstance(message, AIMessage) or not isinstance(message.content, list):
         return message
@@ -500,41 +474,6 @@ def _extract_tool_invocations(agent_state: Mapping[str, object]) -> list[dict[st
     return invocations
 
 
-def _tool_message_has_error(msg: object) -> bool:
-    status = str(getattr(msg, "status", "") or "").strip().lower()
-    if status == "error":
-        return True
-
-    artifact = getattr(msg, "artifact", None)
-    if isinstance(artifact, Mapping):
-        structured_content = artifact.get("structured_content")
-        if isinstance(structured_content, Mapping) and "error" in structured_content:
-            return True
-        if "error" in artifact:
-            return True
-
-    content = _normalize_message_content(getattr(msg, "content", ""))
-    stripped = content.strip()
-    if not stripped:
-        return False
-    try:
-        parsed = json.loads(stripped)
-    except Exception:  # noqa: BLE001
-        return "tool call limit exceeded" in stripped.lower()
-    return isinstance(parsed, Mapping) and "error" in parsed
-
-
-def _agent_state_has_tool_error(agent_state: Mapping[str, object]) -> bool:
-    messages_raw = agent_state.get("messages")
-    if not isinstance(messages_raw, Sequence) or isinstance(messages_raw, (str, bytes)):
-        return False
-
-    for msg in cast(Sequence[object], messages_raw):
-        if isinstance(msg, ToolMessage) and _tool_message_has_error(msg):
-            return True
-    return False
-
-
 async def get_mcp_answer_with_langchain_agent_async(
     *,
     question: str,
@@ -567,7 +506,6 @@ async def get_mcp_answer_with_langchain_agent_async(
         answer = ""
         tools_used: list[str] = []
         tool_invocations: list[dict[str, object]] = []
-        retried_after_tool_error = False
 
         invoke_config_map: dict[str, object] = dict(run_config or {})
         raw_callbacks = invoke_config_map.get("callbacks")
@@ -603,18 +541,6 @@ async def get_mcp_answer_with_langchain_agent_async(
                         "Call the best available tool based on its name, "
                         "description, and schema before giving the final answer."
                     )
-                )
-                continue
-            if (
-                tools_used
-                and not retried_after_tool_error
-                and _agent_state_has_tool_error(response_state)
-            ):
-                retried_after_tool_error = True
-                current_messages = _build_retry_messages_after_tool_error(
-                    chat_history=chat_history,
-                    question=question,
-                    agent_state=response_state,
                 )
                 continue
             break

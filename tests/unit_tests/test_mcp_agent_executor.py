@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from langchain.agents.middleware import ModelRequest, ModelResponse
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from src.rag_agent.infrastructure import mcp_agent_executor as mod
 
@@ -745,7 +745,7 @@ def test_build_middleware_can_disable_tool_retry() -> None:
     ]
 
 
-def test_langchain_executor_retries_tool_error_in_same_agent_harness(
+def test_langchain_executor_does_not_rerun_agent_after_tool_error(
     monkeypatch,
 ) -> None:
     fake_agent = _FakeSequencedAgent(
@@ -820,13 +820,13 @@ def test_langchain_executor_retries_tool_error_in_same_agent_harness(
         )
     )
 
-    assert answer == "x = 2 and x = 3"
-    assert tools_used == ["Calculator_solve_equation"]
+    assert answer == ""
+    assert tools_used == ["Calculator_calculate"]
     assert invocations == [
         {
-            "tool_name": "Calculator_solve_equation",
-            "args": {"equation": "x**2 - 5*x + 6 = 0"},
-            "result": '{"solutions":["2","3"]}',
+            "tool_name": "Calculator_calculate",
+            "args": {"expression": "x**2 - 5*x + 6"},
+            "result": '{"error":"name x is not defined"}',
         }
     ]
     assert len(created_agents) == 1
@@ -835,13 +835,7 @@ def test_langchain_executor_retries_tool_error_in_same_agent_harness(
     assert "ToolRetryMiddleware" in middleware_names
     assert created_agents[0]["middleware"][-1].run_limit == 2
     assert "transformers" not in created_agents[0]
-    retry_messages = fake_agent.calls[1]["input"]["messages"]
-    assert len(retry_messages) == 2
-    assert isinstance(retry_messages[0], HumanMessage)
-    assert isinstance(retry_messages[1], HumanMessage)
-    assert "Calculator_calculate" in retry_messages[1].content
-    assert "bad-tool" not in retry_messages[1].content
-    assert not any(isinstance(message, (AIMessage, ToolMessage)) for message in retry_messages)
+    assert len(fake_agent.calls) == 1
 
 
 def test_build_system_prompt_uses_mixed_prompt_when_oracle_retrieval_tool_present() -> None:
@@ -993,21 +987,6 @@ def test_executor_does_not_retry_literal_tool_text_without_tool_requirement(
     assert tools_used == []
     assert invocations == []
     assert len(fake_agent.calls) == 1
-
-
-def test_agent_state_has_tool_error_ignores_mapping_messages() -> None:
-    state = {
-        "messages": [
-            {
-                "type": "tool",
-                "status": "error",
-                "name": "calculator_calculate",
-                "content": '{"error":"failed"}',
-            }
-        ]
-    }
-
-    assert mod._agent_state_has_tool_error(state) is False
 
 
 def test_extract_tool_invocations_pairs_ai_tool_calls_with_tool_messages() -> None:
