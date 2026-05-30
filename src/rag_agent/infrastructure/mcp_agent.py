@@ -29,6 +29,8 @@ async def _get_mcp_answer_impl(
     require_tool_call: bool = False,
     run_config: RunnableConfig | None = None,
     tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
+    answer_delta_callback: Callable[[str], None] | None = None,
+    stop_after_tool_names: set[str] | None = None,
 ) -> tuple[str, list[str], list[dict[str, Any]]]:
     if get_mcp_settings().enable_mcp_tools is False:
         return "", [], []
@@ -48,6 +50,8 @@ async def _get_mcp_answer_impl(
         run_config=run_config,
         require_tool_call=require_tool_call,
         tool_progress_callback=tool_progress_callback,
+        answer_delta_callback=answer_delta_callback,
+        stop_after_tool_names=stop_after_tool_names,
     )
 
 
@@ -60,6 +64,8 @@ def get_mcp_answer(
     require_tool_call: bool = False,
     run_config: RunnableConfig | None = None,
     tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
+    answer_delta_callback: Callable[[str], None] | None = None,
+    stop_after_tool_names: set[str] | None = None,
 ) -> tuple[str, list[str], list[dict[str, Any]]]:
     return cast(
         tuple[str, list[str], list[dict[str, Any]]],
@@ -73,6 +79,8 @@ def get_mcp_answer(
                 require_tool_call=require_tool_call,
                 run_config=run_config,
                 tool_progress_callback=tool_progress_callback,
+                answer_delta_callback=answer_delta_callback,
+                stop_after_tool_names=stop_after_tool_names,
             )
         ),
     )
@@ -87,6 +95,8 @@ async def get_mcp_answer_async(
     require_tool_call: bool = False,
     run_config: RunnableConfig | None = None,
     tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
+    answer_delta_callback: Callable[[str], None] | None = None,
+    stop_after_tool_names: set[str] | None = None,
 ) -> tuple[str, list[str], list[dict[str, Any]]]:
     return await _get_mcp_answer_impl(
         question,
@@ -97,4 +107,6 @@ async def get_mcp_answer_async(
         require_tool_call=require_tool_call,
         run_config=run_config,
         tool_progress_callback=tool_progress_callback,
+        answer_delta_callback=answer_delta_callback,
+        stop_after_tool_names=stop_after_tool_names,
     )

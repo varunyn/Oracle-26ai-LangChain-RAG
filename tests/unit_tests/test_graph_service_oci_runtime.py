@@ -403,7 +403,7 @@ def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> N
     class FakeLLM:
         def invoke(self, messages: list[object]) -> AIMessage:
             assert messages
-            return AIMessage(content="Oracle 23ai introduces AI Vector Search. [1]")
+            return AIMessage(content="Oracle 23ai introduces AI Vector Search.")
 
     monkeypatch.setattr(
         "src.rag_agent.runtime.rag_runtime.get_pooled_connection", fake_get_pooled_connection
@@ -431,7 +431,7 @@ def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> N
         )
     )
 
-    assert result["final_answer"] == "Oracle 23ai introduces AI Vector Search. [1]"
+    assert result["final_answer"] == "Oracle 23ai introduces AI Vector Search."
     assert result["citations"] == [{"source": "Doc1", "page": "1", "link": None}]
     assert result["reranker_docs"] == [
         {
@@ -502,7 +502,7 @@ def test_graph_service_rag_mode_uses_native_reranker_when_enabled(monkeypatch) -
     class FakeLLM:
         def invoke(self, messages: list[object]) -> AIMessage:
             _ = messages
-            return AIMessage(content="Best matching chunk [1]")
+            return AIMessage(content="Best matching chunk")
 
     monkeypatch.setattr(
         "src.rag_agent.runtime.rag_runtime.get_pooled_connection", fake_get_pooled_connection
@@ -573,7 +573,7 @@ def test_graph_service_rag_mode_contextualizes_followup_before_retrieval(monkeyp
             if self.calls == 1:
                 captured["contextualize_prompt"] = getattr(messages[0], "content", "")
                 return AIMessage(content="How does AI Vector Search work in Oracle Database 23ai?")
-            return AIMessage(content="AI Vector Search supports semantic search. [1]")
+            return AIMessage(content="AI Vector Search supports semantic search.")
 
     fake_llm = FakeLLM()
     monkeypatch.setattr(
@@ -1161,7 +1161,7 @@ def test_graph_service_mixed_mode_does_not_run_direct_retrieval_after_tool_error
         )
     )
 
-    assert result["final_answer"] == "Oracle retrieval failed while searching the knowledge base."
+    assert "database is available" in str(result["final_answer"])
     assert result["citations"] == []
     assert result["context_usage"] is None
 

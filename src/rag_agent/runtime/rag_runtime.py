@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import re
-from collections.abc import Callable
+import time
+from collections.abc import AsyncIterator, Callable
 from typing import cast
 
 from langchain_core.documents import Document
@@ -23,7 +25,7 @@ from src.rag_agent.infrastructure.oci_models import (
 from src.rag_agent.infrastructure.retrieval import search_documents
 from src.rag_agent.prompts.runtime_agents import RAG_ANSWER_PROMPT_TEMPLATE
 
-from .llm_invocation import invoke_llm_with_optional_config
+from .llm_invocation import invoke_llm_with_optional_config, stream_llm_chunks_with_optional_config
 from .observability import extract_usage
 
 logger = logging.getLogger(__name__)
@@ -40,8 +42,17 @@ def build_oracle_retrieval_tool(
     def retrieve_context(query: str) -> tuple[str, list[Document]]:
         """Retrieve Oracle knowledge-base and documentation context for a user question."""
         try:
+            from api.settings import get_settings
+
+            started_at = time.perf_counter()
+            top_k = max(1, int(getattr(get_settings(), "RAG_RETRIEVAL_TOP_K", 5) or 5))
+            pool_started_at = time.perf_counter()
             with get_pooled_connection() as conn:
+                pool_ms = (time.perf_counter() - pool_started_at) * 1000
+                embed_started_at = time.perf_counter()
                 embed_model = get_embedding_model()
+                embed_client_ms = (time.perf_counter() - embed_started_at) * 1000
+                search_started_at = time.perf_counter()
                 docs = cast(
                     list[Document],
                     search_documents(
@@ -49,15 +60,35 @@ def build_oracle_retrieval_tool(
                         collection_name=collection,
                         embed_model=embed_model,
                         query=query,
-                        top_k=8,
+                        top_k=top_k,
                         search_mode="vector",
                     ),
                 )
+                search_ms = (time.perf_counter() - search_started_at) * 1000
+            filter_started_at = time.perf_counter()
             filtered = filter_docs(query, docs)
+            filter_ms = (time.perf_counter() - filter_started_at) * 1000
+            serialize_started_at = time.perf_counter()
             state["docs"] = filtered
             state.pop("error", None)
             serialized = "\n\n".join(
                 f"Source: {doc.metadata}\nContent: {doc.page_content}" for doc in filtered
+            )
+            serialize_ms = (time.perf_counter() - serialize_started_at) * 1000
+            total_ms = (time.perf_counter() - started_at) * 1000
+            logger.info(
+                "oracle_retrieval_timing collection=%s docs=%d top_k=%d pool_ms=%.1f "
+                "embed_client_ms=%.1f search_ms=%.1f filter_ms=%.1f serialize_ms=%.1f "
+                "total_ms=%.1f",
+                collection,
+                len(filtered),
+                top_k,
+                pool_ms,
+                embed_client_ms,
+                search_ms,
+                filter_ms,
+                serialize_ms,
+                total_ms,
             )
             return serialized, filtered
         except Exception as exc:
@@ -123,8 +154,9 @@ async def synthesize_rag_answer(
     docs: list[Document],
     model_id: str | None,
     run_config: RunnableConfig | None = None,
+    supplemental_context: str | None = None,
 ) -> tuple[str, dict[str, int] | None, str]:
-    context = format_retrieved_docs(docs)
+    context = _answer_context(docs, supplemental_context=supplemental_context)
     prompt = RAG_ANSWER_PROMPT_TEMPLATE.format(question=question, context=context)
     answer_messages = [HumanMessage(content=prompt)]
     llm = get_llm(model_id=model_id)
@@ -140,6 +172,34 @@ async def synthesize_rag_answer(
         extract_usage(final_message),
         resolved_model_id,
     )
+
+
+async def stream_rag_answer(
+    *,
+    question: str,
+    docs: list[Document],
+    model_id: str | None,
+    run_config: RunnableConfig | None = None,
+    supplemental_context: str | None = None,
+) -> AsyncIterator[tuple[str, object, str]]:
+    context = _answer_context(docs, supplemental_context=supplemental_context)
+    prompt = RAG_ANSWER_PROMPT_TEMPLATE.format(question=question, context=context)
+    answer_messages = [HumanMessage(content=prompt)]
+    llm = get_llm(model_id=model_id)
+    resolved_model_id = cast(str | None, getattr(llm, "model_id", None)) or model_id or "unknown"
+    try:
+        async for text_delta, chunk in stream_llm_chunks_with_optional_config(
+            llm,
+            answer_messages,
+            run_config,
+        ):
+            yield text_delta, chunk, resolved_model_id
+    finally:
+        close = getattr(llm, "aclose", None)
+        if callable(close):
+            close_result = close()
+            if inspect.isawaitable(close_result):
+                await close_result
 
 
 def filter_retrieved_docs(query: str, docs: list[Document]) -> list[Document]:
@@ -245,7 +305,17 @@ def citations_from_docs(docs: list[Document]) -> list[dict[str, object]]:
 def format_retrieved_docs(docs: list[Document]) -> str:
     if not docs:
         return "No relevant documents were found."
-    return "\n\n".join(f"[{idx}] {doc.page_content}" for idx, doc in enumerate(docs, start=1))
+    return "\n\n".join(
+        f"Source {idx}:\n{doc.page_content}" for idx, doc in enumerate(docs, start=1)
+    )
+
+
+def _answer_context(docs: list[Document], *, supplemental_context: str | None) -> str:
+    context = format_retrieved_docs(docs)
+    supplemental = str(supplemental_context or "").strip()
+    if not supplemental:
+        return context
+    return f"{context}\n\nAdditional tool results:\n{supplemental}"
 
 
 __all__ = [
@@ -257,5 +327,6 @@ __all__ = [
     "rerank_retrieved_docs",
     "retrieve_oracle_docs",
     "serialize_docs",
+    "stream_rag_answer",
     "synthesize_rag_answer",
 ]

@@ -74,6 +74,8 @@ async def run_mcp_agent_turn(
     repeated_workflow_enabled: bool,
     workflow_checkpoint_path: str | None,
     tool_progress_callback: Callable[[dict[str, object]], None] | None,
+    answer_delta_callback: Callable[[str], None] | None = None,
+    stop_after_tool_names: set[str] | None = None,
     extra_tools: list[BaseTool] | None = None,
     require_mcp_tool_call_when_referenced: bool = False,
 ) -> MCPAgentTurn:
@@ -125,6 +127,10 @@ async def run_mcp_agent_turn(
             run_config=run_config,
             require_tool_call=effective_require_tool_call,
             tool_progress_callback=tool_progress_callback,
+            answer_delta_callback=(
+                None if effective_require_tool_call else answer_delta_callback
+            ),
+            stop_after_tool_names=stop_after_tool_names,
         )
     elif repeated_result is None:
         answer = (

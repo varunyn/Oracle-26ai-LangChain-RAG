@@ -24,6 +24,7 @@ from api.settings import get_settings
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_embedding_model_cache: dict[tuple[object, ...], OCIGenAIEmbeddings] = {}
 
 
 def _uses_auth_profile(auth_type: str | None) -> bool:
@@ -156,6 +157,11 @@ def get_llm(
     return llm
 
 
+def clear_embedding_model_cache() -> None:
+    """Clear cached embedding clients after runtime configuration changes."""
+    _embedding_model_cache.clear()
+
+
 def get_embedding_model(model_type: str = "OCI") -> OCIGenAIEmbeddings:
     """Return an OCIGenAIEmbeddings instance configured from shared OCI settings."""
     if model_type != "OCI":
@@ -163,6 +169,22 @@ def get_embedding_model(model_type: str = "OCI") -> OCIGenAIEmbeddings:
 
     endpoint = _get_service_endpoint()
     auth_type = get_settings().AUTH
+    use_profile = _uses_auth_profile(auth_type)
+    profile = get_settings().OCI_PROFILE or ""
+    auth_file_location = _get_oci_auth_file_location() if use_profile and profile else None
+    cache_key = (
+        id(OCIGenAIEmbeddings),
+        model_type,
+        auth_type,
+        get_settings().EMBED_MODEL_ID,
+        endpoint,
+        get_settings().COMPARTMENT_ID,
+        profile,
+        auth_file_location,
+    )
+    cached = _embedding_model_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     embed_kwargs = {
         "auth_type": auth_type,
@@ -170,17 +192,18 @@ def get_embedding_model(model_type: str = "OCI") -> OCIGenAIEmbeddings:
         "service_endpoint": endpoint,
         "compartment_id": get_settings().COMPARTMENT_ID,
     }
-    if _uses_auth_profile(auth_type) and get_settings().OCI_PROFILE:
-        embed_kwargs["auth_profile"] = get_settings().OCI_PROFILE
-        embed_kwargs["auth_file_location"] = _get_oci_auth_file_location()
+    if use_profile and profile and auth_file_location:
+        embed_kwargs["auth_profile"] = profile
+        embed_kwargs["auth_file_location"] = auth_file_location
         logger.info(
             "Using OCI profile: %s for embeddings from %s",
-            get_settings().OCI_PROFILE,
+            profile,
             embed_kwargs["auth_file_location"],
         )
 
     embed_model = OCIGenAIEmbeddings(**embed_kwargs)
     logger.info("Embedding model is: %s", get_settings().EMBED_MODEL_ID)
+    _embedding_model_cache[cache_key] = embed_model
     return embed_model
 
 

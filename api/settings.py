@@ -119,6 +119,7 @@ class Settings(BaseSettings):
     # RAG / SEARCH
     # =============================================================================
     RAG_SEARCH_MODE: str = "vector"
+    RAG_RETRIEVAL_TOP_K: int = 5
     # Union so dotenv can pass string; validator normalizes to list[str]
     COLLECTION_LIST: str | list[str] = Field(default_factory=lambda: ["RAG_KNOWLEDGE_BASE"])
 

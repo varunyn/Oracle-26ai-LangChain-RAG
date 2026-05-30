@@ -156,7 +156,7 @@ def test_chat_stream_rag_mode_uses_oci_rag_runtime(monkeypatch):
             assert mode == "rag"
             assert cast(dict[str, object], messages[-1]).get("content") == "What is Oracle 23AI?"
             return {
-                "final_answer": "Oracle 23ai introduces AI Vector Search. [1]",
+                "final_answer": "Oracle 23ai introduces AI Vector Search.",
                 "error": None,
                 "standalone_question": "What is Oracle 23AI?",
                 "citations": [{"source": "Doc1", "page": "1"}],
@@ -192,7 +192,7 @@ def test_chat_stream_rag_mode_uses_oci_rag_runtime(monkeypatch):
             )
             assert resp.status_code == 200
             body = b"".join([chunk async for chunk in resp.aiter_bytes()])
-            assert b"Oracle 23ai introduces AI Vector Search. [1]" in body
+            assert b"Oracle 23ai introduces AI Vector Search." in body
             assert b"Doc1" in body
 
     try:

@@ -78,6 +78,33 @@ def test_get_embedding_model_builds_oci_embeddings_with_shared_auth_config(monke
     }
 
 
+def test_get_embedding_model_reuses_client_for_same_settings(monkeypatch) -> None:
+    created: list[object] = []
+
+    class FakeOCIGenAIEmbeddings:
+        def __init__(self, **kwargs: object) -> None:
+            created.append(self)
+
+    settings = SimpleNamespace(
+        AUTH="API_KEY",
+        EMBED_MODEL_ID="cohere.embed-v4.0",
+        SERVICE_ENDPOINT="https://example.oraclecloud.com",
+        REGION="us-chicago-1",
+        COMPARTMENT_ID="ocid1.compartment.oc1..example",
+        OCI_PROFILE="CHICAGO",
+    )
+
+    monkeypatch.setattr(oci_models, "get_settings", lambda: settings)
+    monkeypatch.setattr(oci_models, "_get_oci_auth_file_location", lambda: "/tmp/test.oci.config")
+    monkeypatch.setattr(oci_models, "OCIGenAIEmbeddings", FakeOCIGenAIEmbeddings)
+
+    first = oci_models.get_embedding_model()
+    second = oci_models.get_embedding_model()
+
+    assert first is second
+    assert created == [first]
+
+
 def test_get_llm_preserves_explicit_xai_model_id_without_provider_override(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

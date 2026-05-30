@@ -40,6 +40,10 @@ logger = logging.getLogger(__name__)
 
 _ORACLE_RETRIEVAL_TOOL_NAME = "oracle_retrieval"
 _NO_ORACLE_CONTEXT_ANSWER = "I don't know the answer from the selected Oracle collection."
+_ORACLE_RETRIEVAL_FAILED_ANSWER = (
+    "I couldn't retrieve context from the selected Oracle collection because retrieval failed. "
+    "Please try again after the database is available."
+)
 
 
 def get_llm(model_id: str | None = None) -> Any:
@@ -320,6 +324,48 @@ def _oracle_retrieval_used_without_context(
     )
 
 
+def _oracle_retrieval_error(
+    *,
+    retrieval_state: object,
+    tools_used: list[str],
+    tool_invocations: list[dict[str, object]],
+) -> str | None:
+    if not isinstance(retrieval_state, dict):
+        return None
+    error = str(retrieval_state.get("error") or "").strip()
+    if not error:
+        return None
+    if not _tool_was_called(
+        tool_name=_ORACLE_RETRIEVAL_TOOL_NAME,
+        tools_used=tools_used,
+        tool_invocations=tool_invocations,
+    ):
+        return None
+    return error
+
+
+def _mixed_tool_supplemental_context(
+    tool_invocations: list[dict[str, object]],
+) -> str | None:
+    blocks: list[str] = []
+    for invocation in tool_invocations:
+        if not isinstance(invocation, dict):
+            continue
+        tool_name = str(invocation.get("tool_name") or "").strip()
+        if not tool_name or tool_name == _ORACLE_RETRIEVAL_TOOL_NAME:
+            continue
+        error = str(invocation.get("error") or "").strip()
+        result = str(invocation.get("result") or "").strip()
+        if error:
+            result = f"Error: {error}"
+        if not result:
+            continue
+        args = invocation.get("args")
+        args_text = f"\nArgs: {args}" if args not in (None, {}, []) else ""
+        blocks.append(f"Tool: {tool_name}{args_text}\nResult: {result}")
+    return "\n\n".join(blocks) or None
+
+
 class ChatRuntimeService:
     """Small service to execute direct, MCP, RAG, and mixed OCI chat modes."""
 
@@ -346,6 +392,7 @@ class ChatRuntimeService:
         mcp_server_keys: list[str] | None,
         stream: bool,
         tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
+        answer_delta_callback: Callable[[str], None] | None = None,
     ) -> dict[str, object]:
         normalized_mode = _resolve_effective_mode(mode)
         question = latest_user_message(messages)
@@ -369,6 +416,7 @@ class ChatRuntimeService:
                 mcp_server_keys=mcp_server_keys,
                 stream=stream,
                 tool_progress_callback=tool_progress_callback,
+                answer_delta_callback=answer_delta_callback,
                 langfuse_trace=langfuse_trace,
             )
             if langfuse_trace.trace_id:
@@ -396,6 +444,7 @@ class ChatRuntimeService:
         mcp_server_keys: list[str] | None,
         stream: bool,
         tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
+        answer_delta_callback: Callable[[str], None] | None = None,
         langfuse_trace: LangfuseChatTrace | None = None,
     ) -> dict[str, object]:
         normalized_mode = _resolve_effective_mode(mode)
@@ -428,6 +477,8 @@ class ChatRuntimeService:
                 repeated_workflow_enabled=_repeated_workflow_controller_enabled(),
                 workflow_checkpoint_path=_workflow_checkpoint_path(),
                 tool_progress_callback=tool_progress_callback,
+                answer_delta_callback=None,
+                stop_after_tool_names={_ORACLE_RETRIEVAL_TOOL_NAME},
                 extra_tools=[retrieval_tool],
                 require_mcp_tool_call_when_referenced=True,
             )
@@ -460,12 +511,20 @@ class ChatRuntimeService:
                 if isinstance(retrieval_state, dict)
                 else []
             )
+            retrieval_error = _oracle_retrieval_error(
+                retrieval_state=retrieval_state,
+                tools_used=tools_used,
+                tool_invocations=cast(list[dict[str, object]], tool_invocations),
+            )
             if retrieval_docs and latest_user_message:
                 retrieval_docs = rag_runtime.rerank_retrieved_docs(
                     latest_user_message,
                     retrieval_docs,
                     enable_reranker=enable_reranker,
                 )
+            if not policy_error and retrieval_error:
+                final_answer = _ORACLE_RETRIEVAL_FAILED_ANSWER
+                policy_error = _ORACLE_RETRIEVAL_FAILED_ANSWER
             if (
                 not policy_error
                 and _oracle_retrieval_used_without_context(
@@ -476,6 +535,33 @@ class ChatRuntimeService:
                 )
             ):
                 final_answer = _NO_ORACLE_CONTEXT_ANSWER
+            if not policy_error and retrieval_docs:
+                supplemental_context = _mixed_tool_supplemental_context(
+                    cast(list[dict[str, object]], tool_invocations)
+                )
+                if stream and answer_delta_callback is not None:
+                    answer_parts: list[str] = []
+                    async for text_delta, _chunk, stream_model_id in rag_runtime.stream_rag_answer(
+                        question=latest_user_message,
+                        docs=retrieval_docs,
+                        model_id=model_id,
+                        run_config=run_cfg,
+                        supplemental_context=supplemental_context,
+                    ):
+                        if isinstance(stream_model_id, str) and stream_model_id.strip():
+                            resolved_model_id = stream_model_id
+                        if text_delta:
+                            answer_parts.append(text_delta)
+                            answer_delta_callback(text_delta)
+                    final_answer = "".join(answer_parts).strip()
+                else:
+                    final_answer, _rag_usage, resolved_model_id = await rag_runtime.synthesize_rag_answer(
+                        question=latest_user_message,
+                        docs=retrieval_docs,
+                        model_id=model_id,
+                        run_config=run_cfg,
+                        supplemental_context=supplemental_context,
+                    )
             mixed_result: dict[str, object] = {
                 "final_answer": final_answer,
                 "error": policy_error,
@@ -489,8 +575,8 @@ class ChatRuntimeService:
                 "mcp_tools_used": tools_used,
                 "mcp_tool_invocations": tool_invocations,
             }
-            if isinstance(model_id, str) and model_id.strip():
-                mixed_result["model_id"] = model_id.strip()
+            if isinstance(resolved_model_id, str) and resolved_model_id.strip():
+                mixed_result["model_id"] = resolved_model_id.strip()
             self._attach_trace_id(mixed_result, langfuse_trace)
             self._store_thread_state(thread_id, incoming_messages, mixed_result)
             return mixed_result
@@ -520,6 +606,7 @@ class ChatRuntimeService:
                     repeated_workflow_enabled=_repeated_workflow_controller_enabled(),
                     workflow_checkpoint_path=_workflow_checkpoint_path(),
                     tool_progress_callback=tool_progress_callback,
+                    answer_delta_callback=answer_delta_callback,
                 )
                 mcp_result: dict[str, object] = {
                     "final_answer": mcp_turn.answer,
@@ -574,7 +661,24 @@ class ChatRuntimeService:
                     docs,
                     enable_reranker=enable_reranker,
                 )
-                if docs:
+                if docs and stream and answer_delta_callback is not None:
+                    answer_parts: list[str] = []
+                    last_chunk: object | None = None
+                    resolved_model_id = model_id or "unknown"
+                    async for text_delta, chunk, stream_model_id in rag_runtime.stream_rag_answer(
+                        question=standalone_question,
+                        docs=docs,
+                        model_id=model_id,
+                        run_config=run_cfg,
+                    ):
+                        resolved_model_id = stream_model_id
+                        last_chunk = chunk
+                        if text_delta:
+                            answer_parts.append(text_delta)
+                            answer_delta_callback(text_delta)
+                    rag_answer = "".join(answer_parts).strip()
+                    rag_usage = extract_usage(last_chunk) if last_chunk is not None else None
+                elif docs:
                     rag_answer, rag_usage, resolved_model_id = await rag_runtime.synthesize_rag_answer(
                         question=standalone_question,
                         docs=docs,
@@ -680,12 +784,33 @@ class ChatRuntimeService:
 
         result: dict[str, object] = {}
         error: BaseException | None = None
-        progress_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        event_queue: asyncio.Queue[tuple[str, object]] = asyncio.Queue()
         run_done = asyncio.Event()
         loop = asyncio.get_running_loop()
+        answer_delta_emitted = False
 
         def _emit_tool_progress(payload: dict[str, object]) -> None:
-            loop.call_soon_threadsafe(progress_queue.put_nowait, payload)
+            loop.call_soon_threadsafe(event_queue.put_nowait, ("tool_calls", payload))
+
+        def _emit_answer_delta(delta: str) -> None:
+            nonlocal answer_delta_emitted
+            text = str(delta or "")
+            if not text:
+                return
+            answer_delta_emitted = True
+            loop.call_soon_threadsafe(
+                event_queue.put_nowait,
+                (
+                    "messages",
+                    (
+                        {
+                            "event": "content-block-delta",
+                            "delta": {"type": "text-delta", "text": text},
+                        },
+                        {"langgraph_node": "chat_runtime"},
+                    ),
+                ),
+            )
 
         async def _run() -> None:
             nonlocal result, error
@@ -702,6 +827,7 @@ class ChatRuntimeService:
                     mcp_server_keys=cast(list[str] | None, cfg.get("mcp_server_keys")),
                     stream=True,
                     tool_progress_callback=_emit_tool_progress,
+                    answer_delta_callback=_emit_answer_delta,
                 )
             except BaseException as exc:  # noqa: BLE001
                 error = exc
@@ -710,20 +836,20 @@ class ChatRuntimeService:
 
         run_task = asyncio.create_task(_run())
         while True:
-            if run_done.is_set() and progress_queue.empty():
+            if run_done.is_set() and event_queue.empty():
                 break
             try:
-                progress = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
+                method, data = await asyncio.wait_for(event_queue.get(), timeout=0.1)
             except TimeoutError:
                 continue
-            yield v3_raw_event(method="tool_calls", data=progress)
+            yield v3_raw_event(method=method, data=data)
 
         await run_task
         if error is not None:
             raise error
 
         answer = str(result.get("final_answer") or "")
-        if answer:
+        if answer and not answer_delta_emitted:
             yield v3_raw_event(
                 method="messages",
                 data=(

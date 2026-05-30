@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import logging
@@ -17,6 +18,7 @@ from langchain.agents.middleware import (
     ToolCallLimitMiddleware,
     ToolRetryMiddleware,
 )
+from langchain.agents.middleware.tool_call_limit import ToolCallLimitExceededError
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import BaseTool
@@ -27,6 +29,7 @@ from .oci_models import get_llm
 logger = logging.getLogger(__name__)
 
 ToolProgressCallback = Callable[[dict[str, object]], None]
+AnswerDeltaCallback = Callable[[str], None]
 _TOOL_SELECTOR_SYSTEM_PROMPT = """Select all tools that may be needed for the user's next step.
 
 Use the tool names and descriptions exactly as provided.
@@ -70,9 +73,16 @@ async def _ainvoke_or_stream_agent(
     *,
     config: RunnableConfig,
     tool_progress_callback: ToolProgressCallback | None,
+    answer_delta_callback: AnswerDeltaCallback | None = None,
+    stop_after_tool_names: set[str] | None = None,
 ) -> Mapping[str, object]:
     payload = _sanitize_agent_payload_for_oci(payload)
-    if tool_progress_callback is None or not callable(getattr(agent, "astream_events", None)):
+    if (
+        tool_progress_callback is None
+        and answer_delta_callback is None
+        and not stop_after_tool_names
+        or not callable(getattr(agent, "astream_events", None))
+    ):
         return cast(Mapping[str, object], await agent.ainvoke(cast(Any, payload), config=config))
 
     raw_stream = agent.astream_events(cast(Any, payload), config=config, version="v3")
@@ -82,9 +92,65 @@ async def _ainvoke_or_stream_agent(
             "LangChain stream_events(version='v3') did not expose typed stream projections."
         )
 
-    await _consume_tool_call_projection(stream, tool_progress_callback)
+    if stop_after_tool_names:
+        return await _consume_until_tool_result(
+            stream,
+            stop_after_tool_names=stop_after_tool_names,
+            tool_progress_callback=tool_progress_callback,
+            answer_delta_callback=answer_delta_callback,
+        )
+
+    consumers: list[Awaitable[None]] = []
+    if tool_progress_callback is not None:
+        consumers.append(_consume_tool_call_projection(stream, tool_progress_callback))
+    if answer_delta_callback is not None and hasattr(stream, "__aiter__"):
+        consumers.append(_consume_raw_text_events(stream, answer_delta_callback))
+    if consumers:
+        await asyncio.gather(*consumers)
     output = await _resolve_stream_output(stream)
     return cast(Mapping[str, object], output or {})
+
+
+async def _consume_until_tool_result(
+    stream: Any,
+    *,
+    stop_after_tool_names: set[str],
+    tool_progress_callback: ToolProgressCallback | None,
+    answer_delta_callback: AnswerDeltaCallback | None,
+) -> Mapping[str, object]:
+    latest_state: Mapping[str, object] = {}
+    started_tool_ids: set[str] = set()
+    ended_tool_ids: set[str] = set()
+    normalized_stop_names = {name.strip().lower() for name in stop_after_tool_names if name.strip()}
+    try:
+        async for event in stream:
+            if answer_delta_callback is not None:
+                for text in _raw_text_deltas(event):
+                    answer_delta_callback(text)
+            state = _state_from_values_event(event)
+            if state is None:
+                continue
+            latest_state = state
+            if tool_progress_callback is not None:
+                _emit_tool_progress_from_state(
+                    state,
+                    tool_progress_callback=tool_progress_callback,
+                    started_tool_ids=started_tool_ids,
+                    ended_tool_ids=ended_tool_ids,
+                )
+            for invocation in _extract_tool_invocations(state):
+                tool_name = str(invocation.get("tool_name") or "").strip().lower()
+                result = str(invocation.get("result") or invocation.get("error") or "").strip()
+                if tool_name in normalized_stop_names and result:
+                    return latest_state
+    finally:
+        close = getattr(stream, "aclose", None)
+        if callable(close):
+            close_result = close()
+            if inspect.isawaitable(close_result):
+                await close_result
+    output = await _resolve_stream_output(stream)
+    return cast(Mapping[str, object], output or latest_state or {})
 
 
 async def _resolve_stream_output(stream: Any) -> object:
@@ -137,6 +203,115 @@ async def _consume_tool_call_projection(
                 "phase": "end",
                 "tool_name": tool_name,
                 "result": _serialize_tool_output(getattr(call, "output", None)),
+                "tool_run_id": tool_call_id,
+            }
+        )
+
+
+async def _consume_raw_text_events(
+    stream: Any,
+    answer_delta_callback: AnswerDeltaCallback,
+) -> None:
+    async for event in stream:
+        for text in _raw_text_deltas(event):
+            answer_delta_callback(text)
+
+
+def _raw_text_deltas(event: object) -> list[str]:
+    if not isinstance(event, Mapping) or event.get("method") != "messages":
+        return []
+    params = event.get("params")
+    if not isinstance(params, Mapping):
+        return []
+    data = params.get("data")
+    if not isinstance(data, tuple) or not data:
+        return []
+    chunk = data[0]
+    if not isinstance(chunk, Mapping):
+        return []
+    if chunk.get("event") != "content-block-delta":
+        return []
+    delta = chunk.get("delta")
+    if not isinstance(delta, Mapping) or delta.get("type") != "text-delta":
+        return []
+    text = str(delta.get("text") or "")
+    return [text] if text else []
+
+
+def _state_from_values_event(event: object) -> Mapping[str, object] | None:
+    if not isinstance(event, Mapping) or event.get("method") != "values":
+        return None
+    params = event.get("params")
+    if not isinstance(params, Mapping):
+        return None
+    data = params.get("data")
+    return cast(Mapping[str, object], data) if isinstance(data, Mapping) else None
+
+
+def _emit_tool_progress_from_state(
+    state: Mapping[str, object],
+    *,
+    tool_progress_callback: ToolProgressCallback,
+    started_tool_ids: set[str],
+    ended_tool_ids: set[str],
+) -> None:
+    messages_raw = state.get("messages")
+    if not isinstance(messages_raw, Sequence) or isinstance(messages_raw, (str, bytes)):
+        return
+    tool_names_by_id: dict[str, str] = {}
+    args_by_id: dict[str, object] = {}
+    for msg in cast(Sequence[object], messages_raw):
+        if isinstance(msg, AIMessage):
+            raw_calls = getattr(msg, "tool_calls", None)
+            if not isinstance(raw_calls, list):
+                continue
+            for tool_call in raw_calls:
+                if not isinstance(tool_call, Mapping):
+                    continue
+                tool_call_id = str(tool_call.get("id") or "").strip()
+                tool_name = str(tool_call.get("name") or "").strip()
+                if not tool_call_id or not tool_name:
+                    continue
+                tool_names_by_id[tool_call_id] = tool_name
+                args_by_id[tool_call_id] = tool_call.get("args")
+                if tool_call_id in started_tool_ids:
+                    continue
+                started_tool_ids.add(tool_call_id)
+                tool_progress_callback(
+                    {
+                        "phase": "start",
+                        "tool_name": tool_name,
+                        "args": tool_call.get("args"),
+                        "tool_run_id": tool_call_id,
+                    }
+                )
+            continue
+        if not isinstance(msg, ToolMessage):
+            continue
+        tool_call_id = str(getattr(msg, "tool_call_id", "") or "").strip()
+        if not tool_call_id or tool_call_id in ended_tool_ids:
+            continue
+        ended_tool_ids.add(tool_call_id)
+        status = str(getattr(msg, "status", "") or "").strip()
+        tool_name = str(getattr(msg, "name", "") or "").strip() or tool_names_by_id.get(
+            tool_call_id,
+            "unknown_tool",
+        )
+        if status == "error":
+            tool_progress_callback(
+                {
+                    "phase": "error",
+                    "tool_name": tool_name,
+                    "error": _truncate_tool_text(_serialize_tool_output(msg)),
+                    "tool_run_id": tool_call_id,
+                }
+            )
+            continue
+        tool_progress_callback(
+            {
+                "phase": "end",
+                "tool_name": tool_name,
+                "result": _serialize_tool_output(msg),
                 "tool_run_id": tool_call_id,
             }
         )
@@ -313,7 +488,7 @@ def _build_middleware(
         else int(getattr(settings, "MCP_MAX_ROUNDS", 0) or 0)
     )
     if max_rounds > 0:
-        middleware.append(ToolCallLimitMiddleware(run_limit=max_rounds))
+        middleware.append(ToolCallLimitMiddleware(run_limit=max_rounds, exit_behavior="error"))
 
     return middleware
 
@@ -515,6 +690,8 @@ async def get_mcp_answer_with_langchain_agent_async(
     run_config: RunnableConfig | None,
     require_tool_call: bool,
     tool_progress_callback: ToolProgressCallback | None = None,
+    answer_delta_callback: AnswerDeltaCallback | None = None,
+    stop_after_tool_names: set[str] | None = None,
 ) -> tuple[str, list[str], list[dict[str, object]]]:
     if not tools:
         return "MCP tools are currently unavailable. Please try again.", [], []
@@ -524,6 +701,12 @@ async def get_mcp_answer_with_langchain_agent_async(
 
     settings = get_settings()
     llm_model = get_llm(model_id=model_id)
+    stream_answer_callback = None if require_tool_call else answer_delta_callback
+    if stream_answer_callback is not None:
+        try:
+            setattr(llm_model, "is_stream", True)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("MCP agent LLM stream flag setup failed: %s", exc)
 
     try:
         agent = create_agent(
@@ -546,15 +729,21 @@ async def get_mcp_answer_with_langchain_agent_async(
             invoke_config_map["callbacks"] = callbacks
         invoke_config = cast(RunnableConfig, invoke_config_map)
         for retry_idx in range(2):
-            response_state = cast(
-                Mapping[str, object],
-                await _ainvoke_or_stream_agent(
-                    agent,
-                    {"messages": current_messages},
-                    config=invoke_config,
-                    tool_progress_callback=tool_progress_callback,
-                ),
-            )
+            try:
+                response_state = cast(
+                    Mapping[str, object],
+                    await _ainvoke_or_stream_agent(
+                        agent,
+                        {"messages": current_messages},
+                        config=invoke_config,
+                        tool_progress_callback=tool_progress_callback,
+                        answer_delta_callback=stream_answer_callback,
+                        stop_after_tool_names=stop_after_tool_names,
+                    ),
+                )
+            except ToolCallLimitExceededError as exc:
+                logger.info("MCP agent stopped after tool call limit was reached: %s", exc)
+                return str(exc), [], []
             answer, tools_used = _extract_answer_and_tools(response_state)
             tool_invocations = _extract_tool_invocations(response_state)
             if retry_idx >= 1:
