@@ -594,6 +594,81 @@ def test_langchain_executor_can_stop_after_requested_tool_result(monkeypatch) ->
     assert [event["phase"] for event in progress_events] == ["start", "end"]
 
 
+def test_langchain_executor_does_not_stop_when_other_tool_was_requested(
+    monkeypatch,
+) -> None:
+    retrieval_id = str(uuid.uuid4())
+    calculator_id = str(uuid.uuid4())
+    final_state = {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "oracle_retrieval",
+                        "args": {"query": "Northway Solutions payment terms"},
+                        "id": retrieval_id,
+                    },
+                    {
+                        "name": "Calculator_calculate",
+                        "args": {"expression": "125 * 48"},
+                        "id": calculator_id,
+                    },
+                ],
+            ),
+            ToolMessage(
+                content="Payment terms are net 30.",
+                tool_call_id=retrieval_id,
+                name="oracle_retrieval",
+            ),
+            ToolMessage(
+                content="6000",
+                tool_call_id=calculator_id,
+                name="Calculator_calculate",
+            ),
+            AIMessage(content="Payment terms are net 30 and 125 * 48 is 6000."),
+        ]
+    }
+    post_retrieval_state = {"messages": final_state["messages"][:2]}
+    stream = _FakeProjectionStream(
+        final_state,
+        [],
+        raw_events=[
+            {"method": "values", "params": {"data": {"messages": final_state["messages"][:1]}}},
+            {"method": "values", "params": {"data": post_retrieval_state}},
+            {"method": "values", "params": {"data": final_state}},
+        ],
+    )
+    fake_agent = _FakeProjectionStreamingAgent(stream)
+
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: object())
+    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
+
+    answer, tools_used, invocations = asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="payment terms and calculate 125 * 48",
+            chat_history=None,
+            model_id=None,
+            tools=[
+                SimpleNamespace(name="oracle_retrieval", description="retrieve"),
+                SimpleNamespace(name="Calculator_calculate", description="calculate"),
+            ],
+            run_config=None,
+            require_tool_call=False,
+            stop_after_tool_names={"oracle_retrieval"},
+        )
+    )
+
+    assert answer == "Payment terms are net 30 and 125 * 48 is 6000."
+    assert tools_used == ["oracle_retrieval", "Calculator_calculate"]
+    assert [item["tool_name"] for item in invocations] == [
+        "oracle_retrieval",
+        "Calculator_calculate",
+    ]
+    assert stream._raw_idx == 3
+
+
 def test_sanitize_agent_payload_removes_oci_unsupported_tool_call_content() -> None:
     message = AIMessage(
         content=[
@@ -976,7 +1051,6 @@ def test_build_middleware_always_enables_tool_selector_and_limit_controls() -> N
     middleware = mod._build_middleware(
         settings,
         [
-            SimpleNamespace(name="oracle_retrieval", description="retrieve"),
             SimpleNamespace(name="calculator.add", description="add"),
         ],
     )
@@ -989,12 +1063,35 @@ def test_build_middleware_always_enables_tool_selector_and_limit_controls() -> N
         "ToolCallLimitMiddleware",
     ]
     selector = middleware[3]
-    assert selector.always_include == ["oracle_retrieval"]
+    assert selector.always_include == []
     assert selector.max_tools is None
     assert "select all tools that may be needed" in selector.system_prompt.lower()
     assert "oracle_retrieval" in selector.system_prompt
+    assert "select tools for every independent evidence or action need" in selector.system_prompt
     assert middleware[-1].run_limit == 2
     assert middleware[-1].exit_behavior == "error"
+
+
+def test_build_middleware_keeps_full_toolbox_when_retrieval_tool_is_present() -> None:
+    settings = SimpleNamespace(MCP_MAX_ROUNDS=4)
+    middleware = mod._build_middleware(
+        settings,
+        [
+            SimpleNamespace(name="oracle_retrieval", description="retrieve"),
+            SimpleNamespace(name="Calculator_calculate", description="calculate"),
+            SimpleNamespace(name="Calculator_integrate", description="integrate"),
+        ],
+    )
+
+    names = [type(m).__name__ for m in middleware]
+    assert "LLMToolSelectorMiddleware" not in names
+    assert names == [
+        "OCIToolCallContentMiddleware",
+        "ModelRetryMiddleware",
+        "ToolRetryMiddleware",
+        "ToolCallLimitMiddleware",
+    ]
+    assert middleware[-1].run_limit == 4
 
 
 def test_build_middleware_has_no_tool_retry_opt_out() -> None:
@@ -1130,6 +1227,9 @@ def test_build_system_prompt_uses_mixed_prompt_when_oracle_retrieval_tool_presen
         run_config=None,
     )
     assert "When document context was provided in the user message" in prompt
+    assert "Treat retrieval as evidence for collection facts only" in prompt
+    assert "Before saying information is unavailable from the selected collection" in prompt
+    assert "Prefer the most specific listed tool for each requested action" in prompt
 
 
 def test_build_system_prompt_prioritizes_explicit_workflows_generically() -> None:

@@ -9,15 +9,17 @@ This app keeps chat memory on the backend in `ChatRuntimeService` (`src/rag_agen
   - `thread_id` identifies a conversation; create one with `POST /api/langgraph/threads`.
   - Stream responses emit `event: values` SSE frames.
 - Storage model
-  - Current implementation uses an in-memory per-process map (`self._thread_state`).
+  - Runtime always keeps a process-local cache (`self._thread_state`).
+  - When `ENABLE_PERSISTENT_MEMORY=true`, state is also stored in the SQLite checkpoint file configured by `LANGGRAPH_SQLITE_PATH`.
   - State includes normalized LangChain messages and the last answer metadata.
-  - `DELETE /api/threads/{thread_id}` removes a conversation state entry.
+  - `DELETE /api/threads/{thread_id}` removes a conversation state entry and is idempotent.
 
 ## Scope and limitations
 
-- Memory is short-term and thread-scoped.
-- Memory is not durable across process restarts.
-- Memory is not shared across multiple API replicas.
+- Memory is thread-scoped.
+- With default settings, memory is not durable across process restarts.
+- With `ENABLE_PERSISTENT_MEMORY=true`, memory survives API restarts through the configured SQLite checkpoint file.
+- Memory is not shared across multiple API replicas unless they share the same durable state backend.
 
 ## Inspect thread memory
 
@@ -41,5 +43,5 @@ PY
 
 ## Delete one thread
 
-- API: `DELETE /api/threads/{thread_id}` returns 204 when thread state exists.
+- API: `DELETE /api/threads/{thread_id}` returns 204 whether or not the thread already exists.
 - Programmatic: `await ChatRuntimeService().delete_thread("<thread_id>")`

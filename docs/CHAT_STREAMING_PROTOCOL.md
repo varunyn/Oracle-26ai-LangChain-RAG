@@ -21,7 +21,7 @@ data: {"messages":[...]}
 Notes:
 
 - Stream completion is transport close (there is no `[DONE]` sentinel).
-- Assistant references/citations are carried in `response_metadata` / `additional_kwargs`.
+- Assistant references, sources, and tool activity are carried in `response_metadata` / `additional_kwargs` on assistant messages.
 - Frontend uses `@langchain/react` `useStream` against `${NEXT_PUBLIC_API_BASE}/api/langgraph`.
 - Internally, the stream route consumes `ChatRuntimeService.astream_events(..., version="v3")`
   and adapts text/tool-call/reference projections into this values-stream contract.
@@ -63,5 +63,5 @@ asyncio.run(main())
 PY
 ```
 
-- Delete via API: `DELETE /api/threads/{thread_id}` (204 on success, 404 if missing)
+- Delete via API: `DELETE /api/threads/{thread_id}` (idempotent 204)
 - Reset all state: restart the API process (current memory store is process-local)

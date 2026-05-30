@@ -478,7 +478,7 @@ class ChatRuntimeService:
                 workflow_checkpoint_path=_workflow_checkpoint_path(),
                 tool_progress_callback=tool_progress_callback,
                 answer_delta_callback=None,
-                stop_after_tool_names={_ORACLE_RETRIEVAL_TOOL_NAME},
+                stop_after_tool_names=None,
                 extra_tools=[retrieval_tool],
                 require_mcp_tool_call_when_referenced=True,
             )

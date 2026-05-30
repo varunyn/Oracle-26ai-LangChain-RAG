@@ -17,7 +17,7 @@ Chat execution is handled by `ChatRuntimeService` (`src/rag_agent/runtime/chat_s
 
 - `rag`: Oracle vector similarity search + answer prompt
 - `mcp`: MCP tools only through `langchain_mcp_adapters` + LangChain agent loop
-- `mixed`: local retrieval tool (`oracle_retrieval`) + MCP tools together in one tool loop
+- `mixed`: MCP tools plus local retrieval; retrieval-only turns hand off to the RAG answer path once docs are found, while explicit MCP tool/action requests can complete before RAG synthesis
 - `direct`: plain LLM response from chat history
 
 ### Key Directories
@@ -45,6 +45,9 @@ graph TD;
     RAG["RAG path<br/>vector search + prompt"]
     MCP["MCP path<br/>create_agent + MCP tools"]
     Mixed["Mixed path<br/>oracle_retrieval + MCP tools"]
+    MixedDocs{"retrieval docs?"}
+    MixedRAG["RAG answer synthesis"]
+    MixedMCP["MCP answer or retrieval error"]
     Direct["Direct path<br/>LLM on history"]
     Persist["Store thread state by thread_id"]
     Stream["LangGraph SSE stream"]
@@ -54,10 +57,14 @@ graph TD;
     Mode -->|rag| RAG
     Mode -->|mcp| MCP
     Mode -->|mixed| Mixed
+    Mixed --> MixedDocs
+    MixedDocs -->|yes| MixedRAG
+    MixedDocs -->|no| MixedMCP
     Mode -->|direct| Direct
     RAG --> Persist
     MCP --> Persist
-    Mixed --> Persist
+    MixedRAG --> Persist
+    MixedMCP --> Persist
     Direct --> Persist
     Persist --> Stream
     Stream --> __end__
@@ -70,9 +77,9 @@ graph TD;
 
 ### 1. **Semantic Search**
 
-- Performed via `langchain-oracledb` vector store in `ChatRuntimeService`
+- Performed via `langchain-oracledb` vector store in the runtime RAG path
 - Uses OracleVS vector similarity search through `langchain-oracledb`
-- Returns relevant chunks and normalized citations
+- Returns relevant chunks and normalized citations/sources
 
 ### 2. **MCP Adapter Runtime**
 
@@ -84,7 +91,8 @@ graph TD;
 
 - `create_agent(...)` loop in `src/rag_agent/infrastructure/mcp_agent_executor.py`
 - Built-in middleware for retries/tool-call bounds
-- Shared prompts for MCP-only and mixed mode
+- Shared MCP prompts and middleware-backed tool execution
+- Mixed mode can stop after `oracle_retrieval` for retrieval-only turns, then uses the RAG answer prompt for streaming synthesis. If the user explicitly asks for another MCP tool/action, that tool result is included as supplemental RAG context.
 
 ### 4. **Citation Normalization**
 
@@ -102,7 +110,7 @@ User Query
     ↓
 [Citations + State] → normalized refs + thread state update
     ↓
-Next.js UI → Displays answer + citations
+Next.js UI → Displays answer + sources
 ```
 
 ## Technology Stack
@@ -279,8 +287,8 @@ The Langfuse UI will run at `http://localhost:3300` (default) using its own comp
 
 1. Enter your question in the chat interface
 2. The backend routes by `mode` (`rag`, `mcp`, `mixed`, `direct`)
-3. Receive streaming answer with references (`data-references`, `source-document`, `source-url`)
-4. Inspect citations/sources in the chat UI
+3. Receive streaming answer with references in assistant message metadata (`citations`, `reranker_docs`, `mcp_tool_invocations`, and related fields)
+4. Inspect sources in the chat UI
 
 ## Features
 
@@ -288,7 +296,7 @@ The Langfuse UI will run at `http://localhost:3300` (default) using its own comp
 
 - Real-time answer generation
 - Progressive UI updates as each stage completes
-- Immediate display of document references
+- Immediate display of tool activity and document sources
 
 ### 🔄 Chat History and Memory
 
@@ -300,6 +308,7 @@ The Langfuse UI will run at `http://localhost:3300` (default) using its own comp
 
 - Mixed mode applies lightweight overlap filtering to retrieved docs
 - Prevents obviously off-topic retrieval snippets from becoming citations
+- Retrieval uses a configurable top-k (`RAG_RETRIEVAL_TOP_K`, default `5`) and caches the OCI embedding client per process.
 
 ### 📊 Observability (Optional)
 

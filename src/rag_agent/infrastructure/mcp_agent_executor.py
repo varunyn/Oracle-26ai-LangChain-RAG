@@ -37,6 +37,7 @@ Prefer a focused set, but include every plausibly relevant tool when the request
 For explicit workflows, include tools for queue discovery, per-item processing, supporting lookup/context, and finalization when those phases are relevant.
 For data-grounded answers, keep oracle_retrieval available whenever it is present so the main model can ground the answer in the selected collection.
 For math, database, CLI, or API requests, include the most specific tool plus any helper or inspection tool that may be needed to choose correct arguments.
+For multi-part requests, select tools for every independent evidence or action need. A retrieval tool only covers collection facts; it does not cover computation, symbolic math, external actions, or API work.
 Do not include tools that are clearly unrelated to the user's request."""
 
 
@@ -141,7 +142,14 @@ async def _consume_until_tool_result(
             for invocation in _extract_tool_invocations(state):
                 tool_name = str(invocation.get("tool_name") or "").strip().lower()
                 result = str(invocation.get("result") or invocation.get("error") or "").strip()
-                if tool_name in normalized_stop_names and result:
+                if (
+                    tool_name in normalized_stop_names
+                    and result
+                    and not _state_has_non_stop_tool_calls(
+                        state,
+                        stop_tool_names=normalized_stop_names,
+                    )
+                ):
                     return latest_state
     finally:
         close = getattr(stream, "aclose", None)
@@ -246,6 +254,29 @@ def _state_from_values_event(event: object) -> Mapping[str, object] | None:
         return None
     data = params.get("data")
     return cast(Mapping[str, object], data) if isinstance(data, Mapping) else None
+
+
+def _state_has_non_stop_tool_calls(
+    state: Mapping[str, object],
+    *,
+    stop_tool_names: set[str],
+) -> bool:
+    messages_raw = state.get("messages")
+    if not isinstance(messages_raw, Sequence) or isinstance(messages_raw, (str, bytes)):
+        return False
+    for msg in cast(Sequence[object], messages_raw):
+        if not isinstance(msg, AIMessage):
+            continue
+        raw_calls = getattr(msg, "tool_calls", None)
+        if not isinstance(raw_calls, list):
+            continue
+        for tool_call in raw_calls:
+            if not isinstance(tool_call, Mapping):
+                continue
+            tool_name = str(tool_call.get("name") or "").strip().lower()
+            if tool_name and tool_name not in stop_tool_names:
+                return True
+    return False
 
 
 def _emit_tool_progress_from_state(
@@ -458,10 +489,8 @@ def _build_messages(chat_history: Sequence[object] | None, question: str) -> lis
     return messages
 
 
-def _tool_names_to_always_include(tools: Sequence[BaseTool]) -> list[str] | None:
-    names = [str(getattr(tool, "name", "") or "").strip() for tool in tools]
-    always_include = [name for name in names if name == "oracle_retrieval"]
-    return always_include or None
+def _has_retrieval_tool(tools: Sequence[BaseTool]) -> bool:
+    return any(str(getattr(tool, "name", "") or "").strip() == "oracle_retrieval" for tool in tools)
 
 
 def _build_middleware(
@@ -475,12 +504,12 @@ def _build_middleware(
     middleware.append(OCIToolCallContentMiddleware())
     middleware.append(ModelRetryMiddleware(max_retries=1))
     middleware.append(ToolRetryMiddleware(max_retries=1))
-    middleware.append(
-        LLMToolSelectorMiddleware(
-            system_prompt=_TOOL_SELECTOR_SYSTEM_PROMPT,
-            always_include=_tool_names_to_always_include(tools),
+    if not _has_retrieval_tool(tools):
+        middleware.append(
+            LLMToolSelectorMiddleware(
+                system_prompt=_TOOL_SELECTOR_SYSTEM_PROMPT,
+            )
         )
-    )
 
     max_rounds = (
         tool_call_run_limit

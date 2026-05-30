@@ -12,9 +12,10 @@ This doc describes conversation memory, **sessions**, and **threads** in the cur
 ## Runtime memory model
 
 - Backend memory is owned by `ChatRuntimeService` (`src/rag_agent/runtime/chat_service.py`).
-- The service stores thread state in a process-local dictionary.
+- The service stores thread state in a process-local cache.
+- If `ENABLE_PERSISTENT_MEMORY=true`, thread state is also stored in the SQLite checkpoint file configured by `LANGGRAPH_SQLITE_PATH`.
 - Input is delta-only: each request should send the new user message.
-- Memory survives across turns in one process, and is cleared on process restart.
+- Memory survives across turns in one process. With the default settings it is cleared on process restart; with persistent memory enabled it is rehydrated from SQLite.
 
 ## Session vs thread
 

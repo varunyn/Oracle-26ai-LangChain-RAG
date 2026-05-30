@@ -47,7 +47,7 @@
 | `mcp_used`      | Whether tools were actually invoked      |
 | `citations`     | Number of normalized citations emitted  |
 
-If mode/tool usage is unexpected (for example a RAG-only question calling MCP tools), inspect `chat_runtime_mcp_tools_loaded`, tool-call traces, and emitted `data-references`.
+If mode/tool usage is unexpected (for example a RAG-only question calling MCP tools), inspect `chat_runtime_mcp_tools_loaded`, tool-call traces, and emitted assistant reference metadata.
 
 ## 6. Langfuse SDK (optional)
 

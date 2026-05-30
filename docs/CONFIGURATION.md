@@ -140,6 +140,7 @@ Control retrieval breadth and context shaping.
 | Variable                           | Default                    | Description                                        |
 | ---------------------------------- | -------------------------- | -------------------------------------------------- |
 | `RAG_SEARCH_MODE`                  | `vector`                   | Retrieval mode for RAG. Only `vector` is currently supported. |
+| `RAG_RETRIEVAL_TOP_K`              | `5`                        | Number of documents retrieved before filtering/reranking in runtime RAG and mixed retrieval paths. |
 | `COLLECTION_LIST`                  | `RAG_KNOWLEDGE_BASE`       | Comma-separated or JSON array of collection names. |
 | `DEFAULT_COLLECTION`               | `RAG_KNOWLEDGE_BASE`       | Default collection when not specified.             |
 | `CHUNK_SIZE`                       | `4000`                     | Chunk size for splitting.                          |
@@ -209,7 +210,7 @@ MCP (Model Context Protocol) client and server configuration.
 | `ENABLE_MCP_TOOLS`                  | `true`         | Enable MCP tool use.                                           |
 | `MCP_SERVER_KEYS`                   | (none)         | Comma-separated list of configured MCP server keys to load tools from (e.g. `default,context7`). This does not choose the default chat mode. |
 | `MCP_SEARCH_MODE`                   | `vector`       | Default retrieval mode for semantic-search MCP tools. Only `vector` is currently supported. |
-| `MCP_MAX_ROUNDS`                    | `2`            | Maximum MCP tool-call rounds passed into chat runtime config. |
+| `MCP_MAX_ROUNDS`                    | `4`            | Maximum MCP tool calls allowed in one agent run. |
 | `ENABLE_MCP_CLIENT_JWT`             | `false`        | Legacy global MCP auth toggle. Prefer per-server auth in Settings. |
 | `ENABLE_MCP_OAUTH`                  | `false`        | Legacy global OAuth client-credentials auth toggle. Prefer per-server auth in Settings. |
 | `MCP_OAUTH_CLIENT_ID`               | —              | Legacy global OAuth client ID. |

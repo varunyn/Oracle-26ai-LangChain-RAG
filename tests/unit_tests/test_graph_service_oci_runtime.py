@@ -641,6 +641,7 @@ def test_graph_service_run_chat_mixed_mode_uses_mcp_answer_async(monkeypatch) ->
         captured["model_id"] = model_id
         captured["tools"] = tools
         captured["run_config"] = run_config
+        captured["stop_after_tool_names"] = kwargs.get("stop_after_tool_names")
         return ("The integral is (x^2 - 2x + 2)e^x + C.", ["calculator_tool"], [])
 
     async def fake_load_adapter_tools(server_keys=None, run_config=None):
@@ -689,7 +690,77 @@ def test_graph_service_run_chat_mixed_mode_uses_mcp_answer_async(monkeypatch) ->
     assert "calculator_tool" in tool_names
     assert captured["tool_server_keys"] == ["calculator"]
     assert captured["require_tool_call"] is False
+    assert captured["stop_after_tool_names"] is None
     assert result["mcp_tools_used"] == ["calculator_tool"]
+
+
+def test_graph_service_mixed_mode_lets_agent_loop_continue_with_retrieval_tool(
+    monkeypatch,
+) -> None:
+    service = ChatRuntimeService(graph=object())
+    captured: dict[str, object] = {}
+
+    @tool
+    def retrieval_tool(question: str) -> str:
+        """Retrieve Oracle documentation context for a question."""
+        return f"retrieved: {question}"
+
+    @tool
+    def calculator_tool(expression: str) -> str:
+        """Calculate a math expression."""
+        return f"calculated: {expression}"
+
+    async def fake_get_mcp_answer_async(
+        *args: object, **kwargs: object
+    ) -> tuple[str, list[str], list[object]]:
+        _ = args
+        captured["stop_after_tool_names"] = kwargs.get("stop_after_tool_names")
+        return ("Retrieved answer.", ["retrieval_tool"], [])
+
+    async def fake_load_adapter_tools(server_keys=None, run_config=None):
+        _ = server_keys, run_config
+        return [calculator_tool]
+
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.mcp_turn.load_adapter_tools",
+        fake_load_adapter_tools,
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.mcp_turn.get_mcp_answer_async",
+        fake_get_mcp_answer_async,
+    )
+    monkeypatch.setattr(
+        ChatRuntimeService,
+        "_build_oracle_retrieval_tool",
+        lambda self, collection_name=None: retrieval_tool,
+    )
+    monkeypatch.setattr(
+        "src.rag_agent.runtime.chat_service.get_settings",
+        lambda: type("Settings", (), {"REQUIRE_TOOL_CALL": False, "MCP_WORKFLOW_POLICY": {}})(),
+    )
+
+    result = asyncio.run(
+        service.run_chat(
+            messages=[
+                {
+                    "role": "user",
+                    "content": "What are Northway Solutions payment terms?",
+                }
+            ],
+            model_id="google.gemini-2.5-pro",
+            thread_id="thread-mixed-rag-only",
+            session_id=None,
+            collection_name="RAG_KNOWLEDGE_BASE",
+            enable_reranker=None,
+            enable_tracing=None,
+            mode="mixed",
+            mcp_server_keys=["calculator"],
+            stream=False,
+        )
+    )
+
+    assert result["final_answer"] == "Retrieved answer."
+    assert captured["stop_after_tool_names"] is None
 
 
 def test_graph_service_mixed_mode_honors_require_tool_call_setting(monkeypatch) -> None:

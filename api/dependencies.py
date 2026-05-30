@@ -66,7 +66,7 @@ def build_chat_config(
             "collection_name": collection_name or settings.DEFAULT_COLLECTION,
             "thread_id": thread_id or generate_request_id(),
             "mode": effective_mode,
-            "max_rounds": getattr(settings, "MCP_MAX_ROUNDS", 2),
+            "max_rounds": getattr(settings, "MCP_MAX_ROUNDS", 4),
         }
     }
     if getattr(settings, "ENABLE_MCP_TOOLS", True):
