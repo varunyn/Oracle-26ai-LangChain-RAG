@@ -1,44 +1,28 @@
 "use client";
 
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import { Children, memo } from "react";
+import { memo } from "react";
 import {
   AlertCircle,
-  Brain,
   CheckCircle2,
-  CircleDashed,
   CopyIcon,
-  LoaderCircle,
   Star,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
 import type { Components } from "streamdown";
-import {
-  InlineCitation,
-  InlineCitationCard,
-  InlineCitationCardBody,
-  InlineCitationCardTrigger,
-  InlineCitationCarousel,
-  InlineCitationCarouselContent,
-  InlineCitationCarouselHeader,
-  InlineCitationCarouselIndex,
-  InlineCitationCarouselItem,
-  InlineCitationCarouselNext,
-  InlineCitationCarouselPrev,
-  InlineCitationQuote,
-  InlineCitationSource,
-} from "@/components/ai-elements/inline-citation";
 import { SourcesStrip } from "@/components/chat/SourcesStrip";
 import {
-  Tool,
   ToolInput,
   ToolOutput,
-  ToolStatusBadge,
   type ToolState,
 } from "@/components/ai-elements/tool";
-import { CITATION_RUN_REGEX } from "@/constants/chat";
-import { splitContentByCitations } from "@/lib/chat/citations";
+import {
+  ChainOfThought,
+  ChainOfThoughtContent,
+  ChainOfThoughtHeader,
+  ChainOfThoughtStep,
+} from "@/components/ai-elements/chain-of-thought";
 import type {
   McpProgressEvent,
   MessageReferences,
@@ -118,9 +102,11 @@ type ToolRunDisplay = {
   state: ToolState;
 };
 
-type AssistantActivityProps = {
-  displayContent: string;
+type ToolActivityTimelineProps = {
+  isStreaming: boolean;
   progressToolRuns: ToolRunDisplay[];
+  toolInvocations: McpToolInvocation[];
+  toolTimeline: string[];
 };
 
 function buildProgressToolRuns(events: McpProgressEvent[]): ToolRunDisplay[] {
@@ -151,120 +137,231 @@ function buildProgressToolRuns(events: McpProgressEvent[]): ToolRunDisplay[] {
     runs.set(baseKey, next);
   });
 
-  return order.map((key) => runs.get(key)).filter((run): run is ToolRunDisplay => run != null);
+  return order
+    .map((key) => runs.get(key))
+    .filter((run): run is ToolRunDisplay => run != null);
 }
 
-function getAssistantActivity({
-  displayContent,
-  progressToolRuns,
-}: AssistantActivityProps): {
-  title: string;
-  detail: string;
-  tone: "neutral" | "active" | "done" | "error";
-  icon: LucideIcon;
-} {
-  const activeRun = [...progressToolRuns].reverse().find((run) => run.state === "input-available");
-  const erroredRun = [...progressToolRuns].reverse().find((run) => run.state === "output-error");
-  const completedRun = [...progressToolRuns]
-    .reverse()
-    .find((run) => run.state === "output-available");
+const TOOL_STATE_TEXT: Record<ToolState, string> = {
+  "input-streaming": "Thinking",
+  "input-available": "Running",
+  "output-available": "Done",
+  "output-error": "Error",
+};
 
-  if (erroredRun) {
-    return {
-      title: "Tool returned an error",
-      detail: `${erroredRun.toolName} failed. Retrying or preparing an error response.`,
-      tone: "error",
-      icon: AlertCircle,
-    };
-  }
-  if (activeRun) {
-    return {
-      title: `Calling ${activeRun.toolName}`,
-      detail: "Arguments are ready. Waiting for the tool result.",
-      tone: "active",
-      icon: Wrench,
-    };
-  }
-  if (displayContent.trim()) {
-    return {
-      title: "Writing answer",
-      detail: "Streaming the response text as it arrives.",
-      tone: "active",
-      icon: LoaderCircle,
-    };
-  }
-  if (completedRun) {
-    return {
-      title: "Processing tool result",
-      detail: `${completedRun.toolName} finished. Preparing the final answer.`,
-      tone: "done",
-      icon: CheckCircle2,
-    };
-  }
-  return {
-    title: "Thinking",
-    detail: "Choosing whether to answer directly or use a tool.",
-    tone: "neutral",
-    icon: Brain,
-  };
+function toolRunStatus(run: ToolRunDisplay): "complete" | "active" | "pending" {
+  return run.state === "input-available" || run.state === "input-streaming"
+    ? "active"
+    : "complete";
 }
 
-function AssistantActivity({
-  displayContent,
-  progressToolRuns,
-}: AssistantActivityProps): React.ReactElement {
-  const activity = getAssistantActivity({ displayContent, progressToolRuns });
-  const Icon = activity.icon;
-  const toneClass =
-    activity.tone === "error"
-      ? "border-destructive/25 bg-destructive/10 text-destructive"
-      : activity.tone === "done"
-        ? "border-emerald-600/25 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100"
-        : activity.tone === "active"
-          ? "border-sky-500/25 bg-sky-500/10 text-sky-950 dark:text-sky-100"
-          : "border-border bg-muted/25 text-foreground";
+function toolRunIcon(run: ToolRunDisplay): LucideIcon {
+  if (run.state === "output-error") return AlertCircle;
+  if (run.state === "output-available") return CheckCircle2;
+  return Wrench;
+}
+
+function toolRunDescription(run: ToolRunDisplay): string {
+  if (run.state === "output-error") return run.error ?? "Tool execution failed.";
+  if (run.state === "output-available") return "Completed.";
+  return "Running with prepared arguments.";
+}
+
+function toolStepClass(run: ToolRunDisplay): string | undefined {
+  if (run.state === "output-error") return "text-destructive";
+  if (run.state === "input-available" || run.state === "input-streaming") {
+    return "text-sky-950 dark:text-sky-100";
+  }
+  return undefined;
+}
+
+function ToolStepLabel({
+  index,
+  state,
+  toolName,
+}: {
+  index?: number;
+  state: ToolState;
+  toolName: string;
+}): React.ReactElement {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      {index != null ? (
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {index + 1}.
+        </span>
+      ) : null}
+      <span className="min-w-0 flex-1 truncate font-mono text-xs leading-snug text-foreground">
+        {toolName}
+      </span>
+      <span className="inline-flex h-4 shrink-0 items-center rounded border border-border/60 bg-background/70 px-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {TOOL_STATE_TEXT[state]}
+      </span>
+    </div>
+  );
+}
+
+function ToolActivitySummary({
+  runs,
+}: {
+  runs: ToolRunDisplay[];
+}): React.ReactElement {
+  const activeCount = runs.filter(
+    (run) => run.state === "input-available" || run.state === "input-streaming",
+  ).length;
+  const errorCount = runs.filter((run) => run.state === "output-error").length;
+  const completeCount = runs.filter(
+    (run) => run.state === "output-available",
+  ).length;
+  const countLabel = (count: number, label: string) =>
+    `${count} ${label}${count === 1 ? "" : "s"}`;
+
+  const summary =
+    errorCount > 0
+      ? countLabel(errorCount, "error")
+      : activeCount > 0
+        ? countLabel(activeCount, "running")
+        : countLabel(completeCount || runs.length, "complete");
 
   return (
-    <div
-      className={`mb-2 rounded-lg border px-3 py-2.5 ${toneClass}`}
-      data-testid="assistant-activity"
-    >
-      <div className="flex min-w-0 items-start gap-2.5">
-        <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-background/80 text-current ring-1 ring-border/60">
-          <Icon
-            className={`size-3.5 ${activity.icon === LoaderCircle ? "animate-spin" : ""}`}
-            aria-hidden
-          />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium leading-5 text-foreground">
-            {activity.title}
+    <span className="flex min-w-0 items-center gap-2">
+      <span>Tool activity</span>
+      <span className="truncate text-xs text-muted-foreground">{summary}</span>
+    </span>
+  );
+}
+
+function LegacyToolNotice(): React.ReactElement {
+  return (
+    <div className="text-[10px] leading-snug text-muted-foreground">
+      Per-call arguments and output are unavailable for this saved message.
+    </div>
+  );
+}
+
+function ToolRunOutput({
+  run,
+}: {
+  run: ToolRunDisplay;
+}): React.ReactElement | null {
+  if (
+    run.args === undefined &&
+    run.result === undefined &&
+    run.error === undefined
+  ) {
+    return <LegacyToolNotice />;
+  }
+
+  return (
+    <ToolRunDetails
+      output={
+        run.state === "input-available"
+          ? "Waiting for tool result..."
+          : run.error ?? run.result ?? "Completed."
+      }
+      outputLabel={run.state === "output-error" ? "Error" : "Output"}
+      toolInput={run.args ?? {}}
+    />
+  );
+}
+
+function ToolRunDetails({
+  outputLabel,
+  output,
+  toolInput,
+}: {
+  outputLabel: string;
+  output: ReactNode;
+  toolInput: unknown;
+}): React.ReactElement {
+  return (
+    <details className="group w-full min-w-0 border-t border-border/50 pt-2">
+      <summary className="cursor-pointer list-none text-[10px] font-medium text-muted-foreground marker:hidden hover:text-foreground">
+        <span className="group-open:hidden">Input & output</span>
+        <span className="hidden group-open:inline">Hide input & output</span>
+      </summary>
+      <div className="mt-2 space-y-2">
+        <div>
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Input
           </div>
-          <div className="text-xs leading-5 text-muted-foreground">
-            {activity.detail}
+          <ToolInput input={toolInput} />
+        </div>
+        <div>
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {outputLabel}
           </div>
-          {progressToolRuns.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {progressToolRuns.slice(-4).map((run) => (
-                <span
-                  key={run.key}
-                  className="inline-flex max-w-full items-center gap-1 rounded border border-border/60 bg-background/70 px-1.5 py-0.5 text-[10px] leading-4 text-muted-foreground"
-                >
-                  {run.state === "output-available" ? (
-                    <CheckCircle2 className="size-3 shrink-0 text-emerald-600" aria-hidden />
-                  ) : run.state === "output-error" ? (
-                    <AlertCircle className="size-3 shrink-0 text-destructive" aria-hidden />
-                  ) : (
-                    <CircleDashed className="size-3 shrink-0 animate-spin" aria-hidden />
-                  )}
-                  <span className="truncate font-mono">{run.toolName}</span>
-                </span>
-              ))}
-            </div>
-          ) : null}
+          <ToolOutput output={output} />
         </div>
       </div>
-    </div>
+    </details>
+  );
+}
+
+function ToolActivityTimeline({
+  isStreaming,
+  progressToolRuns,
+  toolInvocations,
+  toolTimeline,
+}: ToolActivityTimelineProps): React.ReactElement | null {
+  const invocationRuns: ToolRunDisplay[] = toolInvocations.map((inv, index) => {
+    const hasError =
+      typeof inv.error === "string" && inv.error.trim().length > 0;
+    return {
+      key: `${inv.tool_name}-${index}`,
+      toolName: inv.tool_name,
+      args: inv.args,
+      result: inv.result,
+      error: inv.error,
+      state: hasError ? "output-error" : "output-available",
+    };
+  });
+  const fallbackRuns: ToolRunDisplay[] = toolTimeline.map((tool, index) => ({
+    key: `${tool}-${index}`,
+    toolName: tool,
+    state: "output-available",
+  }));
+  const runs =
+    invocationRuns.length > 0
+      ? invocationRuns
+      : progressToolRuns.length > 0
+        ? progressToolRuns
+        : fallbackRuns;
+
+  if (runs.length === 0) return null;
+
+  return (
+    <ChainOfThought
+      className="mb-3 border-y border-border/60 py-2"
+      data-testid={isStreaming ? "assistant-activity" : undefined}
+      defaultOpen={isStreaming}
+    >
+      <ChainOfThoughtHeader className="text-xs" icon={Wrench}>
+        <ToolActivitySummary runs={runs} />
+      </ChainOfThoughtHeader>
+      <ChainOfThoughtContent className="space-y-2">
+        {runs.map((run, index) => (
+          <ChainOfThoughtStep
+            className={toolStepClass(run)}
+            data-tool-state={run.state}
+            data-tool-type={run.toolName}
+            description={toolRunDescription(run)}
+            icon={toolRunIcon(run)}
+            key={run.key}
+            label={
+              <ToolStepLabel
+                index={index}
+                state={run.state}
+                toolName={run.toolName}
+              />
+            }
+            status={toolRunStatus(run)}
+          >
+            <ToolRunOutput run={run} />
+          </ChainOfThoughtStep>
+        ))}
+      </ChainOfThoughtContent>
+    </ChainOfThought>
   );
 }
 
@@ -309,8 +406,6 @@ function ChatMessageItemInner({
     progressToolRuns.length > 0 ||
     toolInvocations.length > 0 ||
     (!toolInvocations.length && toolTimeline.length > 0);
-  const segments = splitContentByCitations(displayContent);
-  const hasCitationMarkers = segments.some((s) => s.type === "citation");
   const hasRefs =
     message.role === "assistant" &&
     !isStreaming &&
@@ -330,126 +425,7 @@ function ChatMessageItemInner({
         </MessageResponse>
       );
     }
-    if (hasRefs && hasCitationMarkers && messageReferences) {
-      const citations = messageReferences.citations;
-      const rerankerDocs = messageReferences.reranker_docs ?? [];
-      const citationComponents: Partial<Components> = {
-        p: (props) => {
-          const { children, ...pProps } =
-            props as ComponentPropsWithoutRef<"p">;
-          const processedChildren = Children.map(children, (child) => {
-            if (typeof child !== "string") return child;
-            const parts: (string | ReactNode)[] = [];
-            let lastIndex = 0;
-            const regex = new RegExp(CITATION_RUN_REGEX);
-            for (const match of child.matchAll(regex)) {
-              const matchIndex = match.index ?? 0;
-
-              if (matchIndex > lastIndex) {
-                parts.push(child.slice(lastIndex, matchIndex));
-              }
-              const run = match[0];
-              const indices = (run.match(/\d+/g) ?? []).map((n) =>
-                parseInt(n, 10),
-              );
-              if (indices.length > 0) {
-                const safeIdx = (i: number) =>
-                  Math.min(i - 1, Math.max(0, citations.length - 1));
-                const firstC = citations[safeIdx(indices[0])];
-                const sourceName = firstC?.source?.split("/").pop() ?? "Source";
-                const uniqueSources = [
-                  ...new Set(
-                    indices
-                      .map((i) => citations[safeIdx(i)]?.source ?? "")
-                      .filter(Boolean),
-                  ),
-                ];
-                const label =
-                  indices.length > 1
-                    ? `${sourceName} +${indices.length - 1}`
-                    : sourceName;
-                parts.push(
-                  <InlineCitation
-                    key={`cite-${matchIndex}`}
-                    className="inline-flex shrink-0 align-baseline ml-0.5"
-                  >
-                    <InlineCitationCard>
-                      <InlineCitationCardTrigger
-                        sources={uniqueSources}
-                        label={label}
-                      />
-                      <InlineCitationCardBody>
-                        <InlineCitationCarousel>
-                          <InlineCitationCarouselHeader>
-                            <InlineCitationCarouselPrev />
-                            <InlineCitationCarouselNext />
-                            <InlineCitationCarouselIndex />
-                          </InlineCitationCarouselHeader>
-                          <InlineCitationCarouselContent>
-                            {indices.map((index) => {
-                              const c = citations[safeIdx(index)];
-                              const reri = Math.min(
-                                index - 1,
-                                Math.max(0, rerankerDocs.length - 1),
-                              );
-                              const doc = rerankerDocs[reri];
-                              return (
-                                <InlineCitationCarouselItem
-                                  key={`${index}-${c?.source ?? ""}`}
-                                >
-                                  <InlineCitationSource
-                                    title={
-                                      c?.source?.split("/").pop() ?? "Source"
-                                    }
-                                    url={c?.source}
-                                    description={c?.page ?? undefined}
-                                  />
-                                  {doc?.page_content ? (
-                                    <InlineCitationQuote>
-                                      {doc.page_content.slice(0, 500)}
-                                      {doc.page_content.length > 500 ? "…" : ""}
-                                    </InlineCitationQuote>
-                                  ) : null}
-                                </InlineCitationCarouselItem>
-                              );
-                            })}
-                          </InlineCitationCarouselContent>
-                        </InlineCitationCarousel>
-                      </InlineCitationCardBody>
-                    </InlineCitationCard>
-                  </InlineCitation>,
-                );
-              }
-              lastIndex = matchIndex + run.length;
-            }
-            if (lastIndex < child.length) {
-              parts.push(child.slice(lastIndex));
-            }
-            return parts.length > 0 ? parts : child;
-          });
-          return <p {...pProps}>{processedChildren}</p>;
-        },
-      };
-      return (
-        <>
-          <MessageResponse
-            components={{ ...markdownComponents, ...citationComponents }}
-            isAnimating={isStreaming}
-            mode={isStreaming ? "streaming" : "static"}
-          >
-            {displayContent}
-          </MessageResponse>
-          {messageReferences.citations.length > 0 ? (
-            <SourcesStrip
-              citations={messageReferences.citations}
-              rerankerDocs={messageReferences.reranker_docs}
-              maxToShow={maxCitationsToShow}
-            />
-          ) : null}
-        </>
-      );
-    }
-    if (hasRefs && !hasCitationMarkers && messageReferences) {
+    if (hasRefs && messageReferences) {
       return (
         <>
           <MessageResponse
@@ -461,7 +437,6 @@ function ChatMessageItemInner({
           </MessageResponse>
           <SourcesStrip
             citations={messageReferences.citations}
-            rerankerDocs={messageReferences.reranker_docs}
             maxToShow={maxCitationsToShow}
           />
         </>
@@ -494,152 +469,13 @@ function ChatMessageItemInner({
               : undefined
           }
         >
-          {isStreaming ? (
-            <AssistantActivity
-              displayContent={displayContent}
-              progressToolRuns={progressToolRuns}
-            />
-          ) : null}
           {showToolCards ? (
-            <div className="mb-2 space-y-1.5">
-              {toolInvocations.length > 0
-                ? toolInvocations.map((inv, index) => {
-                    const hasError =
-                      typeof inv.error === "string" &&
-                      inv.error.trim().length > 0;
-                    const state: ToolState = hasError
-                      ? "output-error"
-                      : "output-available";
-                    return (
-                      <Tool
-                        key={`${inv.tool_name}-${index}`}
-                        type={inv.tool_name}
-                        state={state}
-                        defaultOpen={index === toolInvocations.length - 1}
-                      >
-                        <div className="w-full min-w-0">
-                          <div className="flex min-w-0 items-start justify-between gap-2">
-                            <code className="min-w-0 flex-1 break-words rounded border border-border/60 bg-background/50 px-1.5 py-0.5 font-mono text-[10px] leading-snug text-foreground">
-                              <span className="text-muted-foreground">
-                                {index + 1}.{" "}
-                              </span>
-                              {inv.tool_name}
-                            </code>
-                            <ToolStatusBadge
-                              state={state}
-                              className="mt-0.5 shrink-0"
-                            />
-                          </div>
-                          <details className="group mt-2 w-full min-w-0 border-t border-border/50 pt-2">
-                            <summary className="cursor-pointer list-none text-[10px] font-medium text-muted-foreground marker:hidden hover:text-foreground">
-                              <span className="group-open:hidden">
-                                Input & output
-                              </span>
-                              <span className="hidden group-open:inline">
-                                Hide input & output
-                              </span>
-                            </summary>
-                            <div className="mt-2 space-y-2">
-                              <div>
-                                <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                  Input
-                                </div>
-                                <ToolInput input={inv.args ?? {}} />
-                              </div>
-                              <div>
-                                <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                  {hasError ? "Error" : "Output"}
-                                </div>
-                                <ToolOutput
-                                  output={
-                                    inv.error ??
-                                    inv.result ??
-                                    "(no tool output in response)"
-                                  }
-                                />
-                              </div>
-                            </div>
-                          </details>
-                        </div>
-                      </Tool>
-                    );
-                  })
-                : progressToolRuns.length > 0
-                  ? progressToolRuns.map((run, index) => {
-                      return (
-                        <Tool
-                          key={run.key}
-                          type={run.toolName}
-                          state={run.state}
-                          defaultOpen={index === progressToolRuns.length - 1}
-                        >
-                          <div className="w-full min-w-0">
-                            <div className="flex min-w-0 items-start justify-between gap-2">
-                              <code className="min-w-0 flex-1 break-words rounded border border-border/60 bg-background/50 px-1.5 py-0.5 font-mono text-[10px] leading-snug text-foreground">
-                                <span className="text-muted-foreground">
-                                  {index + 1}.{" "}
-                                </span>
-                                {run.toolName}
-                              </code>
-                              <ToolStatusBadge
-                                state={run.state}
-                                className="mt-0.5 shrink-0"
-                              />
-                            </div>
-                            <details className="group mt-2 w-full min-w-0 border-t border-border/50 pt-2">
-                              <summary className="cursor-pointer list-none text-[10px] font-medium text-muted-foreground marker:hidden hover:text-foreground">
-                                <span className="group-open:hidden">
-                                  Input & status
-                                </span>
-                                <span className="hidden group-open:inline">
-                                  Hide input & status
-                                </span>
-                              </summary>
-                              <div className="mt-2 space-y-2">
-                                <div>
-                                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                    Input
-                                  </div>
-                                  <ToolInput input={run.args ?? {}} />
-                                </div>
-                                <div>
-                                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                    Status
-                                  </div>
-                                  <ToolOutput
-                                    output={
-                                      run.state === "input-available"
-                                        ? "Waiting for tool result..."
-                                        : run.state === "output-error"
-                                          ? run.error ?? "Tool execution failed."
-                                          : run.result ?? "Completed."
-                                    }
-                                  />
-                                </div>
-                              </div>
-                            </details>
-                          </div>
-                        </Tool>
-                      );
-                    })
-                : toolTimeline.map((tool, index) => (
-                    <div
-                      key={`${tool}-${index}`}
-                      className="rounded-md border border-border/50 bg-muted/25 px-2 py-1.5 text-[10px] text-muted-foreground"
-                    >
-                      <span className="font-medium text-foreground/85">
-                        Tool:{" "}
-                      </span>
-                      <span className="font-mono text-foreground/80">
-                        {tool}
-                      </span>
-                      <span className="mt-1 block leading-snug">
-                        Per-call arguments and tool output are shown when the
-                        API includes them in the message metadata.
-                      </span>
-                    </div>
-                  ))}
-            </div>
+            <ToolActivityTimeline
+              isStreaming={isStreaming}
+              progressToolRuns={progressToolRuns}
+              toolInvocations={toolInvocations}
+              toolTimeline={toolTimeline}
+            />
           ) : null}
           {messageReferences?.error ? (
             <div className="mb-2 inline-flex items-center px-2 py-1 rounded-md bg-destructive/10 text-destructive text-xs font-medium border border-destructive/20 max-w-full">

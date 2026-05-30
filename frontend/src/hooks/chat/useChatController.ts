@@ -163,7 +163,7 @@ function toReferencePayload(raw: Record<string, unknown>): ReferencePayload | nu
     standalone_question:
       typeof raw.standalone_question === "string" ? raw.standalone_question : undefined,
     citations: Array.isArray(raw.citations)
-      ? (raw.citations as { source: string; page: string }[])
+      ? (raw.citations as { source: string; page: string | null; link?: string | null }[])
       : [],
     reranker_docs: Array.isArray(raw.reranker_docs)
       ? (raw.reranker_docs as { page_content: string; metadata: Record<string, unknown> }[])

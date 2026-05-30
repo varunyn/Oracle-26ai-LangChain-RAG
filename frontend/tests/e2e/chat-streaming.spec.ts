@@ -51,7 +51,7 @@ async function askQuestion(page: Page, prompt: string) {
 }
 
 async function expectAssistantAnswer(page: Page) {
-  const sourcesLabel = page.getByText('Sources:').last()
+  const sourcesLabel = page.getByRole('button', { name: /Used \d+ sources?/ }).last()
   await expect(sourcesLabel).toBeVisible({ timeout: 15_000 })
 
   const contentBlock = sourcesLabel.locator('..').locator('..').first()
@@ -531,7 +531,7 @@ test.describe('chat streaming', () => {
     await page.getByRole('button', { name: 'Ask' }).click()
 
     await expect(page.getByTestId('chat-message-list').getByText(prompt, { exact: true })).toBeVisible()
-    await expect(page.getByTestId('assistant-activity')).toContainText('Calling oracle_retrieval')
+    await expect(page.getByTestId('assistant-activity')).toContainText('Tool activity')
     await expect(
       page.locator('[data-tool-type="oracle_retrieval"][data-tool-state="input-available"]'),
     ).toBeVisible()
@@ -546,7 +546,7 @@ test.describe('chat streaming', () => {
       return ((window as typeof window & { __historyCalls?: number }).__historyCalls ?? 0) > 1
     })
     await expect(
-      page.locator('[data-tool-type="oracle_retrieval"][data-tool-state="output-available"]'),
+      page.getByRole('button', { name: /Tool activity 1 complete/ }),
     ).toBeVisible()
   })
 
@@ -673,7 +673,7 @@ test.describe('chat streaming', () => {
     await expect(input).toBeEnabled({ timeout: 120_000 })
 
     await expectAssistantAnswer(page)
-    await expect(page.getByText(/Sources:\s*\S+/)).toBeVisible()
+    await expect(page.getByRole('button', { name: /Used \d+ sources?/ })).toBeVisible()
   })
 
   test('clear chat resets the visible conversation', async ({ page }) => {
@@ -689,6 +689,6 @@ test.describe('chat streaming', () => {
     await page.getByRole('button', { name: 'Clear Chat History' }).click()
 
     await expect(page.getByText('Ask a question about your documents')).toBeVisible()
-    await expect(page.getByText('Sources:')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Used \d+ sources?/ })).toHaveCount(0)
   })
 })

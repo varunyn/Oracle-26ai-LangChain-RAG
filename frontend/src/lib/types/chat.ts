@@ -3,11 +3,6 @@
  * Extracted from page.tsx for reuse across components and utilities
  */
 
-/** Segment of message content: either plain text or a citation marker index */
-export type ContentSegment =
-  | { type: "text"; content: string }
-  | { type: "citation"; index: number };
-
 /** One MCP tool execution (args + tool result text), in conversation order */
 export type McpToolInvocation = {
   tool_name: string;
@@ -38,7 +33,7 @@ export type ContextUsage = {
 export type MessageReferences = {
   trace_id?: string;
   standalone_question?: string;
-  citations: { source: string; page: string }[];
+  citations: { source: string; page: string | null; link?: string | null }[];
   reranker_docs: {
     page_content: string;
     metadata: Record<string, unknown>;

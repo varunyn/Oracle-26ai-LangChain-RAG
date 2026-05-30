@@ -2,160 +2,106 @@
 
 import { memo } from "react";
 import {
-  InlineCitation,
-  InlineCitationCard,
-  InlineCitationCardBody,
-  InlineCitationCardTrigger,
-  InlineCitationCarousel,
-  InlineCitationCarouselContent,
-  InlineCitationCarouselHeader,
-  InlineCitationCarouselIndex,
-  InlineCitationCarouselItem,
-  InlineCitationCarouselNext,
-  InlineCitationCarouselPrev,
-  InlineCitationQuote,
-  InlineCitationSource,
-} from "@/components/ai-elements/inline-citation";
+  Source,
+  Sources,
+  SourcesContent,
+  SourcesTrigger,
+} from "@/components/ai-elements/sources";
 
-type CitationRef = { source: string; page: string };
-type RerankerDoc = { page_content: string; metadata: Record<string, unknown> };
+type CitationRef = { source: string; page: string | null; link?: string | null };
 
 interface SourcesStripProps {
   citations: CitationRef[];
-  rerankerDocs?: RerankerDoc[];
   maxToShow?: number;
 }
 
-/** Unique source entry for deduplicated strip (one pill per source, with count and all indices). */
-function uniqueSourcesWithCount(
-  citations: CitationRef[],
-  maxToShow: number
-): { source: string; page: string; count: number; firstIndex: number; allIndices: number[] }[] {
-  const bySource = new Map<
-    string,
-    { page: string; count: number; firstIndex: number; allIndices: number[] }
-  >();
-  
-  citations.forEach((c, i) => {
-    const key = (c.source ?? "").trim() || `__empty_${i}`;
-    if (!bySource.has(key)) {
-      bySource.set(key, { page: c.page ?? "", count: 1, firstIndex: i, allIndices: [i] });
-    } else {
-      const entry = bySource.get(key)!;
-      entry.count += 1;
-      entry.allIndices.push(i);
-    }
-  });
-  
-  return Array.from(bySource.entries())
-    .map(([source, { page, count, firstIndex, allIndices }]) => ({
-      source,
-      page,
-      count,
-      firstIndex,
-      allIndices,
-    }))
-    .filter((u) => u.source && !u.source.startsWith("__empty"))
-    .slice(0, maxToShow);
+function sourceTitle(source: string): string {
+  try {
+    const url = new URL(source);
+    return url.hostname;
+  } catch {
+    return source.split("/").pop() || source;
+  }
 }
 
-/**
- * Sources strip: one pill per unique source (deduplicated), with optional count to reduce clutter.
- * Extracted from page.tsx for better code organization.
- * React best practice: rerender-memo - memoized component for performance
- */
+function sourceHref(citation: CitationRef): string | undefined {
+  const href = citation.link || citation.source;
+  if (href.startsWith("http://") || href.startsWith("https://")) {
+    return href;
+  }
+  return undefined;
+}
+
+function uniqueSourcesWithCount(
+  citations: CitationRef[],
+  maxToShow: number,
+): {
+  count: number;
+  firstIndex: number;
+  link?: string | null;
+  page: string;
+  source: string;
+}[] {
+  const bySource = new Map<
+    string,
+    {
+      count: number;
+      firstIndex: number;
+      link?: string | null;
+      page: string;
+      source: string;
+    }
+  >();
+
+  citations.forEach((citation, index) => {
+    const source = citation.source?.trim();
+    if (!source) return;
+
+    const existing = bySource.get(source);
+    if (existing) {
+      existing.count += 1;
+      return;
+    }
+
+    bySource.set(source, {
+      count: 1,
+      firstIndex: index,
+      link: citation.link,
+      page: citation.page ?? "",
+      source,
+    });
+  });
+
+  return Array.from(bySource.values()).slice(0, maxToShow);
+}
+
 export const SourcesStrip = memo(function SourcesStrip({
   citations,
-  rerankerDocs,
   maxToShow = 10,
 }: SourcesStripProps) {
-  if (citations.length === 0) return null;
-  
-  const unique = uniqueSourcesWithCount(citations, maxToShow);
-  if (unique.length === 0) return null;
-  
+  const sources = uniqueSourcesWithCount(citations, maxToShow);
+  if (sources.length === 0) return null;
+
   return (
-    <div className="mt-3 pt-2 border-t border-border/60">
-      <span className="text-muted-foreground text-xs font-medium mr-2">
-        Sources:
-      </span>
-      <span className="inline-flex flex-wrap gap-1.5 align-baseline">
-        {unique.map((u) => {
-          const sourceName = u.source?.split("/").pop() ?? "Source";
-          const label = u.count > 1 ? `${sourceName} +${u.count - 1}` : sourceName;
-          
-          // If multiple citations from same source, show carousel
-          if (u.count > 1 && u.allIndices && rerankerDocs) {
-            return (
-              <InlineCitation key={u.source}>
-                <InlineCitationCard>
-                  <InlineCitationCardTrigger
-                    sources={[u.source]}
-                    label={label}
-                  />
-                  <InlineCitationCardBody>
-                    <InlineCitationCarousel>
-                      <InlineCitationCarouselHeader>
-                        <InlineCitationCarouselPrev />
-                        <InlineCitationCarouselNext />
-                        <InlineCitationCarouselIndex />
-                      </InlineCitationCarouselHeader>
-                      <InlineCitationCarouselContent>
-                        {u.allIndices.map((idx) => {
-                          const citation = citations[idx];
-                          const doc = rerankerDocs[idx];
-                          return (
-                            <InlineCitationCarouselItem key={idx}>
-                              <InlineCitationSource
-                                title={sourceName}
-                                url={citation?.source}
-                                description={citation?.page ?? undefined}
-                              />
-                              {doc?.page_content ? (
-                                <InlineCitationQuote>
-                                  {doc.page_content.slice(0, 500)}
-                                  {doc.page_content.length > 500 ? "…" : ""}
-                                </InlineCitationQuote>
-                              ) : null}
-                            </InlineCitationCarouselItem>
-                          );
-                        })}
-                      </InlineCitationCarouselContent>
-                    </InlineCitationCarousel>
-                  </InlineCitationCardBody>
-                </InlineCitationCard>
-              </InlineCitation>
-            );
-          }
-          
-          // Single citation - no carousel needed
+    <Sources className="mt-3 border-t border-border/60 pt-2">
+      <SourcesTrigger count={sources.length} />
+      <SourcesContent>
+        {sources.map((source) => {
+          const details = [
+            source.page ? `Page ${source.page}` : null,
+            source.count > 1 ? `${source.count} chunks` : null,
+          ].filter((detail): detail is string => detail != null);
+
           return (
-            <InlineCitation key={u.source}>
-              <InlineCitationCard>
-                <InlineCitationCardTrigger
-                  sources={[u.source]}
-                  label={label}
-                />
-                <InlineCitationCardBody>
-                  <InlineCitationSource
-                    title={sourceName}
-                    url={u.source}
-                    description={u.page ? u.page : undefined}
-                  />
-                  {rerankerDocs?.[u.firstIndex]?.page_content ? (
-                    <InlineCitationQuote>
-                      {rerankerDocs[u.firstIndex].page_content.slice(0, 500)}
-                      {rerankerDocs[u.firstIndex].page_content.length > 500
-                        ? "…"
-                        : ""}
-                    </InlineCitationQuote>
-                  ) : null}
-                </InlineCitationCardBody>
-              </InlineCitationCard>
-            </InlineCitation>
+            <Source
+              description={details.join(" · ") || undefined}
+              href={sourceHref(source)}
+              key={`${source.source}-${source.firstIndex}`}
+              title={sourceTitle(source.source)}
+            />
           );
         })}
-      </span>
-    </div>
+      </SourcesContent>
+    </Sources>
   );
 });

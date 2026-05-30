@@ -12,13 +12,6 @@ export const CHAT_THREAD_HISTORY_STORAGE_KEY = "rag_agent_chat_threads";
 /** localStorage key for user's default model (persists across refresh and server restarts) */
 export const DEFAULT_MODEL_STORAGE_KEY = "rag_default_model";
 
-// Citation markers [1], [2] in the response. We replace runs (e.g. "[1] [2] [3] [5]") with
-// a single span so one pill shows the source filename and hover shows a carousel of all cited chunks.
-export const CITATION_MARKER_REGEX = /\[(\d+)\]/g;
-
-/** Matches a run of citation markers so we can replace with one pill (e.g. "[1] [2] [3] [5]"). */
-export const CITATION_RUN_REGEX = /\[\d+\](?:\s*\[\d+\])*/g;
-
 /** Suggested questions shown on welcome screen */
 export const SUGGESTIONS = [
   "Tell me about Oracle 26ai Database.",
