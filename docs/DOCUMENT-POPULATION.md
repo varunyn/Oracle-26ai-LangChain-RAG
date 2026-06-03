@@ -23,7 +23,7 @@ The shared ingestion module in `src/rag_agent/ingestion.py` uses **Docling with 
 
 1. Database connection configured in `.env` (VECTOR\_\* or CONNECT_ARGS)
 2. OCI Generative AI credentials and embedding model set in `.env`
-3. Dependencies installed (`uv sync`); requires `docling[rapidocr]`, `langchain-community`, `langchain-oracledb`, `langchain-oci`, and `langchain-text-splitters`.
+3. Dependencies installed (`uv sync`); requires `docling[rapidocr]`, `langchain-oracledb`, `langchain-oci`, and `langchain-text-splitters`.
 
 ## Usage
 
@@ -64,7 +64,7 @@ uv run python scripts/ingest_documents.py --dir ./documents
 1. **CLI wrapper**: `scripts/ingest_documents.py` parses command-line arguments and delegates to `src/rag_agent/ingestion.py`.
 2. **Load**: For each supported file, Docling converts the content to Markdown; the file is copied to `uploaded_files/` and metadata (`source_url`, `file_name`, and related fields) is set on each `Document`.
 3. **Prepare chunking**: The app creates RecursiveCharacterTextSplitter (chunk_size=800, chunk_overlap=150) and passes it to OracleVS.
-4. **Store**: A DB connection is opened, the embedding model is obtained via `get_embedding_model()` (same as the RAG app), and `OracleVS.add_documents(..., text_splitter=...)` handles chunking, embedding, and insertion into `RAG_KNOWLEDGE_BASE` with COSINE distance.
+4. **Store**: A DB connection is opened, the embedding model is obtained via `get_embedding_model()` (same as the RAG app), and `OracleVS.add_documents(..., text_splitter=..., ids=...)` handles stable chunk IDs, chunking, embedding, and insertion into `RAG_KNOWLEDGE_BASE` with COSINE distance.
 
 ## Output
 

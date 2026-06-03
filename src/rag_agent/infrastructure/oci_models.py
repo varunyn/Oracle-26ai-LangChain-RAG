@@ -10,11 +10,11 @@ from pathlib import Path
 from typing import Any
 
 import oracledb
-from langchain_community.vectorstores.utils import DistanceStrategy
 from langchain_core.documents import Document
 from langchain_oci import ChatOCIGenAI, OCIGenAIEmbeddings
 from langchain_oci.common.auth import create_oci_client_kwargs
-from langchain_oracledb import OracleVS
+from langchain_oracledb.vectorstores import OracleVS
+from langchain_oracledb.vectorstores.utils import DistanceStrategy
 from oci.generative_ai_inference import GenerativeAiInferenceClient
 from oci.generative_ai_inference import models as oci_genai_models
 from opentelemetry import trace

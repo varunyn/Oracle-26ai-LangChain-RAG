@@ -34,9 +34,9 @@ from pathlib import Path
 from typing import cast
 
 import oracledb
-from langchain_community.vectorstores.utils import DistanceStrategy
-from langchain_oracledb import OracleVS
+from langchain_oracledb.vectorstores import OracleVS
 from langchain_oracledb.vectorstores.oraclevs import create_index
+from langchain_oracledb.vectorstores.utils import DistanceStrategy
 
 script_dir = Path(__file__).resolve().parent
 project_root = script_dir.parent

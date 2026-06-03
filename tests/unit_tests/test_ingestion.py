@@ -219,6 +219,7 @@ def test_split_and_store_delegates_chunking_and_ids_to_oraclevs(monkeypatch) -> 
     assert FakeOracleVS.last_add_documents is not None
     assert FakeOracleVS.last_add_documents["documents"] == docs
     assert FakeOracleVS.last_add_documents["kwargs"]["text_splitter"].__class__ is FakeSplitter
+    assert FakeOracleVS.last_add_documents["kwargs"]["ids"] == [docs[0].id, docs[1].id]
 
 
 def test_convert_file_with_docling_exports_markdown(monkeypatch, tmp_path) -> None:

@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import oracledb
-from langchain_community.vectorstores.utils import DistanceStrategy
 from langchain_core.documents import Document
-from langchain_oracledb import OracleVS
+from langchain_oracledb.vectorstores import OracleVS
+from langchain_oracledb.vectorstores.utils import DistanceStrategy
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from api.settings import get_settings
@@ -215,7 +215,11 @@ def _split_and_store(docs, table_name: str = DEFAULT_TABLE_NAME) -> int:
             table_name=table_name,
             distance_strategy=DistanceStrategy.COSINE,
         )
-        inserted_ids = vector_store.add_documents(docs, text_splitter=splitter)
+        inserted_ids = vector_store.add_documents(
+            docs,
+            text_splitter=splitter,
+            ids=[str(doc.id) for doc in docs],
+        )
     finally:
         conn.close()
 

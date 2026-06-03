@@ -75,7 +75,7 @@ Beyond the required OracleVS columns, this app expects source metadata inside th
 - `source_url` — **primary source identity** for listing, deletion, and source management UI
 - `file_name` — short label for display when available
 - `source` — optional display field
-- `source_doc_index` and `chunk_index` — added by OracleVS when ingestion delegates chunking through `add_documents(..., text_splitter=...)`
+- `source_doc_index` and `chunk_index` — added by OracleVS when ingestion delegates chunking through `add_documents(..., text_splitter=..., ids=...)`
 - `chunk_offset` and/or page metadata — legacy/manual ingestion metadata that may still exist in older rows
 
 If you populate tables outside this app, keep the OracleVS columns above and make sure `metadata.source_url` is present.
