@@ -70,7 +70,7 @@ bash observability/check-data.sh
 ## 9. Unit tests (no Docker)
 
 ```bash
-uv run pytest tests/test_otel_logging.py tests/test_otel_tracing.py -v
+uv run pytest tests/unit_tests/test_otel_logging.py tests/unit_tests/test_otel_tracing.py -v
 ```
 
 They mock exporters, so the stack isn’t required.

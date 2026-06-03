@@ -61,7 +61,7 @@ There is no `[DONE]` sentinel; completion is stream close.
 
 Assistant message metadata carries references, sources, tool activity, and MCP invocation details. The frontend consumes this values-stream through `@langchain/react` and renders answer text, tool activity, and sources from the latest assistant snapshot.
 
-For `mode="mixed"`, the runtime loads MCP tools plus the local `oracle_retrieval` tool. If a turn only needs retrieval and retrieval returns documents, the MCP agent turn stops after retrieval and the final answer streams through the RAG answer path. If the user explicitly asks for another MCP tool/action, the agent can continue after retrieval and that tool result is included as supplemental context for the RAG answer. If retrieval is not used or no documents are returned, the response is the MCP agent answer or a retrieval error.
+For `mode="mixed"`, the runtime loads MCP tools plus the local `oracle_retrieval` tool in one agent loop. If retrieval returns documents, the final answer streams through the RAG answer path and includes non-retrieval MCP tool outputs as supplemental context. If retrieval is not used or no documents are returned, the response is the MCP agent answer or a retrieval error.
 
 ### Recommended verification
 

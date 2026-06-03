@@ -17,7 +17,7 @@ Chat execution is handled by `ChatRuntimeService` (`src/rag_agent/runtime/chat_s
 
 - `rag`: Oracle vector similarity search + answer prompt
 - `mcp`: MCP tools only through `langchain_mcp_adapters` + LangChain agent loop
-- `mixed`: MCP tools plus local retrieval; retrieval-only turns hand off to the RAG answer path once docs are found, while explicit MCP tool/action requests can complete before RAG synthesis
+- `mixed`: MCP tools plus the local `oracle_retrieval` tool in one agent loop; when retrieval returns docs, the final answer is synthesized through the RAG answer path with any non-retrieval tool outputs included as supplemental context
 - `direct`: plain LLM response from chat history
 
 ### Key Directories
@@ -92,7 +92,7 @@ graph TD;
 - `create_agent(...)` loop in `src/rag_agent/infrastructure/mcp_agent_executor.py`
 - Built-in middleware for retries/tool-call bounds
 - Shared MCP prompts and middleware-backed tool execution
-- Mixed mode can stop after `oracle_retrieval` for retrieval-only turns, then uses the RAG answer prompt for streaming synthesis. If the user explicitly asks for another MCP tool/action, that tool result is included as supplemental RAG context.
+- Mixed mode gives the agent the full retrieval + MCP toolbox. When `oracle_retrieval` returns documents, the final response uses the RAG answer prompt for streaming synthesis and includes non-retrieval MCP tool results as supplemental context.
 
 ### 4. **Citation Normalization**
 

@@ -4,7 +4,7 @@
 
 Create a technical blog draft for Oracle/OCI developers who want to understand how this application combines FastAPI, Oracle AI Vector Search, OCI Generative AI, MCP tools, and a Next.js chat UI.
 
-The article should be architecture-first with runnable checkpoints. It should explain how the app works and point to the existing setup docs for full operational detail instead of duplicating the complete setup guide.
+The article should be architecture-first and app-focused. It should explain what the app does, how its major runtime pieces fit together, and why those product and architecture decisions matter. Setup commands should be avoided in the article body; link to the existing setup docs instead of duplicating operational steps.
 
 ## Deliverable
 
@@ -45,6 +45,12 @@ Sections:
 
 ## Screenshot Plan
 
+Primary visual:
+
+- `images/oracle-rag-agent-hand-drawn-architecture.png`
+
+Use the hand-drawn architecture image as the main system explainer because it is more distinctive and draws more attention than a plain flow diagram. Use Mermaid only as supporting material when a precise sequence or runtime branch is easier to read as a simple flow.
+
 Use existing screenshots:
 
 - `images/oci-custom-rag-agent-chat-upload-panel.png`
@@ -74,8 +80,9 @@ Ground implementation claims in the current repo:
 
 Include:
 
-- Architecture and flow diagrams in Markdown/Mermaid where useful
-- Key commands as runnable checkpoints
+- The hand-drawn architecture image as the lead diagram
+- Plain Markdown/Mermaid flow diagrams only where they clarify a specific runtime branch
+- Links to operational docs instead of inline backend/frontend setup commands
 - Links to `docs/GETTING-STARTED.md`, `docs/CONFIGURATION.md`, `docs/DATABASE-SETUP.md`, `docs/DOCUMENT-POPULATION.md`, `docs/MCP-USAGE.md`, and `docs/OBSERVABILITY.md`
 - Honest trade-offs around setup complexity, OCI dependencies, MCP configuration, and streaming contracts
 

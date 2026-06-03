@@ -8,7 +8,7 @@ The API contract is primarily defined by FastAPI request/response models and gen
 
 - Runtime OpenAPI: `app.openapi()`
 - Export script: `uv run python scripts/export_openapi.py tests/fixtures/openapi-baseline.json`
-- Regression check: `uv run pytest tests/test_openapi_baseline.py -q`
+- Regression check: `uv run pytest tests/workflow_tests/test_openapi_baseline.py -q`
 
 Use the generated OpenAPI for schema truth and these docs for workflow guidance, streaming behavior, and ready-to-run examples.
 

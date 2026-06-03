@@ -100,7 +100,7 @@ Next.js UI → streamed answer + citations
 | Agent runtime | LangChain v1 agents, LangGraph-compatible thread/run APIs, LangChain MCP adapters |
 | Retrieval | Oracle 26AI / Oracle AI Vector Search through `langchain-oracledb` |
 | LLM and embeddings | OCI Generative AI through `langchain-oci`; optional OpenAI-compatible model wiring |
-| Reranking | Native OCI Gen AI rerank with local lexical fallback |
+| Reranking | Native OCI Gen AI rerank with lexical filtering on rerank failure |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS v4, Radix UI, Streamdown |
 | Streaming protocol | LangGraph-compatible SSE `event: values` streams consumed by `@langchain/react` |
 | Optional observability | OpenTelemetry OTLP, Grafana, Tempo, Loki, OCI APM, Langfuse |
