@@ -97,14 +97,11 @@ async def run_mcp_agent_turn(
     )
     effective_require_tool_call = require_tool_call or explicit_mcp_required
     repeated_result = None
-    repeated_workflow_selected = (
-        repeated_workflow_enabled
-        and await should_use_repeated_workflow(
-            question=question,
-            tools=agent_tools,
-            model_id=resolved_model_id,
-            run_config=run_config,
-        )
+    repeated_workflow_selected = repeated_workflow_enabled and await should_use_repeated_workflow(
+        question=question,
+        tools=agent_tools,
+        model_id=resolved_model_id,
+        run_config=run_config,
     )
     if repeated_workflow_selected:
         repeated_result = await run_repeated_mcp_workflow(
@@ -127,9 +124,7 @@ async def run_mcp_agent_turn(
             run_config=run_config,
             require_tool_call=effective_require_tool_call,
             tool_progress_callback=tool_progress_callback,
-            answer_delta_callback=(
-                None if effective_require_tool_call else answer_delta_callback
-            ),
+            answer_delta_callback=(None if effective_require_tool_call else answer_delta_callback),
             stop_after_tool_names=stop_after_tool_names,
         )
     elif repeated_result is None:

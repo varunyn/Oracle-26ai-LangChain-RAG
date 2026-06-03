@@ -110,7 +110,9 @@ def test_process_file_paths_reports_file_progress(monkeypatch) -> None:
     monkeypatch.setattr(
         ingestion,
         "load_document_with_docling",
-        lambda file_path: [SimpleNamespace(page_content="hello", metadata={"source": str(file_path)})],
+        lambda file_path: [
+            SimpleNamespace(page_content="hello", metadata={"source": str(file_path)})
+        ],
     )
     monkeypatch.setattr(ingestion, "_split_and_store", lambda docs, table_name: 4)
     monkeypatch.setattr(ingestion, "_release_docling_converter", lambda: None)

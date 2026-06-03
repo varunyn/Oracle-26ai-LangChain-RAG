@@ -4,9 +4,7 @@ from pathlib import Path
 def test_no_mocked_workflow_tests_use_integration_name_at_top_level() -> None:
     tests_root = Path(__file__).resolve().parents[1]
     top_level_integration_named = sorted(
-        path.name
-        for path in tests_root.glob("test_*integration*.py")
-        if path.is_file()
+        path.name for path in tests_root.glob("test_*integration*.py") if path.is_file()
     )
 
     assert top_level_integration_named == []
@@ -21,11 +19,7 @@ def test_langchain_test_directories_exist() -> None:
 
 def test_top_level_python_tests_are_reduced_to_uncategorized_remainder() -> None:
     tests_root = Path(__file__).resolve().parents[1]
-    top_level_tests = sorted(
-        path.name
-        for path in tests_root.glob("test_*.py")
-        if path.is_file()
-    )
+    top_level_tests = sorted(path.name for path in tests_root.glob("test_*.py") if path.is_file())
 
     assert top_level_tests == []
 
@@ -43,13 +37,12 @@ def test_unit_test_helpers_module_supports_structured_output_adapters() -> None:
     assert "StructuredOutputFakeChatModel" in helper_source
 
 
-def test_rewrite_unit_tests_no_longer_define_inline_structured_output_fake_llms() -> None:
+def test_unit_test_helpers_keep_structured_output_fake_model_centralized() -> None:
     tests_root = Path(__file__).resolve().parents[1]
-    rewrite_test_source = (
-        tests_root / "unit_tests" / "test_rewrite_for_retrieval.py"
-    ).read_text(encoding="utf-8")
+    helper_source = (tests_root / "unit_tests" / "helpers.py").read_text(encoding="utf-8")
 
-    assert "class FakeStructuredModel" not in rewrite_test_source
+    assert "class StructuredOutputFakeChatModel" in helper_source
+    assert "def with_structured_output" in helper_source
 
 
 def test_unit_test_helpers_module_supports_tool_call_message_builders() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from typing import cast
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
@@ -90,9 +91,7 @@ class MCPServerAuthWrite(BaseModel):
     def _validate_type(cls, value: str) -> str:
         normalized = value.strip().lower()
         if normalized not in SUPPORTED_AUTH_TYPES:
-            raise ValueError(
-                "auth type must be one of: " + ", ".join(sorted(SUPPORTED_AUTH_TYPES))
-            )
+            raise ValueError("auth type must be one of: " + ", ".join(sorted(SUPPORTED_AUTH_TYPES)))
         return normalized
 
     @field_validator(
@@ -124,9 +123,7 @@ class MCPServerConfigWrite(BaseModel):
     def _validate_transport(cls, value: str) -> str:
         normalized = value.strip().lower()
         if normalized not in SUPPORTED_TRANSPORTS:
-            raise ValueError(
-                "transport must be one of: " + ", ".join(sorted(SUPPORTED_TRANSPORTS))
-            )
+            raise ValueError("transport must be one of: " + ", ".join(sorted(SUPPORTED_TRANSPORTS)))
         return normalized
 
     @field_validator("url")
@@ -179,9 +176,7 @@ def _observability_links(settings: Settings) -> ObservabilityConfigResponse:
     logging_enabled = bool(getattr(settings, "ENABLE_OCI_LOGGING_ANALYTICS", False))
     logging_namespace = (getattr(settings, "LOGGING_ANALYTICS_NAMESPACE", None) or "").strip()
     logging_group = (getattr(settings, "LOGGING_ANALYTICS_LOG_GROUP_ID", None) or "").strip()
-    logging_url = (
-        getattr(settings, "LOGGING_ANALYTICS_CONSOLE_URL", None) or ""
-    ).strip() or None
+    logging_url = (getattr(settings, "LOGGING_ANALYTICS_CONSOLE_URL", None) or "").strip() or None
     logging_configured = logging_enabled and bool(logging_namespace and logging_group)
 
     return ObservabilityConfigResponse(
@@ -192,13 +187,19 @@ def _observability_links(settings: Settings) -> ObservabilityConfigResponse:
                 enabled=langfuse_enabled,
                 configured=langfuse_configured,
                 url=langfuse_ui_url if langfuse_configured else None,
-                status="Ready" if langfuse_configured else "Disabled" if not langfuse_enabled else "Needs keys",
+                status=(
+                    "Ready"
+                    if langfuse_configured
+                    else "Disabled" if not langfuse_enabled else "Needs keys"
+                ),
                 details=(
                     "Tracing is enabled and the Langfuse host is configured."
                     if langfuse_configured
-                    else "Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY in .env."
-                    if langfuse_enabled
-                    else "Set ENABLE_LANGFUSE_TRACING=true to send traces."
+                    else (
+                        "Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY in .env."
+                        if langfuse_enabled
+                        else "Set ENABLE_LANGFUSE_TRACING=true to send traces."
+                    )
                 ),
             ),
             ObservabilityLinkResponse(
@@ -223,20 +224,24 @@ def _observability_links(settings: Settings) -> ObservabilityConfigResponse:
                 status=(
                     "Ready"
                     if logging_configured and logging_url
-                    else "Configured"
-                    if logging_configured
-                    else "Disabled"
-                    if not logging_enabled
-                    else "Needs config"
+                    else (
+                        "Configured"
+                        if logging_configured
+                        else "Disabled" if not logging_enabled else "Needs config"
+                    )
                 ),
                 details=(
                     "Logging Analytics is configured. Add LOGGING_ANALYTICS_CONSOLE_URL for a direct link."
                     if logging_configured and not logging_url
-                    else "Logs are configured for OCI Logging Analytics."
-                    if logging_configured
-                    else "Set namespace and log group in .env."
-                    if logging_enabled
-                    else "Set ENABLE_OCI_LOGGING_ANALYTICS=true to send logs."
+                    else (
+                        "Logs are configured for OCI Logging Analytics."
+                        if logging_configured
+                        else (
+                            "Set namespace and log group in .env."
+                            if logging_enabled
+                            else "Set ENABLE_OCI_LOGGING_ANALYTICS=true to send logs."
+                        )
+                    )
                 ),
             ),
         ]
@@ -249,9 +254,9 @@ async def get_config(request: Request) -> AppConfigResponse:
     return AppConfigResponse(
         region=settings.REGION,
         embed_model_id=settings.EMBED_MODEL_ID,
-        model_list=settings.MODEL_LIST,
-        model_display_names=settings.MODEL_DISPLAY_NAMES,
-        collection_list=settings.COLLECTION_LIST or [settings.DEFAULT_COLLECTION],
+        model_list=cast(list[str], settings.MODEL_LIST),
+        model_display_names=cast(dict[str, str], settings.MODEL_DISPLAY_NAMES),
+        collection_list=cast(list[str], settings.COLLECTION_LIST) or [settings.DEFAULT_COLLECTION],
         enable_user_feedback=settings.ENABLE_USER_FEEDBACK,
         observability=_observability_links(settings),
     )
@@ -261,11 +266,7 @@ def _settings_mcp_config(settings: Settings) -> dict[str, dict[str, object]]:
     raw_config = getattr(settings, "MCP_SERVERS_CONFIG", None)
     if not isinstance(raw_config, dict):
         return {}
-    return {
-        str(key): dict(value)
-        for key, value in raw_config.items()
-        if isinstance(value, dict)
-    }
+    return {str(key): dict(value) for key, value in raw_config.items() if isinstance(value, dict)}
 
 
 def _store_path(settings: Settings) -> str:
@@ -401,9 +402,7 @@ def _server_config_for_test(
 def _test_run_config(server: MCPServerConfig) -> dict[str, object]:
     return {
         "configurable": {
-            "mcp_servers_config_override": {
-                server.key: _server_runtime_config(server)
-            }
+            "mcp_servers_config_override": {server.key: _server_runtime_config(server)}
         }
     }
 

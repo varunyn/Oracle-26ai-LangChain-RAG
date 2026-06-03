@@ -331,23 +331,23 @@ def _to_tools_stream_event(data: dict[str, object]) -> dict[str, object] | None:
     if not phase or not tool_name:
         return None
 
-    event_payload: dict[str, object] = {"name": tool_name}
+    phase_event_payload: dict[str, object] = {"name": tool_name}
     tool_run_id = _safe_non_empty_string(data.get("tool_run_id"))
     if tool_run_id:
-        event_payload["toolCallId"] = tool_run_id
+        phase_event_payload["toolCallId"] = tool_run_id
 
     if phase == "start":
-        event_payload["event"] = "on_tool_start"
-        event_payload["input"] = data.get("args", {})
-        return event_payload
+        phase_event_payload["event"] = "on_tool_start"
+        phase_event_payload["input"] = data.get("args", {})
+        return phase_event_payload
     if phase == "end":
-        event_payload["event"] = "on_tool_end"
-        event_payload["output"] = data.get("result")
-        return event_payload
+        phase_event_payload["event"] = "on_tool_end"
+        phase_event_payload["output"] = data.get("result")
+        return phase_event_payload
     if phase == "error":
-        event_payload["event"] = "on_tool_error"
-        event_payload["error"] = data.get("error") or data.get("result")
-        return event_payload
+        phase_event_payload["event"] = "on_tool_error"
+        phase_event_payload["error"] = data.get("error") or data.get("result")
+        return phase_event_payload
     return None
 
 

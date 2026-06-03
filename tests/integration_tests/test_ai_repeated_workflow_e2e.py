@@ -169,7 +169,9 @@ def test_ai_repeated_workflow_reuses_shared_context_for_same_vendor(monkeypatch)
     def lookup_vendor_policy(vendorName: str) -> str:  # noqa: N803 - mirrors MCP schemas
         """Look up reusable processing policy for one vendor name."""
         context_lookup_calls.append(vendorName)
-        return json.dumps({"vendorName": vendorName, "policyId": "summit-policy", "maxTermDays": 45})
+        return json.dumps(
+            {"vendorName": vendorName, "policyId": "summit-policy", "maxTermDays": 45}
+        )
 
     @tool("create_vendor_transaction")
     def create_vendor_transaction(

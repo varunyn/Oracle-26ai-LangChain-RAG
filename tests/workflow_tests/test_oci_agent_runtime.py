@@ -84,7 +84,10 @@ def test_chat_stream_direct_mode_uses_oci_direct_agent(monkeypatch):
                 stream,
             )
             assert mode == "direct"
-            assert cast(dict[str, object], messages[-1]).get("content") == "How can I create visual application?"
+            assert (
+                cast(dict[str, object], messages[-1]).get("content")
+                == "How can I create visual application?"
+            )
             return {
                 "final_answer": "You can create a visual application from the Oracle APEX App Builder.",
                 "error": None,

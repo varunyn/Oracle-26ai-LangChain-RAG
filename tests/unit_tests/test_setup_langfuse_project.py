@@ -40,7 +40,12 @@ class FakeClient:
                 200,
                 json={
                     "data": self.models,
-                    "meta": {"page": 1, "limit": 100, "totalItems": len(self.models), "totalPages": 1},
+                    "meta": {
+                        "page": 1,
+                        "limit": 100,
+                        "totalItems": len(self.models),
+                        "totalPages": 1,
+                    },
                 },
                 request=request,
             )
@@ -89,7 +94,10 @@ def test_setup_creates_missing_model_and_score_config() -> None:
 
     assert model_result == "created model xai.grok-4.20-0309-reasoning"
     assert score_result == "created score config user-rating"
-    assert any(method == "POST" and url.endswith("/api/public/models") for method, url, _ in client.requests)
+    assert any(
+        method == "POST" and url.endswith("/api/public/models")
+        for method, url, _ in client.requests
+    )
     assert any(
         method == "POST" and url.endswith("/api/public/score-configs")
         for method, url, _ in client.requests

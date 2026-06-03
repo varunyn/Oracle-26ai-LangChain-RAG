@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from typing import Any, cast
 
 from fastapi import APIRouter
 from langchain.agents import create_agent
@@ -26,6 +27,8 @@ Rules:
 
 Example:
 ["Can you show the exact steps in Visual Builder?","What prerequisites are required first?"]"""
+
+
 class SuggestionsRequest(BaseModel):
     """Request body for POST /api/suggestions."""
 
@@ -123,7 +126,9 @@ async def _generate_suggestions_async(
         )
         if tag is not None
     ]
-    run_config: dict[str, object] = {"configurable": {"mode": "suggestions", "model_id": model_id or ""}}
+    run_config: dict[str, object] = {
+        "configurable": {"mode": "suggestions", "model_id": model_id or ""}
+    }
     with start_langfuse_chat_trace(
         enabled=True,
         mode="suggestions",
@@ -153,7 +158,10 @@ async def _generate_suggestions_async(
                 system_prompt=FOLLOW_UP_SYSTEM,
                 response_format=FollowUpSuggestions,
             )
-            return agent.invoke({"messages": [HumanMessage(content=prompt_payload)]}, config=run_config)
+            return agent.invoke(
+                cast(Any, {"messages": [HumanMessage(content=prompt_payload)]}),
+                config=cast(Any, run_config),
+            )
 
         result = await asyncio.to_thread(_invoke)
         suggestions = _extract_structured_suggestions(result)

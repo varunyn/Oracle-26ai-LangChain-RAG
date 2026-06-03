@@ -76,7 +76,9 @@ def build_chat_config(
         elif server_keys is None:
             _cfg_raw = get_mcp_servers_config()
             _cfg = _cfg_raw if isinstance(_cfg_raw, dict) else {}
-            default_key = "default" if "default" in _cfg else (next(iter(_cfg), None) if _cfg else None)
+            default_key = (
+                "default" if "default" in _cfg else (next(iter(_cfg), None) if _cfg else None)
+            )
             if isinstance(default_key, str) and default_key.strip():
                 out["configurable"]["mcp_server_keys"] = [default_key]
                 logger.debug("MCP: chat config default mcp_server_keys selected")

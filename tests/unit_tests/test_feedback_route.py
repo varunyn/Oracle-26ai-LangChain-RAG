@@ -30,7 +30,9 @@ def test_record_langfuse_feedback_score_creates_numeric_score(monkeypatch: Any) 
     score_config = SimpleNamespace(id="config-1", name="user-rating")
     score_configs_response = SimpleNamespace(data=[score_config])
     client = SimpleNamespace(
-        api=SimpleNamespace(score_configs=SimpleNamespace(get=lambda *, limit: score_configs_response)),
+        api=SimpleNamespace(
+            score_configs=SimpleNamespace(get=lambda *, limit: score_configs_response)
+        ),
         create_score=lambda **kwargs: calls.append(kwargs),
     )
     monkeypatch.setattr(

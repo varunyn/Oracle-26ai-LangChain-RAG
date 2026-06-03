@@ -133,8 +133,7 @@ def _resolve_server_auth_headers(server_config: Mapping[str, Any]) -> dict[str, 
             client_secret=str(raw_auth.get("client_secret") or "").strip() or None,
             scope=str(raw_auth.get("scope") or "").strip() or None,
             audience=str(raw_auth.get("audience") or "").strip() or None,
-            grant_type=str(raw_auth.get("grant_type") or "").strip()
-            or "client_credentials",
+            grant_type=str(raw_auth.get("grant_type") or "").strip() or "client_credentials",
             refresh_skew_seconds=refresh_skew_seconds,
         )
         return _coerce_headers(supplier())
@@ -458,7 +457,9 @@ async def clear_adapter_runtime_cache() -> None:
                 if inspect.isawaitable(result):
                     await result
             except Exception as exc:  # noqa: BLE001
-                logger.debug("MCP: tool cleanup skipped for %s via %s: %s", tool.name, attr_name, exc)
+                logger.debug(
+                    "MCP: tool cleanup skipped for %s via %s: %s", tool.name, attr_name, exc
+                )
             break
 
     logger.info("MCP: cleared adapter runtime cache")

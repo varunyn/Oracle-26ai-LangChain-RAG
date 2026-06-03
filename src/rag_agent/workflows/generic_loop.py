@@ -82,7 +82,9 @@ def create_repeated_workflow_graph(
     def finalize(state: RepeatedWorkflowState) -> RepeatedWorkflowState:
         return {**state, "finalized": is_complete(state)}
 
-    def route_after_initialize(state: RepeatedWorkflowState) -> Literal["process_current", "finalize"]:
+    def route_after_initialize(
+        state: RepeatedWorkflowState,
+    ) -> Literal["process_current", "finalize"]:
         return "finalize" if is_complete(state) else "process_current"
 
     def route_after_process(state: RepeatedWorkflowState) -> Literal["process_current", "finalize"]:

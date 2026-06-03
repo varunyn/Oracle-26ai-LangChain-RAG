@@ -54,7 +54,9 @@ def test_should_use_repeated_workflow_uses_deterministic_classifier_settings(mon
     assert captured["schema"] is WorkflowIntentDecision
 
 
-def test_select_repeated_workflow_discovery_tools_uses_model_selected_tool_names(monkeypatch) -> None:
+def test_select_repeated_workflow_discovery_tools_uses_model_selected_tool_names(
+    monkeypatch,
+) -> None:
     captured: dict[str, object] = {}
 
     class FakeStructuredModel:

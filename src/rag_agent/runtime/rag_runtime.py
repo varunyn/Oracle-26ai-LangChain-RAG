@@ -101,8 +101,7 @@ def build_oracle_retrieval_tool(
             state["docs"] = []
             state["error"] = message
             return (
-                "Oracle retrieval failed while searching the knowledge base. "
-                f"Error: {message}",
+                "Oracle retrieval failed while searching the knowledge base. " f"Error: {message}",
                 [],
             )
 

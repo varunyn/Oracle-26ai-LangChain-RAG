@@ -118,7 +118,8 @@ class LangfuseProjectSetup:
             if not isinstance(items, list):
                 raise ValueError("Langfuse model list response missing data[]")
             models.extend(item for item in items if isinstance(item, dict))
-            meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+            raw_meta = data.get("meta")
+            meta = raw_meta if isinstance(raw_meta, dict) else {}
             total_pages = int(meta.get("totalPages") or page)
             if page >= total_pages or not items:
                 return models

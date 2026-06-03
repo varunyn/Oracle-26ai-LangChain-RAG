@@ -21,4 +21,3 @@ def configure_default_oci_config(project_root: Path) -> None:
     oci_config = project_root / "local-config" / "oci" / "config"
     if not os.environ.get("OCI_CONFIG_FILE") and oci_config.is_file():
         os.environ["OCI_CONFIG_FILE"] = str(oci_config)
-

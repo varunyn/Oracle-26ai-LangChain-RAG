@@ -409,9 +409,7 @@ def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> N
         "src.rag_agent.runtime.rag_runtime.get_pooled_connection", fake_get_pooled_connection
     )
     monkeypatch.setattr("src.rag_agent.runtime.rag_runtime.get_embedding_model", lambda: object())
-    monkeypatch.setattr(
-        "src.rag_agent.runtime.rag_runtime.search_documents", fake_search_documents
-    )
+    monkeypatch.setattr("src.rag_agent.runtime.rag_runtime.search_documents", fake_search_documents)
     monkeypatch.setattr(
         "src.rag_agent.runtime.rag_runtime.get_llm", lambda model_id=None: FakeLLM()
     )
@@ -508,9 +506,7 @@ def test_graph_service_rag_mode_uses_native_reranker_when_enabled(monkeypatch) -
         "src.rag_agent.runtime.rag_runtime.get_pooled_connection", fake_get_pooled_connection
     )
     monkeypatch.setattr("src.rag_agent.runtime.rag_runtime.get_embedding_model", lambda: object())
-    monkeypatch.setattr(
-        "src.rag_agent.runtime.rag_runtime.search_documents", fake_search_documents
-    )
+    monkeypatch.setattr("src.rag_agent.runtime.rag_runtime.search_documents", fake_search_documents)
     monkeypatch.setattr(
         "src.rag_agent.runtime.rag_runtime.oci_rerank_documents", fake_rerank_documents
     )
@@ -580,15 +576,9 @@ def test_graph_service_rag_mode_contextualizes_followup_before_retrieval(monkeyp
         "src.rag_agent.runtime.rag_runtime.get_pooled_connection", fake_get_pooled_connection
     )
     monkeypatch.setattr("src.rag_agent.runtime.rag_runtime.get_embedding_model", lambda: object())
-    monkeypatch.setattr(
-        "src.rag_agent.runtime.rag_runtime.search_documents", fake_search_documents
-    )
-    monkeypatch.setattr(
-        "src.rag_agent.runtime.memory.get_llm", lambda model_id=None: fake_llm
-    )
-    monkeypatch.setattr(
-        "src.rag_agent.runtime.rag_runtime.get_llm", lambda model_id=None: fake_llm
-    )
+    monkeypatch.setattr("src.rag_agent.runtime.rag_runtime.search_documents", fake_search_documents)
+    monkeypatch.setattr("src.rag_agent.runtime.memory.get_llm", lambda model_id=None: fake_llm)
+    monkeypatch.setattr("src.rag_agent.runtime.rag_runtime.get_llm", lambda model_id=None: fake_llm)
 
     result = asyncio.run(
         service.run_chat(
@@ -1264,7 +1254,9 @@ def test_graph_service_mixed_mode_keeps_non_retrieval_mcp_answer_without_rag_ove
 
     def fail_if_retrieval_called(**kwargs):
         _ = kwargs
-        raise AssertionError("direct retrieval should not run when non-retrieval MCP tools were used")
+        raise AssertionError(
+            "direct retrieval should not run when non-retrieval MCP tools were used"
+        )
 
     monkeypatch.setattr(
         "src.rag_agent.runtime.mcp_turn.load_adapter_tools",

@@ -19,4 +19,3 @@ class ThreadCheckpointState(TypedDict, total=False):
     model_id: str
     usage: dict[str, Any]
     cost_usd: float | None
-

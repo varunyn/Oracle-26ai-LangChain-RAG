@@ -70,9 +70,9 @@ def test_store_delete_persists_removal_from_ui_managed_list(tmp_path) -> None:
 
     delete_mcp_server_config("default", base_config=base_config, store_path=store_path)
 
-    assert [item.key for item in list_mcp_server_configs(base_config=base_config, store_path=store_path)] == [
-        "calculator"
-    ]
+    assert [
+        item.key for item in list_mcp_server_configs(base_config=base_config, store_path=store_path)
+    ] == ["calculator"]
     assert resolve_enabled_mcp_servers_config(base_config=base_config, store_path=store_path) == {
         "calculator": {"transport": "streamable-http", "url": "http://localhost:9002/mcp"}
     }

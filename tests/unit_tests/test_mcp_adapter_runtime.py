@@ -229,7 +229,9 @@ def test_get_mcp_settings_enables_oauth_supplier(monkeypatch) -> None:
         MCP_OAUTH_GRANT_TYPE="client_credentials",
         MCP_OAUTH_REFRESH_SKEW_SECONDS=30,
     )
-    monkeypatch.setattr("src.rag_agent.infrastructure.mcp_settings._get_app_settings", lambda: fake_settings)
+    monkeypatch.setattr(
+        "src.rag_agent.infrastructure.mcp_settings._get_app_settings", lambda: fake_settings
+    )
 
     settings = get_mcp_settings()
 
@@ -253,7 +255,9 @@ def test_get_mcp_settings_uses_app_settings_for_oauth_supplier(monkeypatch) -> N
         MCP_OAUTH_GRANT_TYPE="client_credentials",
         MCP_OAUTH_REFRESH_SKEW_SECONDS=30,
     )
-    monkeypatch.setattr("src.rag_agent.infrastructure.mcp_settings._get_app_settings", lambda: fake_settings)
+    monkeypatch.setattr(
+        "src.rag_agent.infrastructure.mcp_settings._get_app_settings", lambda: fake_settings
+    )
     monkeypatch.setenv("ENABLE_MCP_TOOLS", "true")
     monkeypatch.setenv("ENABLE_MCP_CLIENT_JWT", "true")
 
@@ -291,7 +295,9 @@ def test_create_client_raises_when_callbacks_supplier_fails() -> None:
     settings = SimpleNamespace(
         mcp_client_callbacks=None,
         mcp_tool_interceptors=None,
-        mcp_client_callbacks_supplier=lambda: (_ for _ in ()).throw(RuntimeError("callbacks failed")),
+        mcp_client_callbacks_supplier=lambda: (_ for _ in ()).throw(
+            RuntimeError("callbacks failed")
+        ),
         mcp_tool_interceptors_supplier=None,
     )
 
@@ -307,7 +313,9 @@ def test_create_client_raises_when_interceptors_supplier_fails() -> None:
         mcp_client_callbacks=None,
         mcp_tool_interceptors=None,
         mcp_client_callbacks_supplier=None,
-        mcp_tool_interceptors_supplier=lambda: (_ for _ in ()).throw(RuntimeError("interceptors failed")),
+        mcp_tool_interceptors_supplier=lambda: (_ for _ in ()).throw(
+            RuntimeError("interceptors failed")
+        ),
     )
 
     with pytest.raises(RuntimeError, match="interceptors failed"):

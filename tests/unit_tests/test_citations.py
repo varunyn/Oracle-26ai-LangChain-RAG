@@ -58,4 +58,3 @@ def test_citations_from_documents_uses_normalized_contract() -> None:
             "link": "https://docs.oracle.com/guide",
         }
     ]
-

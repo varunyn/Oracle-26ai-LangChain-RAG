@@ -32,10 +32,5 @@ def test_prompts_consistency():
 
 
 def test_mixed_prompt_disallows_general_knowledge_after_empty_oracle_retrieval():
-    assert (
-        "do not answer from general knowledge" in PROMPTS_SYSTEM_PROMPT_MIXED
-    )
-    assert (
-        "selected Oracle collection does not contain the answer"
-        in PROMPTS_SYSTEM_PROMPT_MIXED
-    )
+    assert "do not answer from general knowledge" in PROMPTS_SYSTEM_PROMPT_MIXED
+    assert "selected Oracle collection does not contain the answer" in PROMPTS_SYSTEM_PROMPT_MIXED

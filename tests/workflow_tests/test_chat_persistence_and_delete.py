@@ -50,6 +50,7 @@ class _RunChatStreamingMixin:
             ),
         )
 
+
 def _langgraph_run_payload(
     *, messages: list[dict[str, object]], mode: str | None = None
 ) -> dict[str, object]:
@@ -228,7 +229,9 @@ def test_followup_run_hydrates_persisted_thread_history(
         class MemoryAwareLLM:
             def invoke(self, messages: list[object], config: object | None = None) -> object:
                 _ = config
-                captured_calls.append([str(getattr(message, "content", "")) for message in messages])
+                captured_calls.append(
+                    [str(getattr(message, "content", "")) for message in messages]
+                )
                 return SimpleNamespace(content=f"answer {len(captured_calls)}")
 
         monkeypatch.setattr(chat_service, "get_llm", lambda model_id=None: MemoryAwareLLM())
@@ -381,7 +384,12 @@ def test_new_turn_resets_stale_standalone_question_before_search(
         recording_graph_service = RecordingChatRuntimeService()
         headers = {"Content-Type": "application/json"}
         payload = {
-            "messages": [{"type": "human", "content": "What are the required properties for a business object?"}],
+            "messages": [
+                {
+                    "type": "human",
+                    "content": "What are the required properties for a business object?",
+                }
+            ],
             "thread_id": f"t_{uuid.uuid4().hex[:8]}",
         }
 

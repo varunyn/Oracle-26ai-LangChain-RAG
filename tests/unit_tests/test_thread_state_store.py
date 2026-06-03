@@ -56,7 +56,8 @@ def test_langgraph_checkpoint_store_uses_native_checkpoint_tables(tmp_path) -> N
         },
     )
 
-    assert store.graph.get_state({"configurable": {"thread_id": thread_id}}).values[
-        "final_answer"
-    ] == "Hi"
+    assert (
+        store.graph.get_state({"configurable": {"thread_id": thread_id}}).values["final_answer"]
+        == "Hi"
+    )
     assert store.get(thread_id)["final_answer"] == "Hi"

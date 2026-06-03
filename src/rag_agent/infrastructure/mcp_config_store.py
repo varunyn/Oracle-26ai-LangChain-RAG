@@ -85,8 +85,7 @@ def _normalize_auth_config(raw_auth: object) -> MCPServerAuthConfig:
             client_secret=_normalize_optional_str(raw_auth.get("client_secret")),
             scope=_normalize_optional_str(raw_auth.get("scope")),
             audience=_normalize_optional_str(raw_auth.get("audience")),
-            grant_type=_normalize_optional_str(raw_auth.get("grant_type"))
-            or "client_credentials",
+            grant_type=_normalize_optional_str(raw_auth.get("grant_type")) or "client_credentials",
             refresh_skew_seconds=refresh_skew_seconds,
         )
 

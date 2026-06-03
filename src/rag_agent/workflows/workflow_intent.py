@@ -52,7 +52,9 @@ async def should_use_repeated_workflow(
     def _invoke() -> WorkflowIntentDecision:
         llm = get_llm(model_id=model_id, temperature=0, max_tokens=256)
         structured = llm.with_structured_output(WorkflowIntentDecision)
-        result = structured.invoke(_classification_messages(question=question, tools=tools), config=run_config)
+        result = structured.invoke(
+            _classification_messages(question=question, tools=tools), config=run_config
+        )
         if isinstance(result, WorkflowIntentDecision):
             return result
         if isinstance(result, dict):
@@ -107,7 +109,9 @@ async def select_repeated_workflow_discovery_tools(
         return list(tools)
 
     selected_names = {name.strip() for name in decision.tool_names if name.strip()}
-    selected = [tool for tool in tools if str(getattr(tool, "name", "") or "").strip() in selected_names]
+    selected = [
+        tool for tool in tools if str(getattr(tool, "name", "") or "").strip() in selected_names
+    ]
     return selected or list(tools)
 
 
@@ -208,7 +212,9 @@ async def _select_repeated_workflow_tools(
         if isinstance(result, dict):
             return WorkflowDiscoveryToolDecision.model_validate(result)
         raw_result = llm.invoke(
-            _json_tool_selection_messages(question=question, tools=tools, system_prompt=system_prompt),
+            _json_tool_selection_messages(
+                question=question, tools=tools, system_prompt=system_prompt
+            ),
             config=run_config,
         )
         return _parse_json_tool_decision(raw_result)
@@ -220,7 +226,9 @@ async def _select_repeated_workflow_tools(
         return list(tools)
 
     selected_names = {name.strip() for name in decision.tool_names if name.strip()}
-    selected = [tool for tool in tools if str(getattr(tool, "name", "") or "").strip() in selected_names]
+    selected = [
+        tool for tool in tools if str(getattr(tool, "name", "") or "").strip() in selected_names
+    ]
     return selected or list(tools)
 
 
@@ -338,7 +346,9 @@ def _parse_json_decision(raw_result: object) -> WorkflowIntentDecision:
             return WorkflowIntentDecision.model_validate(parsed)
         except Exception:  # noqa: BLE001
             pass
-    return WorkflowIntentDecision(use_repeated_workflow=False, reason="Unparseable classifier result")
+    return WorkflowIntentDecision(
+        use_repeated_workflow=False, reason="Unparseable classifier result"
+    )
 
 
 def _parse_json_tool_decision(raw_result: object) -> WorkflowDiscoveryToolDecision:

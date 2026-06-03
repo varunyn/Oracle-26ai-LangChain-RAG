@@ -15,6 +15,7 @@ except ImportError:
     TIKTOKEN_AVAILABLE = False
     logger.warning("tiktoken not available, falling back to character-based token estimation")
 
+
 def estimate_tokens(text: str, model_id: str | None = None) -> int:
     """
     Estimate token count using tiktoken when available, otherwise fallback to character length (~4 chars per token for English).

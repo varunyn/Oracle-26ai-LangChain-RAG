@@ -5,7 +5,7 @@ import inspect
 import json
 import logging
 from collections import deque
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterable, Awaitable, Callable, Mapping, Sequence
 from typing import Any, cast
 
 from langchain.agents import create_agent
@@ -65,7 +65,7 @@ def _sanitize_model_request_for_oci(request: ModelRequest) -> ModelRequest:
     messages = [_sanitize_ai_message_content_for_oci(message) for message in request.messages]
     if messages == request.messages:
         return request
-    return request.override(messages=messages)
+    return request.override(messages=cast(Any, messages))
 
 
 async def _ainvoke_or_stream_agent(
@@ -175,7 +175,7 @@ async def _drain_tool_call(call: Any) -> None:
 
     output_deltas = getattr(call, "output_deltas", None)
     if hasattr(output_deltas, "__aiter__"):
-        async for _delta in output_deltas:
+        async for _delta in cast(AsyncIterable[Any], output_deltas):
             pass
 
 
@@ -183,7 +183,10 @@ async def _consume_tool_call_projection(
     stream: Any,
     tool_progress_callback: ToolProgressCallback,
 ) -> None:
-    async for call in stream.tool_calls:
+    tool_calls = getattr(stream, "tool_calls", None)
+    if tool_calls is None:
+        return
+    async for call in cast(AsyncIterable[Any], tool_calls):
         tool_name = str(getattr(call, "tool_name", "") or "unknown_tool")
         tool_call_id = str(getattr(call, "tool_call_id", "") or "")
         tool_progress_callback(
@@ -372,7 +375,7 @@ def _sanitize_ai_message_content_for_oci(message: object) -> object:
         "audio",
         "media",
     }
-    content: list[object] = []
+    content: list[str | dict[Any, Any]] = []
     for item in message.content:
         if isinstance(item, str):
             if item:
@@ -458,9 +461,7 @@ def _build_tool_summary(tools: Sequence[BaseTool]) -> str:
     return "\n".join(lines)
 
 
-def _is_mixed_mode(
-    *, tools: Sequence[BaseTool], run_config: RunnableConfig | None
-) -> bool:
+def _is_mixed_mode(*, tools: Sequence[BaseTool], run_config: RunnableConfig | None) -> bool:
     configurable = (
         cast(dict[str, object], run_config.get("configurable"))
         if isinstance(run_config, dict) and isinstance(run_config.get("configurable"), dict)
@@ -475,7 +476,9 @@ def _is_mixed_mode(
 def _build_system_prompt(
     question: str, tools: Sequence[BaseTool], run_config: RunnableConfig | None
 ) -> str:
-    base = SYSTEM_PROMPT_MIXED if _is_mixed_mode(tools=tools, run_config=run_config) else SYSTEM_PROMPT
+    base = (
+        SYSTEM_PROMPT_MIXED if _is_mixed_mode(tools=tools, run_config=run_config) else SYSTEM_PROMPT
+    )
     return base.replace(TOOL_SUMMARY_PLACEHOLDER, _build_tool_summary(tools))
 
 
@@ -623,7 +626,9 @@ def _extract_tool_invocations(agent_state: Mapping[str, object]) -> list[dict[st
         else:
             orphan_ai_calls.append(rec)
 
-    def _with_tool_error_status(rec: dict[str, object], *, error_text: str | None) -> dict[str, object]:
+    def _with_tool_error_status(
+        rec: dict[str, object], *, error_text: str | None
+    ) -> dict[str, object]:
         if not error_text:
             return rec
         return {**rec, "error": error_text}
@@ -796,7 +801,11 @@ async def get_mcp_answer_with_langchain_agent_async(
             break
 
         if require_tool_call and not tools_used:
-            return "MCP tool call required but none was produced after retry. Please try again.", [], []
+            return (
+                "MCP tool call required but none was produced after retry. Please try again.",
+                [],
+                [],
+            )
         return answer, tools_used, tool_invocations
     finally:
         close = getattr(llm_model, "aclose", None)

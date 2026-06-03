@@ -43,4 +43,3 @@ def terminal_count(state: RepeatedWorkflowState) -> int:
 
 def is_complete(state: RepeatedWorkflowState) -> bool:
     return terminal_count(state) >= len(state.get("work_units", []))
-

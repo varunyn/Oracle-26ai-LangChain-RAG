@@ -238,9 +238,7 @@ class Settings(BaseSettings):
         mode = str(v or "vector").strip().lower()
         return mode if mode == "vector" else "vector"
 
-    MCP_SERVERS_CONFIG: dict[str, dict[str, Any]] = Field(
-        default_factory=dict
-    )
+    MCP_SERVERS_CONFIG: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @field_validator("MCP_SERVERS_CONFIG", mode="before")
     @classmethod

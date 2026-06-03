@@ -26,7 +26,9 @@ def test_suggestions_endpoint_uses_structured_agent_response(monkeypatch) -> Non
                 }
             }
 
-    def fake_create_agent(*, model: object, tools: list[object], system_prompt: str, response_format: object):
+    def fake_create_agent(
+        *, model: object, tools: list[object], system_prompt: str, response_format: object
+    ):
         captured["model"] = model
         captured["tools"] = tools
         captured["system_prompt"] = system_prompt

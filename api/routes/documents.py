@@ -101,7 +101,9 @@ def _resolve_collection_name(collection_name: str | None) -> str:
 
 
 @router.get("/sources")
-async def list_document_sources(collection_name: str | None = Query(default=None)) -> dict[str, object]:
+async def list_document_sources(
+    collection_name: str | None = Query(default=None),
+) -> dict[str, object]:
     table_name = _resolve_collection_name(collection_name)
     rows = await asyncio.to_thread(list_sources_in_collection, table_name)
     sources = [

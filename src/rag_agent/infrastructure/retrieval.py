@@ -5,7 +5,7 @@ from typing import cast
 
 import oracledb
 from langchain_core.documents import Document
-from langchain_oci import OCIGenAIEmbeddings
+from langchain_oci import OCIGenAIEmbeddings  # type: ignore[import-untyped]
 
 from .oci_models import get_oracle_vs
 

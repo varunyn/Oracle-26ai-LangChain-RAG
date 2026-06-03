@@ -506,7 +506,9 @@ def test_stream_emits_sdk_tool_events_before_final_answer() -> None:
 
     async def run() -> None:
         headers = {"Content-Type": "application/json"}
-        payload = _stream_payload([{"type": "human", "content": "Hello"}], streamMode=["values", "tools"])
+        payload = _stream_payload(
+            [{"type": "human", "content": "Hello"}], streamMode=["values", "tools"]
+        )
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:

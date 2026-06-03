@@ -18,7 +18,9 @@ class _FakeAgent:
         self.output = output
         self.calls: list[dict[str, Any]] = []
 
-    async def ainvoke(self, inp: dict[str, object], *, config: object | None = None) -> dict[str, object]:
+    async def ainvoke(
+        self, inp: dict[str, object], *, config: object | None = None
+    ) -> dict[str, object]:
         self.calls.append({"input": inp, "config": config})
         return self.output
 
@@ -28,7 +30,9 @@ class _FakeRaisingAgent:
         self.exc = exc
         self.calls: list[dict[str, Any]] = []
 
-    async def ainvoke(self, inp: dict[str, object], *, config: object | None = None) -> dict[str, object]:
+    async def ainvoke(
+        self, inp: dict[str, object], *, config: object | None = None
+    ) -> dict[str, object]:
         self.calls.append({"input": inp, "config": config})
         raise self.exc
 
@@ -245,7 +249,9 @@ class _FakeSequencedAgent:
         self.calls: list[dict[str, Any]] = []
         self._idx = 0
 
-    async def ainvoke(self, inp: dict[str, object], *, config: object | None = None) -> dict[str, object]:
+    async def ainvoke(
+        self, inp: dict[str, object], *, config: object | None = None
+    ) -> dict[str, object]:
         self.calls.append({"input": inp, "config": config})
         idx = min(self._idx, len(self.outputs) - 1)
         self._idx += 1
@@ -780,9 +786,7 @@ def test_model_timeout_propagates_after_successful_tool_result() -> None:
         return ModelResponse(result=[AIMessage(content="too late")])
 
     try:
-        asyncio.run(
-            asyncio.wait_for(handler(request), timeout=0.01)
-        )
+        asyncio.run(asyncio.wait_for(handler(request), timeout=0.01))
     except TimeoutError:
         pass
     else:
@@ -1253,12 +1257,24 @@ def test_langchain_executor_does_not_mutate_missing_tool_call_ids(monkeypatch) -
                     tool_calls=[{"name": "oci.run", "args": {"command": "os ns get"}, "id": ""}],
                     additional_kwargs={
                         "tool_calls": [
-                            {"id": "", "function": {"name": "oci.run", "arguments": {"command": "os ns get"}}}
+                            {
+                                "id": "",
+                                "function": {
+                                    "name": "oci.run",
+                                    "arguments": {"command": "os ns get"},
+                                },
+                            }
                         ]
                     },
                     response_metadata={
                         "tool_calls": [
-                            {"id": "", "function": {"name": "oci.run", "arguments": {"command": "os ns get"}}}
+                            {
+                                "id": "",
+                                "function": {
+                                    "name": "oci.run",
+                                    "arguments": {"command": "os ns get"},
+                                },
+                            }
                         ]
                     },
                 ),

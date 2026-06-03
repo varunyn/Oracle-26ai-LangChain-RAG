@@ -15,8 +15,8 @@ from urllib.parse import urlparse, urlunparse
 import pytest
 
 from api.schemas import ChatMessage
-from src.rag_agent.runtime.chat_service import ChatRuntimeService
 from src.rag_agent.infrastructure.mcp_settings import get_mcp_servers_config
+from src.rag_agent.runtime.chat_service import ChatRuntimeService
 
 VERIFICATION_COLLECTION = "RAG_KNOWLEDGE_BASE_TEST"
 

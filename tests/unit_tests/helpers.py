@@ -49,7 +49,9 @@ class ToolBindableFakeChatModel:
 class StructuredOutputFakeChatModel:
     """Adapter for tests where production code expects with_structured_output()."""
 
-    def __init__(self, structured_responses: Iterable[object], raw_messages: Iterable[AIMessage | str] = ()) -> None:
+    def __init__(
+        self, structured_responses: Iterable[object], raw_messages: Iterable[AIMessage | str] = ()
+    ) -> None:
         self._structured_responses = iter(structured_responses)
         self._raw_model = fake_chat_model(raw_messages)
         self.schemas: list[type | dict[str, Any]] = []

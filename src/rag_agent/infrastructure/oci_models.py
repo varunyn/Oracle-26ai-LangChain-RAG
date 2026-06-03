@@ -243,10 +243,13 @@ def rerank_documents(
         return docs
 
     settings = get_settings()
-    limit = max(1, min(int(top_n or getattr(settings, "RERANK_TOP_N", 5)), len(docs)))
+    configured_top_n = top_n if top_n is not None else int(settings.RERANK_TOP_N)
+    limit = max(1, min(configured_top_n, len(docs)))
     endpoint_id = str(getattr(settings, "RERANK_DEDICATED_ENDPOINT_ID", "") or "").strip()
     serving_mode_name = "dedicated" if endpoint_id else "on_demand"
-    attributes = {
+    attributes: dict[
+        str, str | bool | int | float | list[str] | list[bool] | list[int] | list[float]
+    ] = {
         "rag.rerank.enabled": True,
         "rag.rerank.provider": "oci",
         "rag.rerank.model_id": str(getattr(settings, "RERANK_MODEL_ID", "unknown") or "unknown"),
@@ -294,7 +297,11 @@ def rerank_documents(
 
         output_docs = len(reranked)
         span.set_attribute("rag.rerank.output_docs", output_docs)
-        log_attributes = {"event_type": "oci_rerank", **attributes, "rag.rerank.output_docs": output_docs}
+        log_attributes = {
+            "event_type": "oci_rerank",
+            **attributes,
+            "rag.rerank.output_docs": output_docs,
+        }
         logger.info(
             "oci_rerank_success model_id=%s input_docs=%d output_docs=%d top_n=%d",
             log_attributes["rag.rerank.model_id"],

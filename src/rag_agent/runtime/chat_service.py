@@ -232,8 +232,7 @@ def _called_tool_names(
     names.update(
         str(invocation.get("tool_name") or "").strip().lower()
         for invocation in tool_invocations
-        if isinstance(invocation, dict)
-        and str(invocation.get("tool_name") or "").strip()
+        if isinstance(invocation, dict) and str(invocation.get("tool_name") or "").strip()
     )
     return names
 
@@ -525,14 +524,11 @@ class ChatRuntimeService:
             if not policy_error and retrieval_error:
                 final_answer = _ORACLE_RETRIEVAL_FAILED_ANSWER
                 policy_error = _ORACLE_RETRIEVAL_FAILED_ANSWER
-            if (
-                not policy_error
-                and _oracle_retrieval_used_without_context(
-                    retrieval_state=retrieval_state,
-                    retrieval_docs=retrieval_docs,
-                    tools_used=tools_used,
-                    tool_invocations=cast(list[dict[str, object]], tool_invocations),
-                )
+            if not policy_error and _oracle_retrieval_used_without_context(
+                retrieval_state=retrieval_state,
+                retrieval_docs=retrieval_docs,
+                tools_used=tools_used,
+                tool_invocations=cast(list[dict[str, object]], tool_invocations),
             ):
                 final_answer = _NO_ORACLE_CONTEXT_ANSWER
             if not policy_error and retrieval_docs:
@@ -540,7 +536,7 @@ class ChatRuntimeService:
                     cast(list[dict[str, object]], tool_invocations)
                 )
                 if stream and answer_delta_callback is not None:
-                    answer_parts: list[str] = []
+                    mixed_answer_parts: list[str] = []
                     async for text_delta, _chunk, stream_model_id in rag_runtime.stream_rag_answer(
                         question=latest_user_message,
                         docs=retrieval_docs,
@@ -551,16 +547,18 @@ class ChatRuntimeService:
                         if isinstance(stream_model_id, str) and stream_model_id.strip():
                             resolved_model_id = stream_model_id
                         if text_delta:
-                            answer_parts.append(text_delta)
+                            mixed_answer_parts.append(text_delta)
                             answer_delta_callback(text_delta)
-                    final_answer = "".join(answer_parts).strip()
+                    final_answer = "".join(mixed_answer_parts).strip()
                 else:
-                    final_answer, _rag_usage, resolved_model_id = await rag_runtime.synthesize_rag_answer(
-                        question=latest_user_message,
-                        docs=retrieval_docs,
-                        model_id=model_id,
-                        run_config=run_cfg,
-                        supplemental_context=supplemental_context,
+                    final_answer, _rag_usage, resolved_model_id = (
+                        await rag_runtime.synthesize_rag_answer(
+                            question=latest_user_message,
+                            docs=retrieval_docs,
+                            model_id=model_id,
+                            run_config=run_cfg,
+                            supplemental_context=supplemental_context,
+                        )
                     )
             mixed_result: dict[str, object] = {
                 "final_answer": final_answer,
@@ -619,9 +617,7 @@ class ChatRuntimeService:
                     "mcp_tools_used": mcp_turn.tools_used,
                     "mcp_tool_invocations": mcp_turn.tool_invocations,
                 }
-                tool_failure_error = tool_failure_summary(
-                    mcp_turn.tool_invocations
-                )
+                tool_failure_error = tool_failure_summary(mcp_turn.tool_invocations)
                 if (
                     _is_trivial_answer(str(mcp_result.get("final_answer") or ""))
                     and tool_failure_error
@@ -679,11 +675,13 @@ class ChatRuntimeService:
                     rag_answer = "".join(answer_parts).strip()
                     rag_usage = extract_usage(last_chunk) if last_chunk is not None else None
                 elif docs:
-                    rag_answer, rag_usage, resolved_model_id = await rag_runtime.synthesize_rag_answer(
-                        question=standalone_question,
-                        docs=docs,
-                        model_id=model_id,
-                        run_config=run_cfg,
+                    rag_answer, rag_usage, resolved_model_id = (
+                        await rag_runtime.synthesize_rag_answer(
+                            question=standalone_question,
+                            docs=docs,
+                            model_id=model_id,
+                            run_config=run_cfg,
+                        )
                     )
                 else:
                     rag_answer = _NO_ORACLE_CONTEXT_ANSWER
