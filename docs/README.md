@@ -420,14 +420,26 @@ User: "What is Oracle 23AI?"
 
 ### Documentation site (GitHub Pages)
 
-This docs folder is a **Docsify** site. To publish on GitHub Pages:
+The public docs site is built with ReallySimpleDocs/Astro from the Markdown files in this `docs/` folder.
 
-1. In your repo: **Settings → Pages → Build and deployment**
-2. Under **Source**, choose **Deploy from a branch**
-3. Branch: **main** (or default), Folder: **/docs**
-4. Save. The site will be at `https://<username>.github.io/<repo-name>/`
+**View locally:**
 
-**View locally:** From the repo root, run `./scripts/serve_docs.sh` (or `python -m http.server 3333 --directory docs`), then open **http://localhost:3333** in your browser.
+```bash
+cd docs-site
+npm install
+npm run dev
+```
+
+Local dev serves the docs at `http://127.0.0.1:4321/`. Production builds use the GitHub Pages project path.
+
+**Build for GitHub Pages:**
+
+```bash
+cd docs-site
+npm run build
+```
+
+The build syncs Markdown from `docs/` into the Astro docs tree and writes the static site to `docs-site/dist/`. GitHub Pages deployment is handled by `.github/workflows/docs-pages.yml`.
 
 ## Troubleshooting
 

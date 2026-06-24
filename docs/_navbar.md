@@ -1,5 +1,0 @@
-- [Home](/)
-- [Getting started](GETTING-STARTED.md)
-- [Configuration](CONFIGURATION.md)
-- [MCP usage](MCP-USAGE.md)
-- [Database setup](DATABASE-SETUP.md)

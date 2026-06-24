@@ -8,8 +8,6 @@ const repoRoot = dirname(docsSiteRoot);
 const sourceRoot = join(repoRoot, "docs");
 const targetRoot = join(docsSiteRoot, "docs");
 
-const skippedNames = new Set(["_navbar.md", "_sidebar.md"]);
-
 const navigation = [
   {
     type: "group",
@@ -75,7 +73,7 @@ async function listMarkdownFiles(dir) {
     const absolutePath = join(dir, entry.name);
     if (entry.isDirectory()) {
       files.push(...(await listMarkdownFiles(absolutePath)));
-    } else if (entry.isFile() && entry.name.endsWith(".md") && !skippedNames.has(entry.name)) {
+    } else if (entry.isFile() && entry.name.endsWith(".md")) {
       files.push(absolutePath);
     }
   }
