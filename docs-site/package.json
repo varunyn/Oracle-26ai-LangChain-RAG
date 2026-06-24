@@ -1,0 +1,24 @@
+{
+  "name": "custom-rag-agent-docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync": "node scripts/sync-docs.mjs",
+    "dev": "npm run sync && DOCS_BASE_PATH=/ ASTRO_TELEMETRY_DISABLED=1 astro dev",
+    "build": "npm run sync && DOCS_BASE_PATH=${DOCS_BASE_PATH:-/custom-rag-agent-app} ASTRO_TELEMETRY_DISABLED=1 astro build && DOCS_BASE_PATH=${DOCS_BASE_PATH:-/custom-rag-agent-app} node scripts/fix-base-paths.mjs",
+    "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "^6.0.3",
+    "@astrojs/sitemap": "^3.6.0",
+    "astro": "^6.4.6",
+    "basecoat-css": "^1.0.0-beta.6",
+    "lucide-static": "^0.552.0",
+    "reallysimpledocs": "^1.0.2",
+    "tailwindcss": "4.1.17"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.17"
+  }
+}

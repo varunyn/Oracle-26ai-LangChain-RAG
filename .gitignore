@@ -46,6 +46,12 @@ uploaded_files/
 
 .docs/
 
+# Docs site build artifacts
+docs-site/dist/
+docs-site/node_modules/
+docs-site/.astro/
+docs-site/docs/
+
 # Log files (created at runtime)
 logs/
 .local-data/

@@ -1,0 +1,26 @@
+.prose {
+  --tw-prose-body: var(--muted-foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-links: var(--foreground);
+  --tw-prose-code: var(--foreground);
+}
+
+.prose h2 {
+  scroll-margin-top: 5rem;
+}
+
+.prose a {
+  text-underline-offset: 0.2em;
+}
+
+.prose pre {
+  border: 1px solid var(--border);
+}
+
+.docs-product-link {
+  text-decoration: none;
+}
+
+.docs-product-mark {
+  letter-spacing: 0;
+}
