@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/api/langgraph/threads/{{threadId}}/runs/stream
+  url: {{baseUrl}}/api/langgraph/threads/{{threadId}}/commands
   body: json
 }
 
@@ -15,17 +15,21 @@ headers {
 
 body:json {
   {
-    "assistant_id": "mcp_agent_executor",
-    "input": {
-      "model": "{{defaultModel}}",
-      "messages": [
-        {
-          "type": "human",
-          "content": "Explain the current RAG workflow."
-        }
-      ],
-      "session_id": "{{sessionId}}",
-      "collection_name": "{{defaultCollection}}"
+    "id": 1,
+    "method": "run.start",
+    "params": {
+      "assistant_id": "mcp_agent_executor",
+      "input": {
+        "model": "{{defaultModel}}",
+        "messages": [
+          {
+            "type": "human",
+            "content": "Explain the current RAG workflow."
+          }
+        ],
+        "session_id": "{{sessionId}}",
+        "collection_name": "{{defaultCollection}}"
+      }
     }
   }
 }

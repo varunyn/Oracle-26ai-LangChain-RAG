@@ -58,17 +58,17 @@ The active backend runtime is centered on `ChatRuntimeService` in `src/rag_agent
 
 ### Key Directories
 
-| Directory                 | Purpose                                                                                       |
-| ------------------------- | --------------------------------------------------------------------------------------------- |
-| `src/rag_agent/runtime/`  | Chat runtime, streaming adapters, memory, retrieval helpers, and thread state persistence     |
-| `src/rag_agent/workflows/` | Repeated MCP workflow helpers and work-unit extraction                                        |
-| `src/rag_agent/infrastructure/` | OCI, Oracle vector search, MCP adapter, and model/tool integrations                    |
-| `api/`                    | FastAPI app, chat/config/documents/feedback/health routers, and LangGraph-compatible endpoints |
-| `frontend/`               | Next.js app; `src/app`, `src/components`, and `src/lib` chat/config/types                     |
-| `mcp_servers/`            | MCP servers for RAG, semantic search, and minimal local tools                                  |
-| `scripts/`                | Document population, database/table utilities, stack management, and API doc sync              |
-| `tests/`                  | Unit, workflow, integration, and manual run scripts                                            |
-| `docs/`                   | Setup, MCP usage, tracing, OCI, database, and generated API documentation                      |
+| Directory                       | Purpose                                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `src/rag_agent/runtime/`        | Chat runtime, streaming adapters, memory, retrieval helpers, and thread state persistence      |
+| `src/rag_agent/workflows/`      | Repeated MCP workflow helpers and work-unit extraction                                         |
+| `src/rag_agent/infrastructure/` | OCI, Oracle vector search, MCP adapter, and model/tool integrations                            |
+| `api/`                          | FastAPI app, chat/config/documents/feedback/health routers, and LangGraph-compatible endpoints |
+| `frontend/`                     | Next.js app; `src/app`, `src/components`, and `src/lib` chat/config/types                      |
+| `mcp_servers/`                  | MCP servers for RAG, semantic search, and minimal local tools                                  |
+| `scripts/`                      | Document population, database/table utilities, stack management, and API doc sync              |
+| `tests/`                        | Unit, workflow, integration, and manual run scripts                                            |
+| `docs/`                         | Setup, MCP usage, tracing, OCI, database, and generated API documentation                      |
 
 ## Data Flow
 
@@ -94,17 +94,17 @@ Next.js UI → streamed answer + citations
 
 ## Technology Stack
 
-| Layer | Technology |
-| ----- | ---------- |
-| Backend API | FastAPI, Pydantic, Uvicorn |
-| Agent runtime | LangChain v1 agents, LangGraph-compatible thread/run APIs, LangChain MCP adapters |
-| Retrieval | Oracle 26AI / Oracle AI Vector Search through `langchain-oracledb` |
-| LLM and embeddings | OCI Generative AI through `langchain-oci`; optional OpenAI-compatible model wiring |
-| Reranking | Native OCI Gen AI rerank with lexical filtering on rerank failure |
-| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS v4, Radix UI, Streamdown |
-| Streaming protocol | LangGraph-compatible SSE `event: values` streams consumed by `@langchain/react` |
-| Optional observability | OpenTelemetry OTLP, Grafana, Tempo, Loki, OCI APM, Langfuse |
-| Tooling | Python 3.11, `uv`, `pnpm`, Docker Compose, Playwright, Ruff, Black, Mypy, Pytest |
+| Layer                  | Technology                                                                         |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| Backend API            | FastAPI, Pydantic, Uvicorn                                                         |
+| Agent runtime          | LangChain v1 agents, LangGraph-compatible thread/run APIs, LangChain MCP adapters  |
+| Retrieval              | Oracle 26AI / Oracle AI Vector Search through `langchain-oracledb`                 |
+| LLM and embeddings     | OCI Generative AI through `langchain-oci`; optional OpenAI-compatible model wiring |
+| Reranking              | Native OCI Gen AI rerank with lexical filtering on rerank failure                  |
+| Frontend               | Next.js 16, React 19, TypeScript, Tailwind CSS v4, Radix UI, Streamdown            |
+| Streaming protocol     | LangGraph-compatible SSE `event: values` streams consumed by `@langchain/react`    |
+| Optional observability | OpenTelemetry OTLP, Grafana, Tempo, Loki, OCI APM, Langfuse                        |
+| Tooling                | Python 3.11, `uv`, `pnpm`, Docker Compose, Playwright, Ruff, Black, Mypy, Pytest   |
 
 ## Setup
 

@@ -6,6 +6,7 @@ from httpx import ASGITransport
 
 from api.main import app
 from src.rag_agent.runtime.streaming import v3_raw_event
+from tests.workflow_tests.langgraph_protocol_helpers import run_v1_command_stream
 
 
 def test_request_id_propagates_into_stream_runtime():
@@ -57,14 +58,13 @@ def test_request_id_propagates_into_stream_runtime():
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            async with client.stream(
-                "POST",
-                "/api/langgraph/threads/thread-request-id/runs/stream",
+            response, chunks = await run_v1_command_stream(
+                client,
+                thread_id="thread-request-id",
                 headers=headers,
-                json=payload,
-            ) as response:
-                assert response.status_code == 200
-                chunks = [chunk async for chunk in response.aiter_bytes()]
+                payload=payload,
+            )
+            assert response.status_code == 200
         return b"".join(chunks)
 
     try:

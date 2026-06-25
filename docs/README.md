@@ -40,7 +40,7 @@ config:
 ---
 graph TD;
     __start__([<p>__start__</p>]):::first
-    ChatRequest["POST /api/langgraph/threads/{thread_id}/runs/stream"]
+    ChatRequest["POST /api/langgraph/threads/{thread_id}/commands"]
     Mode{"mode"}
     RAG["RAG path<br/>vector search + prompt"]
     MCP["MCP path<br/>create_agent + MCP tools"]

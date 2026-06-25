@@ -18,10 +18,18 @@
     },
     {
       "method": "POST",
-      "path": "/api/langgraph/threads/{thread_id}/runs/stream",
+      "path": "/api/langgraph/threads/{thread_id}/commands",
       "mode": "curated",
       "name": "Chat Stream",
       "output": "bruno/CustomRAGAgent/Chat/chat-stream.bru"
+    },
+    {
+      "method": "POST",
+      "path": "/api/langgraph/threads/{thread_id}/stream/events",
+      "mode": "curated",
+      "name": "Chat Stream Events",
+      "output": "bruno/CustomRAGAgent/Chat/chat-stream-events.bru",
+      "seq": 5
     },
     {
       "method": "GET",
@@ -30,7 +38,7 @@
       "name": "Thread State",
       "bodyKind": "none",
       "output": "bruno/CustomRAGAgent/Chat/thread-state.bru",
-      "seq": 5
+      "seq": 6
     },
     {
       "method": "POST",
@@ -39,7 +47,7 @@
       "name": "Thread History",
       "bodyKind": "json",
       "output": "bruno/CustomRAGAgent/Chat/thread-history.bru",
-      "seq": 6
+      "seq": 7
     },
     {
       "method": "POST",

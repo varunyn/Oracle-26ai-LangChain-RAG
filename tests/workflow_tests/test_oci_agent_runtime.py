@@ -6,6 +6,7 @@ from httpx import ASGITransport
 
 from api.main import app
 from src.rag_agent.runtime.streaming import v3_raw_event
+from tests.workflow_tests.langgraph_protocol_helpers import run_v1_command_stream
 
 
 class _StreamingStubMixin:
@@ -113,13 +114,14 @@ def test_chat_stream_direct_mode_uses_oci_direct_agent(monkeypatch):
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            resp = await client.post(
-                "/api/langgraph/threads/thread-oci-direct/runs/stream",
+            resp, chunks = await run_v1_command_stream(
+                client,
+                thread_id="thread-oci-direct",
                 headers=headers,
-                json=payload,
+                payload=payload,
             )
             assert resp.status_code == 200
-            body = b"".join([chunk async for chunk in resp.aiter_bytes()])
+            body = b"".join(chunks)
             assert b"You can create a visual application from the Oracle APEX App Builder." in body
 
     try:
@@ -188,13 +190,14 @@ def test_chat_stream_rag_mode_uses_oci_rag_runtime(monkeypatch):
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            resp = await client.post(
-                "/api/langgraph/threads/thread-oci-rag/runs/stream",
+            resp, chunks = await run_v1_command_stream(
+                client,
+                thread_id="thread-oci-rag",
                 headers=headers,
-                json=payload,
+                payload=payload,
             )
             assert resp.status_code == 200
-            body = b"".join([chunk async for chunk in resp.aiter_bytes()])
+            body = b"".join(chunks)
             assert b"Oracle 23ai introduces AI Vector Search." in body
             assert b"Doc1" in body
 

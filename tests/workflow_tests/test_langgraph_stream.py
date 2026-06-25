@@ -9,6 +9,7 @@ from httpx import ASGITransport
 
 from api.main import app
 from tests.unit_tests.test_streaming_utils import parse_sse_stream
+from tests.workflow_tests.langgraph_protocol_helpers import run_v1_command_stream
 
 THREAD_ID = "test-thread-stream"
 
@@ -251,17 +252,13 @@ def test_values_stream_happy_path() -> None:
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            async with client.stream(
-                "POST",
-                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+            response, chunks = await run_v1_command_stream(
+                client,
+                thread_id=THREAD_ID,
                 headers=headers,
-                json=payload,
-            ) as response:
-                assert response.status_code == 200
-                assert response.headers.get("content-type", "").startswith("text/event-stream")
-                chunks: list[bytes] = []
-                async for chunk in response.aiter_bytes():
-                    chunks.append(chunk)
+                payload=payload,
+            )
+            assert response.status_code == 200
 
         events = _parse_values_events(chunks)
         assistant = _last_assistant(events)
@@ -288,16 +285,13 @@ def test_values_stream_uses_app_v3_event_stream() -> None:
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            async with client.stream(
-                "POST",
-                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+            response, chunks = await run_v1_command_stream(
+                client,
+                thread_id=THREAD_ID,
                 headers=headers,
-                json=payload,
-            ) as response:
-                assert response.status_code == 200
-                chunks: list[bytes] = []
-                async for chunk in response.aiter_bytes():
-                    chunks.append(chunk)
+                payload=payload,
+            )
+            assert response.status_code == 200
 
         events = _parse_values_events(chunks)
         assistant = _last_assistant(events)
@@ -323,16 +317,13 @@ def test_values_stream_uses_v3_event_stream_when_available() -> None:
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            async with client.stream(
-                "POST",
-                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+            response, chunks = await run_v1_command_stream(
+                client,
+                thread_id=THREAD_ID,
                 headers=headers,
-                json=payload,
-            ) as response:
-                assert response.status_code == 200
-                chunks: list[bytes] = []
-                async for chunk in response.aiter_bytes():
-                    chunks.append(chunk)
+                payload=payload,
+            )
+            assert response.status_code == 200
 
         assert stub.calls
         assert stub.calls[0]["version"] == "v3"
@@ -360,16 +351,13 @@ def test_values_stream_reads_v3_events_without_runtime_stream_bridge() -> None:
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            async with client.stream(
-                "POST",
-                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+            response, chunks = await run_v1_command_stream(
+                client,
+                thread_id=THREAD_ID,
                 headers=headers,
-                json=payload,
-            ) as response:
-                assert response.status_code == 200
-                chunks: list[bytes] = []
-                async for chunk in response.aiter_bytes():
-                    chunks.append(chunk)
+                payload=payload,
+            )
+            assert response.status_code == 200
 
         events = _parse_values_events(chunks)
         assistant = _last_assistant(events)
@@ -402,15 +390,13 @@ def test_values_stream_logs_conversation_out(monkeypatch) -> None:
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            async with client.stream(
-                "POST",
-                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+            response, _chunks = await run_v1_command_stream(
+                client,
+                thread_id=THREAD_ID,
                 headers=headers,
-                json=payload,
-            ) as response:
-                assert response.status_code == 200
-                async for _ in response.aiter_bytes():
-                    pass
+                payload=payload,
+            )
+            assert response.status_code == 200
 
         assert captured == [
             {
@@ -439,16 +425,13 @@ def test_values_stream_sanitizes_decimal_in_references() -> None:
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            async with client.stream(
-                "POST",
-                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+            response, chunks = await run_v1_command_stream(
+                client,
+                thread_id=THREAD_ID,
                 headers=headers,
-                json=payload,
-            ) as response:
-                assert response.status_code == 200
-                chunks: list[bytes] = []
-                async for chunk in response.aiter_bytes():
-                    chunks.append(chunk)
+                payload=payload,
+            )
+            assert response.status_code == 200
 
         events = _parse_values_events(chunks)
         assistant = _last_assistant(events)
@@ -474,16 +457,13 @@ def test_values_stream_includes_tool_progress_events() -> None:
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            async with client.stream(
-                "POST",
-                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+            response, chunks = await run_v1_command_stream(
+                client,
+                thread_id=THREAD_ID,
                 headers=headers,
-                json=payload,
-            ) as response:
-                assert response.status_code == 200
-                chunks: list[bytes] = []
-                async for chunk in response.aiter_bytes():
-                    chunks.append(chunk)
+                payload=payload,
+            )
+            assert response.status_code == 200
 
         events = _parse_values_events(chunks)
         assistant = _last_assistant(events)
@@ -512,16 +492,13 @@ def test_stream_emits_sdk_tool_events_before_final_answer() -> None:
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            async with client.stream(
-                "POST",
-                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+            response, chunks = await run_v1_command_stream(
+                client,
+                thread_id=THREAD_ID,
                 headers=headers,
-                json=payload,
-            ) as response:
-                assert response.status_code == 200
-                chunks: list[bytes] = []
-                async for chunk in response.aiter_bytes():
-                    chunks.append(chunk)
+                payload=payload,
+            )
+            assert response.status_code == 200
 
         events = _parse_sse_events(chunks)
         tool_event_index = next(
@@ -574,16 +551,13 @@ def test_values_stream_error_on_empty_message() -> None:
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            async with client.stream(
-                "POST",
-                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+            response, chunks = await run_v1_command_stream(
+                client,
+                thread_id=THREAD_ID,
                 headers=headers,
-                json=payload,
-            ) as response:
-                assert response.status_code == 200
-                chunks: list[bytes] = []
-                async for chunk in response.aiter_bytes():
-                    chunks.append(chunk)
+                payload=payload,
+            )
+            assert response.status_code == 200
 
         events = _parse_values_events(chunks)
         assistant = _last_assistant(events)
@@ -620,16 +594,13 @@ def test_values_stream_emits_generic_error_on_exception() -> None:
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            async with client.stream(
-                "POST",
-                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+            response, chunks = await run_v1_command_stream(
+                client,
+                thread_id=THREAD_ID,
                 headers=headers,
-                json=payload,
-            ) as response:
-                assert response.status_code == 200
-                chunks: list[bytes] = []
-                async for chunk in response.aiter_bytes():
-                    chunks.append(chunk)
+                payload=payload,
+            )
+            assert response.status_code == 200
 
         payloads = list(parse_sse_stream(iter(chunks)))
         concatenated = "\n".join(payloads)
@@ -661,16 +632,13 @@ def test_values_stream_does_not_leak_followup_interpreter_json() -> None:
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            async with client.stream(
-                "POST",
-                f"/api/langgraph/threads/{THREAD_ID}/runs/stream",
+            response, chunks = await run_v1_command_stream(
+                client,
+                thread_id=THREAD_ID,
                 headers=headers,
-                json=payload,
-            ) as response:
-                assert response.status_code == 200
-                chunks: list[bytes] = []
-                async for chunk in response.aiter_bytes():
-                    chunks.append(chunk)
+                payload=payload,
+            )
+            assert response.status_code == 200
 
         payloads = list(parse_sse_stream(iter(chunks)))
         concatenated = "\n".join(payloads)

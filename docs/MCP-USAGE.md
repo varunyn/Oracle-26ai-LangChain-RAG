@@ -97,7 +97,7 @@ The RAG backend and UIs **consume** MCP: they connect to MCP server(s) and attac
 MCP_SERVERS_CONFIG={"default":{"transport":"streamable-http","url":"http://localhost:9000/mcp"}}
 ```
 
-- **API note**: MCP-enabled chat is supported through `POST /api/langgraph/threads/{thread_id}/runs/stream` with `mode="mcp"` or `mode="mixed"`.
+- **API note**: MCP-enabled chat is supported through `POST /api/langgraph/threads/{thread_id}/commands` with `mode="mcp"` or `mode="mixed"` in `params.input`.
 
 ### 3. Use multiple MCPs in RAG chat at once
 
@@ -175,7 +175,7 @@ Chat is handled by `ChatRuntimeService` in `src/rag_agent/runtime/chat_service.p
 
 **From the UI:** In the sidebar, set **Flow mode** to **Mixed (RAG + MCP)**. Send a question; the backend loads `oracle_retrieval` and configured MCP tools. If the turn uses retrieval and finds docs, the answer streams from the RAG answer path with any non-retrieval MCP tool outputs included as supplemental context. If the turn uses only MCP tools, the MCP agent answer is returned.
 
-**With curl:** `curl -N -X POST http://localhost:3002/api/langgraph/threads/demo-thread/runs/stream -H "Content-Type: application/json" -d '{"assistant_id":"mcp_agent_executor","input":{"messages":[{"type":"human","content":"What is OCI CLI? Then compute 2+2."}],"mode":"mixed"}}'`
+**With curl:** `curl -X POST http://localhost:3002/api/langgraph/threads/demo-thread/commands -H "Content-Type: application/json" -d '{"id":1,"method":"run.start","params":{"assistant_id":"mcp_agent_executor","input":{"messages":[{"type":"human","content":"What is OCI CLI? Then compute 2+2."}],"mode":"mixed"}}}'`
 
 Use `"mode": "mcp"` for MCP tools only, `"mode": "rag"` for retrieval-only, `"mode": "direct"` for no retrieval and no MCP tools. Optionally send `"mcp_server_keys": ["default", "calculator"]` for configured server keys.
 
@@ -189,7 +189,7 @@ MCP and mixed chat modes load tools through **`langchain_mcp_adapters.MultiServe
 
 ```mermaid
 flowchart TD
-    A[POST /api/langgraph/threads/{thread_id}/runs/stream] --> C{mode}
+    A[POST /api/langgraph/threads/{thread_id}/commands] --> C{mode}
     C -->|direct| D[LLM on message history]
     C -->|rag| E[Vector search + answer prompt]
     C -->|mcp| F[MultiServerMCPClient.get_tools + get_mcp_answer_async]

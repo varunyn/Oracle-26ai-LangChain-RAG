@@ -170,23 +170,6 @@ Do not edit manually.
 - `status`: `string`
 - `url`: `complex`
 
-## `RunInput`
-
-- type: `object`
-
-### Properties
-
-- `collection_name`: `complex`
-- `enable_reranker`: `complex`
-- `enable_tracing`: `complex`
-- `mcp_server_keys`: `complex`
-- `message`: `complex`
-- `messages`: `complex`
-- `mode`: `complex`
-- `model`: `complex`
-- `session_id`: `complex`
-- `stream_mode`: `complex`
-
 ## `SuggestionsRequest`
 
 - type: `object`
@@ -223,6 +206,17 @@ Do not edit manually.
 
 - `thread_id`: `string`
 
+## `ThreadEventsRequest`
+
+- type: `object`
+
+### Properties
+
+- `channels`: `array`
+- `depth`: `complex`
+- `namespaces`: `complex`
+- `since`: `complex`
+
 ## `ThreadHistoryRequest`
 
 - type: `object`
@@ -233,28 +227,6 @@ Do not edit manually.
 - `checkpoint`: `complex`
 - `limit`: `complex`
 - `metadata`: `complex`
-
-## `ThreadRunRequest`
-
-- type: `object`
-
-### Properties
-
-- `assistant_id`: `complex`
-- `collection_name`: `complex`
-- `configurable`: `complex`
-- `context`: `complex`
-- `enable_reranker`: `complex`
-- `enable_tracing`: `complex`
-- `input`: `complex`
-- `mcp_server_keys`: `complex`
-- `message`: `complex`
-- `messages`: `complex`
-- `metadata`: `complex`
-- `mode`: `complex`
-- `model`: `complex`
-- `session_id`: `complex`
-- `stream_mode`: `complex`
 
 ## `ValidationError`
 

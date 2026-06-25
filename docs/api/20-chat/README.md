@@ -3,7 +3,8 @@
 This app exposes thread/run chat endpoints:
 
 - `POST /api/langgraph/threads`
-- `POST /api/langgraph/threads/{thread_id}/runs/stream`
+- `POST /api/langgraph/threads/{thread_id}/commands`
+- `POST /api/langgraph/threads/{thread_id}/stream/events`
 
 ## Request model highlights
 
@@ -20,41 +21,52 @@ This app exposes thread/run chat endpoints:
 Thread/run payloads must provide either `input.messages` (with at least one user/human message) or
 `input.message`.
 
-## POST `/api/langgraph/threads/{thread_id}/runs/stream`
+## POST `/api/langgraph/threads/{thread_id}/commands`
 
-### Stream request example
+### Command request example
 
 ```json
 {
-  "model": "cohere.command-r-plus",
-  "messages": [
-    {
-      "role": "user",
-      "content": "Answer with a markdown table when appropriate."
-    },
-    {
-      "role": "assistant",
-      "content": "Understood."
-    },
-    {
-      "role": "user",
-      "content": "What documents mention Oracle vector search?"
+  "id": 1,
+  "method": "run.start",
+  "params": {
+    "assistant_id": "mcp_agent_executor",
+    "input": {
+      "model": "cohere.command-r-plus",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Answer with a markdown table when appropriate."
+        },
+        {
+          "role": "assistant",
+          "content": "Understood."
+        },
+        {
+          "role": "user",
+          "content": "What documents mention Oracle vector search?"
+        }
+      ],
+      "collection_name": "RAG_KNOWLEDGE_BASE"
     }
-  ],
-  "thread_id": "demo-thread",
-  "collection_name": "RAG_KNOWLEDGE_BASE"
+  }
 }
 ```
 
 ### Streaming behavior
 
-The response is SSE (`text/event-stream`) using repeated `event: values` frames.
+The command response is JSON. Stream data is read from
+`POST /api/langgraph/threads/{thread_id}/stream/events`.
 
-Each frame contains a full `messages` snapshot, for example:
+The stream response is SSE (`text/event-stream`) using repeated `event: event`
+frames. Each payload is a protocol event. `method="values"` events contain the
+full `messages` snapshot.
+
+Example frame:
 
 ```text
-event: values
-data: {"messages":[...]}
+event: event
+data: {"type":"event","seq":1,"event_id":"...","method":"values","params":{"namespace":[],"data":{"messages":[...]}}}
 ```
 
 There is no `[DONE]` sentinel; completion is stream close.

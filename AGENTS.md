@@ -4,11 +4,11 @@ This file is local-only orientation for Codex work in this repo. The closest `AG
 
 ## Repo Map
 
-| Area | Stack | Primary Commands |
-| --- | --- | --- |
-| `src`, `api`, `scripts`, `mcp_servers`, `tests`, `ui` | Python 3.11, LangChain, FastAPI, MCP | `uv run python ...`, `uv run pytest`, `./run_api.sh` |
-| `frontend` | Next.js 16, React 19, Tailwind CSS | `PORT=4000 pnpm dev`, `pnpm build`, `pnpm lint` |
-| Docker stacks | Core app, observability, Langfuse | `uv run python scripts/manage_stacks.py up --stacks <name>` |
+| Area                                                  | Stack                                | Primary Commands                                            |
+| ----------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------- |
+| `src`, `api`, `scripts`, `mcp_servers`, `tests`, `ui` | Python 3.11, LangChain, FastAPI, MCP | `uv run python ...`, `uv run pytest`, `./run_api.sh`        |
+| `frontend`                                            | Next.js 16, React 19, Tailwind CSS   | `PORT=4000 pnpm dev`, `pnpm build`, `pnpm lint`             |
+| Docker stacks                                         | Core app, observability, Langfuse    | `uv run python scripts/manage_stacks.py up --stacks <name>` |
 
 Scoped hints:
 
@@ -91,6 +91,7 @@ Test categories:
 - For LangChain-related source or test changes, check the current official docs through the configured LangChain docs MCP before recommending APIs or changing patterns.
 - For agentic AI, tool-calling, MCP, routing, or LLM behavior debugging, inspect live traces with the installed Langfuse CLI before guessing from code. Prefer `langfuse --env .env api traces list --limit 5 --json`, `langfuse --env .env api traces get <trace-id> --fields core,io,scores,observations,metrics --json`, and `langfuse --env .env api observations list --filter '[{"type":"string","column":"traceId","operator":"=","value":"<trace-id>"}]' --fields core,basic,io,model,usage,metadata --json`. Never print public/secret key values.
 - For runtime bugs, prefer live evidence first: check whether the Docker Compose app is already running, use the existing containers/surface when available, inspect Docker logs before guessing, then use browser/devtools output, actual tool schemas, request IDs, and repro commands.
+- Significant features, fixes, refactorings, specification updates, deployment changes, and documentation updates must be recorded in CHANGELOG.md under the current date.
 
 ## Contribution Notes
 

@@ -4,10 +4,11 @@ This app keeps chat memory on the backend in `ChatRuntimeService` (`src/rag_agen
 
 ## Key behaviors
 
-- API contract: `/api/langgraph/threads/{thread_id}/runs/stream`
+- API contract: `POST /api/langgraph/threads/{thread_id}/commands` plus
+  `POST /api/langgraph/threads/{thread_id}/stream/events`
   - Request input should include at least one latest user/human message.
   - `thread_id` identifies a conversation; create one with `POST /api/langgraph/threads`.
-  - Stream responses emit `event: values` SSE frames.
+  - Stream responses emit `event: event` SSE protocol frames.
 - Storage model
   - Runtime always keeps a process-local cache (`self._thread_state`).
   - When `ENABLE_PERSISTENT_MEMORY=true`, state is also stored in the SQLite checkpoint file configured by `LANGGRAPH_SQLITE_PATH`.

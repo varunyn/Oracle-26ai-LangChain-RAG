@@ -12,6 +12,7 @@ from langchain_core.messages import AnyMessage
 from pytest import MonkeyPatch
 
 from src.rag_agent.runtime.streaming import v3_raw_event
+from tests.workflow_tests.langgraph_protocol_helpers import run_v1_command_stream
 
 
 class _RunChatStreamingMixin:
@@ -99,7 +100,7 @@ def test_langgraph_run_validation_errors_return_422() -> None:
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
             resp = await client.post(
-                "/api/langgraph/threads/thread-validation/runs/stream",
+                "/api/langgraph/threads/thread-validation/commands",
                 headers=headers,
                 json={"assistant_id": "mcp_agent_executor"},
             )
@@ -143,10 +144,11 @@ def test_multi_message_history_is_accepted() -> None:
         async with httpx.AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            resp = await client.post(
-                "/api/langgraph/threads/thread-history/runs/stream",
+            resp, _chunks = await run_v1_command_stream(
+                client,
+                thread_id="thread-history",
                 headers=headers,
-                json=_langgraph_run_payload(
+                payload=_langgraph_run_payload(
                     messages=cast(list[dict[str, object]], payload["messages"]),
                     mode="direct",
                 ),
@@ -178,10 +180,11 @@ def test_persistence_across_two_calls_messages_length_is_4(
             payload1 = {
                 "messages": [{"type": "human", "content": "Hello"}],
             }
-            r1 = await client.post(
-                f"/api/langgraph/threads/{thread_id}/runs/stream",
+            r1, _chunks1 = await run_v1_command_stream(
+                client,
+                thread_id=thread_id,
                 headers=headers,
-                json=_langgraph_run_payload(
+                payload=_langgraph_run_payload(
                     messages=cast(list[dict[str, object]], payload1["messages"]),
                     mode="direct",
                 ),
@@ -192,10 +195,11 @@ def test_persistence_across_two_calls_messages_length_is_4(
             payload2 = {
                 "messages": [{"type": "human", "content": "What did I just say?"}],
             }
-            r2 = await client.post(
-                f"/api/langgraph/threads/{thread_id}/runs/stream",
+            r2, _chunks2 = await run_v1_command_stream(
+                client,
+                thread_id=thread_id,
                 headers=headers,
-                json=_langgraph_run_payload(
+                payload=_langgraph_run_payload(
                     messages=cast(list[dict[str, object]], payload2["messages"]),
                     mode="direct",
                 ),
@@ -241,19 +245,21 @@ def test_followup_run_hydrates_persisted_thread_history(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
             headers = {"Content-Type": "application/json"}
-            first = await client.post(
-                f"/api/langgraph/threads/{thread_id}/runs/stream",
+            first, _first_chunks = await run_v1_command_stream(
+                client,
+                thread_id=thread_id,
                 headers=headers,
-                json=_langgraph_run_payload(
+                payload=_langgraph_run_payload(
                     messages=[{"type": "human", "content": "Remember the color blue."}],
                     mode="direct",
                 ),
             )
             assert first.status_code == 200
-            second = await client.post(
-                f"/api/langgraph/threads/{thread_id}/runs/stream",
+            second, _second_chunks = await run_v1_command_stream(
+                client,
+                thread_id=thread_id,
                 headers=headers,
-                json=_langgraph_run_payload(
+                payload=_langgraph_run_payload(
                     messages=[{"type": "human", "content": "What color did I mention?"}],
                     mode="direct",
                 ),
@@ -291,10 +297,11 @@ def test_delete_thread_clears_memory_and_is_idempotent(
                 payload = {
                     "messages": [{"type": "human", "content": content}],
                 }
-                resp = await client.post(
-                    f"/api/langgraph/threads/{thread_id}/runs/stream",
+                resp, _chunks = await run_v1_command_stream(
+                    client,
+                    thread_id=thread_id,
                     headers=headers,
-                    json=_langgraph_run_payload(
+                    payload=_langgraph_run_payload(
                         messages=cast(list[dict[str, object]], payload["messages"]),
                         mode="direct",
                     ),
@@ -400,10 +407,11 @@ def test_new_turn_resets_stale_standalone_question_before_search(
             async with httpx.AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://testserver"
             ) as client:
-                resp = await client.post(
-                    f"/api/langgraph/threads/{payload['thread_id']}/runs/stream",
+                resp, _chunks = await run_v1_command_stream(
+                    client,
+                    thread_id=cast(str, payload["thread_id"]),
                     headers=headers,
-                    json=_langgraph_run_payload(
+                    payload=_langgraph_run_payload(
                         messages=cast(list[dict[str, object]], payload["messages"]),
                         mode="rag",
                     ),
@@ -439,10 +447,11 @@ def test_direct_run_persists_thread_state_without_legacy_turn_state_helper() -> 
         ) as client:
             headers = {"Content-Type": "application/json"}
             payload = {"messages": [{"type": "human", "content": "hello runtime"}]}
-            resp = await client.post(
-                f"/api/langgraph/threads/{thread_id}/runs/stream",
+            resp, _chunks = await run_v1_command_stream(
+                client,
+                thread_id=thread_id,
                 headers=headers,
-                json=_langgraph_run_payload(
+                payload=_langgraph_run_payload(
                     messages=cast(list[dict[str, object]], payload["messages"]),
                     mode="direct",
                 ),

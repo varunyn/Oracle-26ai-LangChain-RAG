@@ -71,18 +71,19 @@ Recommended workflow:
 
 ## Important contract notes
 
-### `/api/langgraph/threads/{thread_id}/runs/stream`
+### `/api/langgraph/threads/{thread_id}/commands` and `/stream/events`
 
-Thread/run endpoints are the primary contract for frontend chat:
+LangGraph v1 thread endpoints are the primary contract for frontend chat:
 
 - `messages` must contain **at least one** user message
 - the **final** message must have `role="user"`
 - earlier system/user/assistant messages are treated as chat history
-- responses use SSE `event: values` frames
+- commands return JSON success/error envelopes
+- stream responses use SSE `event: event` protocol frames
 - stream completion is transport close (no `[DONE]`)
 
 See `20-chat/README.md` for details.
 
 ### MCP-enabled chat
 
-MCP-enabled chat is supported through thread/run endpoints using `mode="mcp"` or `mode="mixed"`.
+MCP-enabled chat is supported through the command endpoint using `mode="mcp"` or `mode="mixed"`.

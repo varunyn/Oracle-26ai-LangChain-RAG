@@ -6,6 +6,7 @@ and delegates runtime execution to ``ChatRuntimeService``.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import uuid
@@ -14,8 +15,9 @@ from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Response
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import AliasChoices, BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, ValidationError, model_validator
 
 from api.dependencies import generate_request_id, log_conversation_out
 from api.deps.request import get_graph_service
@@ -230,6 +232,158 @@ class ThreadHistoryRequest(BaseModel):
     checkpoint: dict[str, Any] | None = None
 
 
+class ThreadEventsRequest(BaseModel):
+    channels: list[str] = Field(default_factory=list)
+    namespaces: list[list[str]] | None = None
+    depth: int | None = None
+    since: int | None = None
+
+
+class _ProtocolEventBuffer:
+    def __init__(self) -> None:
+        self._events: dict[str, list[dict[str, Any]]] = {}
+        self._condition = asyncio.Condition()
+
+    async def publish(
+        self,
+        thread_id: str,
+        *,
+        method: str,
+        data: dict[str, object],
+    ) -> dict[str, Any]:
+        async with self._condition:
+            events = self._events.setdefault(thread_id, [])
+            seq = len(events) + 1
+            event = {
+                "type": "event",
+                "seq": seq,
+                "event_id": uuid.uuid4().hex,
+                "method": method,
+                "params": {"namespace": [], "data": data},
+            }
+            events.append(event)
+            self._condition.notify_all()
+            return event
+
+    async def events(
+        self,
+        thread_id: str,
+        *,
+        channels: set[str],
+        since: int | None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        last_seq = since or 0
+        while True:
+            async with self._condition:
+                while True:
+                    thread_events = self._events.get(thread_id, [])
+                    pending = [
+                        event
+                        for event in thread_events
+                        if int(event.get("seq") or 0) > last_seq
+                        and _protocol_event_matches_channels(event, channels)
+                    ]
+                    if last_seq == 0 and _has_terminal_protocol_event(thread_events):
+                        pending = _coalesce_completed_replay_events(pending)
+                    if pending:
+                        break
+                    await self._condition.wait()
+
+            for event in pending:
+                last_seq = int(event.get("seq") or last_seq)
+                yield event
+                if _is_terminal_protocol_event(event):
+                    return
+
+
+_protocol_events = _ProtocolEventBuffer()
+
+
+def _protocol_event_matches_channels(event: dict[str, Any], channels: set[str]) -> bool:
+    if not channels:
+        return True
+    method = str(event.get("method") or "")
+    channel = method.split(".", 1)[0]
+    return method in channels or channel in channels
+
+
+def _is_terminal_protocol_event(event: dict[str, Any]) -> bool:
+    if event.get("method") != "lifecycle":
+        return False
+    params = event.get("params")
+    if not isinstance(params, dict):
+        return False
+    data = params.get("data")
+    if not isinstance(data, dict):
+        return False
+    return data.get("event") in {"completed", "failed", "interrupted"}
+
+
+def _has_terminal_protocol_event(events: list[dict[str, Any]]) -> bool:
+    return any(_is_terminal_protocol_event(event) for event in events)
+
+
+def _coalesce_completed_replay_events(
+    events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    latest_values: dict[str, Any] | None = None
+    latest_lifecycle: dict[str, Any] | None = None
+    passthrough: list[dict[str, Any]] = []
+    for event in events:
+        method = event.get("method")
+        if method == "values":
+            latest_values = event
+        elif method == "lifecycle":
+            if _is_terminal_protocol_event(event):
+                latest_lifecycle = event
+        else:
+            passthrough.append(event)
+    replay = [event for event in [latest_values, *passthrough, latest_lifecycle] if event]
+    return sorted(replay, key=lambda event: int(event.get("seq") or 0))
+
+
+def _thread_run_request_from_command(payload: dict[str, Any]) -> ThreadRunRequest:
+    request_payload = payload.get("params")
+    if not isinstance(request_payload, dict):
+        raise RequestValidationError(
+            [
+                {
+                    "type": "missing",
+                    "loc": ("body", "params"),
+                    "msg": "Field required",
+                    "input": payload,
+                }
+            ]
+        )
+    try:
+        return ThreadRunRequest.model_validate(request_payload)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+
+def _thread_command_id(payload: dict[str, Any]) -> int | str | None:
+    command_id = payload.get("id")
+    if isinstance(command_id, int | str):
+        return command_id
+    return None
+
+
+def _thread_command_method(payload: dict[str, Any]) -> str:
+    method = payload.get("method")
+    if not isinstance(method, str) or not method.strip():
+        raise RequestValidationError(
+            [
+                {
+                    "type": "missing",
+                    "loc": ("body", "method"),
+                    "msg": "Field required",
+                    "input": payload,
+                }
+            ]
+        )
+    return method
+
+
 def _to_stream_message(
     *,
     role: str,
@@ -375,145 +529,198 @@ def _effective_run_input(payload: ThreadRunRequest) -> RunInput:
     return RunInput(**merged)
 
 
+async def _thread_stream_events(
+    *,
+    thread_id: str,
+    request: ThreadRunRequest,
+    chat_runtime_service: Any,
+) -> AsyncIterator[tuple[str, dict[str, object]]]:
+    run_input = _effective_run_input(request)
+    _ = request.assistant_id
+    messages = normalize_messages(run_input.messages, run_input.message)
+    turn_id = uuid.uuid4().hex[:12]
+    assistant_message_id = f"{thread_id}:assistant:{turn_id}"
+    assistant_text = ""
+    references: dict[str, object] = {}
+    progress_events: list[dict[str, object]] = []
+    base_messages: list[dict[str, object]] = []
+
+    try:
+        state_snapshot = await chat_runtime_service.get_state(
+            {"configurable": {"thread_id": thread_id}}
+        )
+        values = cast(dict[str, Any], getattr(state_snapshot, "values", None) or {})
+        historical = _serialize_state_messages(values.get("messages"))
+        for idx, history_message in enumerate(historical):
+            role = str(history_message.get("role") or "").strip().lower()
+            content = str(history_message.get("content") or "")
+            if not role or not content:
+                continue
+            base_messages.append(
+                _to_stream_message(
+                    role=role,
+                    content=content,
+                    message_id=f"{thread_id}:hist:{idx}",
+                )
+            )
+    except Exception:
+        base_messages = []
+
+    for idx, pending_message in enumerate(messages):
+        role = str(pending_message.role or "").strip().lower()
+        content = str(pending_message.content or "")
+        if not role or not content:
+            continue
+        pending = _to_stream_message(
+            role=role,
+            content=content,
+            message_id=f"{thread_id}:pending:{turn_id}:{idx}",
+        )
+        last = base_messages[-1] if base_messages else None
+        if (
+            last
+            and last.get("type") == pending.get("type")
+            and last.get("content") == pending.get("content")
+        ):
+            continue
+        base_messages.append(pending)
+
+    if base_messages:
+        yield "values", {"messages": base_messages}
+
+    def _values_payload() -> dict[str, object]:
+        payload_messages = list(base_messages)
+        if assistant_text or references:
+            payload_messages.append(
+                _to_stream_message(
+                    role="assistant",
+                    content=assistant_text,
+                    message_id=assistant_message_id,
+                    references=references,
+                )
+            )
+        return {"messages": payload_messages}
+
+    try:
+        async for raw_event in _astream_v3_raw_events(
+            chat_runtime_service,
+            messages=messages,
+            thread_id=thread_id,
+            run_input=run_input,
+        ):
+            for event in _events_from_v3(raw_event):
+                if event.get("type") == "text":
+                    delta = str(event.get("delta") or "")
+                    if delta:
+                        assistant_text += delta
+                        yield "values", _values_payload()
+                elif event.get("type") == "references":
+                    safe_references = make_metadata_safe(
+                        cast(dict[str, object], event.get("data") or {})
+                    )
+                    citations = normalize_citations(
+                        cast(list[dict[str, object]], safe_references.get("citations") or [])
+                    )
+                    safe_references["citations"] = citations
+                    if progress_events:
+                        safe_references["mcp_progress_events"] = list(progress_events)
+                    references = cast(dict[str, object], safe_references)
+                    yield "values", _values_payload()
+                elif event.get("type") == "tool_event":
+                    safe_event = make_metadata_safe(
+                        cast(dict[str, object], event.get("data") or {})
+                    )
+                    progress_events.append(cast(dict[str, object], safe_event))
+                    if len(progress_events) > 100:
+                        progress_events = progress_events[-100:]
+                    references["mcp_progress_events"] = list(progress_events)
+                    tools_stream_event = _to_tools_stream_event(
+                        cast(dict[str, object], safe_event)
+                    )
+                    if tools_stream_event:
+                        yield "tools", tools_stream_event
+                    yield "values", _values_payload()
+        log_conversation_out(
+            final_answer=assistant_text,
+            error=cast(str | None, references.get("error")),
+            mcp_used=cast(bool | None, references.get("mcp_used")),
+            mcp_tools_used=cast(
+                list[Any] | None,
+                references.get("mcp_tools_used"),
+            ),
+            standalone_question=cast(str | None, references.get("standalone_question")),
+        )
+    except Exception:
+        logger.exception("langgraph_stream_run_failed thread_id=%s", thread_id)
+        error_references = dict(references)
+        error_references["error"] = _stream_error_message()
+        references = error_references
+        yield "values", _values_payload()
+
+
 @router.post("/api/langgraph/threads", response_model=ThreadCreateResponse)
 async def create_thread(payload: ThreadCreateRequest) -> ThreadCreateResponse:
     thread_id = payload.thread_id or generate_request_id()
     return ThreadCreateResponse(thread_id=thread_id)
 
 
-@router.post("/api/langgraph/threads/{thread_id}/runs/stream")
-async def stream_thread_run(
+@router.post("/api/langgraph/threads/{thread_id}/commands")
+async def stream_thread_command(
     thread_id: str,
-    request: ThreadRunRequest,
+    request: dict[str, Any],
     chat_runtime_service: Any = Depends(get_graph_service),
+) -> JSONResponse:
+    """Run command endpoint for @langchain/react v1 thread streams."""
+
+    command_id = _thread_command_id(request)
+    method = _thread_command_method(request)
+    if method != "run.start":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "id": command_id,
+                "type": "error",
+                "error": {"code": "unsupported_method", "message": method},
+            },
+        )
+
+    run_id = uuid.uuid4().hex
+    await _protocol_events.publish(thread_id, method="lifecycle", data={"event": "running"})
+    thread_request = _thread_run_request_from_command(request)
+    async for event_name, payload in _thread_stream_events(
+        thread_id=thread_id,
+        request=thread_request,
+        chat_runtime_service=chat_runtime_service,
+    ):
+        await _protocol_events.publish(thread_id, method=event_name, data=payload)
+    await _protocol_events.publish(thread_id, method="lifecycle", data={"event": "completed"})
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "id": command_id,
+            "type": "success",
+            "result": {"run_id": run_id, "created_at": None},
+        },
+    )
+
+
+@router.post("/api/langgraph/threads/{thread_id}/stream/events")
+async def stream_thread_protocol_events(
+    thread_id: str,
+    request: ThreadEventsRequest,
 ) -> StreamingResponse:
-    run_input = _effective_run_input(request)
-    _ = request.assistant_id
-    messages = normalize_messages(run_input.messages, run_input.message)
+    """Protocol-v2 event stream used by @langchain/react v1."""
 
-    async def _stream() -> Any:
-        turn_id = uuid.uuid4().hex[:12]
-        assistant_message_id = f"{thread_id}:assistant:{turn_id}"
-        assistant_text = ""
-        references: dict[str, object] = {}
-        progress_events: list[dict[str, object]] = []
-        base_messages: list[dict[str, object]] = []
+    channels = set(request.channels)
 
-        try:
-            state_snapshot = await chat_runtime_service.get_state(
-                {"configurable": {"thread_id": thread_id}}
-            )
-            values = cast(dict[str, Any], getattr(state_snapshot, "values", None) or {})
-            historical = _serialize_state_messages(values.get("messages"))
-            for idx, history_message in enumerate(historical):
-                role = str(history_message.get("role") or "").strip().lower()
-                content = str(history_message.get("content") or "")
-                if not role or not content:
-                    continue
-                base_messages.append(
-                    _to_stream_message(
-                        role=role,
-                        content=content,
-                        message_id=f"{thread_id}:hist:{idx}",
-                    )
-                )
-        except Exception:
-            base_messages = []
-
-        for idx, pending_message in enumerate(messages):
-            role = str(pending_message.role or "").strip().lower()
-            content = str(pending_message.content or "")
-            if not role or not content:
-                continue
-            pending = _to_stream_message(
-                role=role,
-                content=content,
-                message_id=f"{thread_id}:pending:{turn_id}:{idx}",
-            )
-            last = base_messages[-1] if base_messages else None
-            if (
-                last
-                and last.get("type") == pending.get("type")
-                and last.get("content") == pending.get("content")
-            ):
-                continue
-            base_messages.append(pending)
-
-        if base_messages:
-            yield f"event: values\ndata: {_json_response_body({'messages': base_messages})}\n\n"
-
-        def _emit_values() -> str:
-            payload_messages = list(base_messages)
-            if assistant_text or references:
-                payload_messages.append(
-                    _to_stream_message(
-                        role="assistant",
-                        content=assistant_text,
-                        message_id=assistant_message_id,
-                        references=references,
-                    )
-                )
-            payload = {"messages": payload_messages}
-            return f"event: values\ndata: {_json_response_body(payload)}\n\n"
-
-        try:
-            async for raw_event in _astream_v3_raw_events(
-                chat_runtime_service,
-                messages=messages,
-                thread_id=thread_id,
-                run_input=run_input,
-            ):
-                for event in _events_from_v3(raw_event):
-                    if event.get("type") == "text":
-                        delta = str(event.get("delta") or "")
-                        if delta:
-                            assistant_text += delta
-                            yield _emit_values()
-                    elif event.get("type") == "references":
-                        safe_references = make_metadata_safe(
-                            cast(dict[str, object], event.get("data") or {})
-                        )
-                        citations = normalize_citations(
-                            cast(list[dict[str, object]], safe_references.get("citations") or [])
-                        )
-                        safe_references["citations"] = citations
-                        if progress_events:
-                            safe_references["mcp_progress_events"] = list(progress_events)
-                        references = cast(dict[str, object], safe_references)
-                        yield _emit_values()
-                    elif event.get("type") == "tool_event":
-                        safe_event = make_metadata_safe(
-                            cast(dict[str, object], event.get("data") or {})
-                        )
-                        progress_events.append(cast(dict[str, object], safe_event))
-                        if len(progress_events) > 100:
-                            progress_events = progress_events[-100:]
-                        references["mcp_progress_events"] = list(progress_events)
-                        tools_stream_event = _to_tools_stream_event(
-                            cast(dict[str, object], safe_event)
-                        )
-                        if tools_stream_event:
-                            yield (
-                                "event: tools\n"
-                                f"data: {_json_response_body(tools_stream_event)}\n\n"
-                            )
-                        yield _emit_values()
-            log_conversation_out(
-                final_answer=assistant_text,
-                error=cast(str | None, references.get("error")),
-                mcp_used=cast(bool | None, references.get("mcp_used")),
-                mcp_tools_used=cast(
-                    list[Any] | None,
-                    references.get("mcp_tools_used"),
-                ),
-                standalone_question=cast(str | None, references.get("standalone_question")),
-            )
-        except Exception:
-            logger.exception("langgraph_stream_run_failed thread_id=%s", thread_id)
-            error_references = dict(references)
-            error_references["error"] = _stream_error_message()
-            references = error_references
-            yield _emit_values()
+    async def _stream() -> AsyncIterator[str]:
+        async for event in _protocol_events.events(
+            thread_id,
+            channels=channels,
+            since=request.since,
+        ):
+            yield f"event: event\ndata: {_json_response_body(event)}\n\n"
 
     return StreamingResponse(
         _stream(),

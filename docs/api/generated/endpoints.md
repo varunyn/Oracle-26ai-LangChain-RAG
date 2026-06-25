@@ -75,23 +75,29 @@ Do not edit manually.
 - tags: langgraph-runtime
 - summary: Create Thread
 
+## POST `/api/langgraph/threads/{thread_id}/commands`
+
+- operationId: `stream_thread_command_api_langgraph_threads__thread_id__commands_post`
+- tags: langgraph-runtime
+- summary: Stream Thread Command
+
 ## POST `/api/langgraph/threads/{thread_id}/history`
 
 - operationId: `get_thread_history_api_langgraph_threads__thread_id__history_post`
 - tags: langgraph-runtime
 - summary: Get Thread History
 
-## POST `/api/langgraph/threads/{thread_id}/runs/stream`
-
-- operationId: `stream_thread_run_api_langgraph_threads__thread_id__runs_stream_post`
-- tags: langgraph-runtime
-- summary: Stream Thread Run
-
 ## GET `/api/langgraph/threads/{thread_id}/state`
 
 - operationId: `get_thread_state_api_langgraph_threads__thread_id__state_get`
 - tags: langgraph-runtime
 - summary: Get Thread State
+
+## POST `/api/langgraph/threads/{thread_id}/stream/events`
+
+- operationId: `stream_thread_protocol_events_api_langgraph_threads__thread_id__stream_events_post`
+- tags: langgraph-runtime
+- summary: Stream Thread Protocol Events
 
 ## POST `/api/suggestions`
 

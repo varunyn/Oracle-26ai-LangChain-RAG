@@ -1,0 +1,21 @@
+meta {
+  name: Chat Stream Events
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/langgraph/threads/{{threadId}}/stream/events
+  body: json
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "channels": ["values", "tools", "lifecycle"],
+    "depth": 1
+  }
+}

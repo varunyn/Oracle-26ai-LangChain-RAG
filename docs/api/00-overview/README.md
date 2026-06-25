@@ -37,11 +37,11 @@ Use this docs tree for:
 
 ## Streaming contract summary
 
-For `/api/langgraph/threads/{thread_id}/runs/stream` responses:
+For `/api/langgraph/threads/{thread_id}/stream/events` responses:
 
 - content-type: `text/event-stream`
-- event name: `values`
-- frame payload: `{"messages":[...]}`
+- event name: `event`
+- frame payload: LangGraph protocol event with `method="values"`, `method="tools"`, or `method="lifecycle"`
 - completion: stream close (no `[DONE]` frame)
 
 These are contract requirements between frontend and backend.
