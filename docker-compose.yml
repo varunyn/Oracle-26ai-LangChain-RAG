@@ -8,8 +8,6 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-      additional_contexts:
-        langchain_oci: ../langchain-oracle/libs/oci
     image: custom-rag-agent-backend:latest
     container_name: rag-backend
     networks:
