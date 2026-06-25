@@ -1,5 +1,5 @@
 import { AIMessage, HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
-import { useStream } from "@langchain/react";
+import { useStream, type AssembledToolCall } from "@langchain/react";
 import {
   startTransition,
   useCallback,
@@ -85,7 +85,7 @@ type ChatStreamDebugEvent =
 
 const CHAT_STREAM_DEBUG_FLAG = "rag_agent_debug_stream";
 const CHAT_STREAM_DEBUG_BREAK_FLAG = "rag_agent_debug_stream_break";
-const EMPTY_TOOL_PROGRESS: SdkToolProgress[] = [];
+const EMPTY_TOOL_CALLS: AssembledToolCall[] = [];
 
 function toFiniteNumber(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
@@ -268,28 +268,28 @@ function stringifyToolPayload(value: unknown): string | null {
   }
 }
 
-function toolProgressToMcpEvents(toolProgress: SdkToolProgress[]): McpProgressEvent[] {
-  return toolProgress
+function toolCallsToMcpEvents(toolCalls: AssembledToolCall[]): McpProgressEvent[] {
+  return toolCalls
     .map((tool): McpProgressEvent | null => {
       const toolName = typeof tool.name === "string" ? tool.name.trim() : "";
       if (!toolName) return null;
       const toolRunId =
-        typeof tool.toolCallId === "string" && tool.toolCallId.trim()
-          ? tool.toolCallId
+        typeof tool.callId === "string" && tool.callId.trim()
+          ? tool.callId
           : undefined;
       const base = {
         tool_name: toolName,
         tool_run_id: toolRunId,
-        args: tool.input,
+        args: tool.input ?? tool.args,
       };
-      if (tool.state === "completed") {
+      if (tool.status === "finished") {
         return {
           ...base,
           phase: "end",
-          result: stringifyToolPayload(tool.result),
+          result: stringifyToolPayload(tool.output),
         };
       }
-      if (tool.state === "error") {
+      if (tool.status === "error") {
         return {
           ...base,
           phase: "error",
@@ -299,7 +299,7 @@ function toolProgressToMcpEvents(toolProgress: SdkToolProgress[]): McpProgressEv
       return {
         ...base,
         phase: "start",
-        result: tool.state === "running" ? stringifyToolPayload(tool.data) : null,
+        result: null,
       };
     })
     .filter((event): event is McpProgressEvent => event != null);
@@ -580,28 +580,15 @@ export function useChatController({
     apiUrl: langgraphApiUrl,
     assistantId: "mcp_agent_executor",
     threadId,
-    reconnectOnMount: true,
-    fetchStateHistory: true,
-    onStop: () => {
-      debugChatStream("stop", { threadId });
-      toast.success("Generation stopped");
-    },
-    onError: (error) => {
-      debugChatStream("error", { threadId, error });
-      console.error("Chat error:", error);
-      const message = error instanceof Error ? error.message : String(error);
-      toast.error(message);
-    },
   });
 
   const streamMessages = stream.messages;
   const streamMessageCount = streamMessages?.length ?? 0;
   const streamValues = (stream as { values?: unknown }).values;
-  const streamToolProgress =
-    (stream as { toolProgress?: SdkToolProgress[] }).toolProgress ?? EMPTY_TOOL_PROGRESS;
+  const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
   const liveToolProgressEvents = useMemo(
-    () => toolProgressToMcpEvents(streamToolProgress),
-    [streamToolProgress],
+    () => toolCallsToMcpEvents(streamToolCalls),
+    [streamToolCalls],
   );
 
   const sendUserMessage = useCallback(
@@ -630,7 +617,7 @@ export function useChatController({
           context: { ...bodyParams, mode: effectiveMode },
           metadata: { ...bodyParams, mode: effectiveMode },
           configurable: { ...bodyParams, mode: effectiveMode },
-        }, { streamMode: ["values", "tools"] }),
+        }),
       ).catch(() => undefined);
     },
     [bodyParams, stream, streamMessageCount, threadId],
@@ -758,11 +745,32 @@ export function useChatController({
   useEffect(() => {
     debugChatStream("stream.toolProgress", {
       threadId,
-      count: streamToolProgress.length,
-      progress: summarizeToolProgress(streamToolProgress),
+      count: streamToolCalls.length,
+      progress: summarizeToolProgress(
+        streamToolCalls.map((tool) => ({
+          toolCallId: tool.callId,
+          name: tool.name,
+          state: tool.status,
+          input: tool.input,
+          result: tool.output,
+          error: tool.error,
+        })),
+      ),
       mcpProgressEvents: liveToolProgressEvents,
     });
-  }, [liveToolProgressEvents, streamToolProgress, threadId]);
+  }, [liveToolProgressEvents, streamToolCalls, threadId]);
+
+  useEffect(() => {
+    if (stream.error == null) return;
+    debugChatStream("error", { threadId, error: stream.error });
+    console.error("Chat error:", stream.error);
+    const message =
+      stream.error instanceof Error ? stream.error.message : String(stream.error);
+    const errorToastKey = `stream:${threadId}:${message}`;
+    if (lastErrorToastKeyRef.current === errorToastKey) return;
+    lastErrorToastKeyRef.current = errorToastKey;
+    toast.error(message);
+  }, [stream.error, threadId, toast]);
 
   useEffect(() => {
     debugChatStream("visible.messages", {
@@ -926,7 +934,11 @@ export function useChatController({
     handleResumeTurn,
     handleRecoverDirect,
     handleRecoverRagOnly,
-    handleStopStream: () => stream.stop?.(),
+    handleStopStream: () => {
+      debugChatStream("stop", { threadId });
+      void stream.stop?.();
+      toast.success("Generation stopped");
+    },
     handleRetry,
     handleFeedback,
     handleClearChat,
