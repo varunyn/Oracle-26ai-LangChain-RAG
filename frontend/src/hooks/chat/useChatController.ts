@@ -382,16 +382,6 @@ function getLastUserMessageText(messages: MessageLike[]): string {
   return getMessageContent(lastUserMessage).trim();
 }
 
-function hasRawUserMessageWithText(messages: BaseMessageWithKwargs[], text: string): boolean {
-  const normalizedText = text.trim();
-  if (!normalizedText) return false;
-  return messages.some(
-    (message) =>
-      toRole(message) === "user" &&
-      readText(message.content).trim() === normalizedText,
-  );
-}
-
 function createPendingUserMessage(
   text: string,
   submittedMessageCount: number,
@@ -402,6 +392,33 @@ function createPendingUserMessage(
     content: text,
     submittedMessageCount,
   };
+}
+
+function mergePendingUserMessage(
+  messages: MessageLike[],
+  pendingUserMessage: PendingUserMessage | null,
+): MessageLike[] {
+  if (!pendingUserMessage) return messages;
+  const pendingText = getMessageContent(pendingUserMessage);
+  if (hasVisibleUserMessageWithText(messages, pendingText)) return messages;
+
+  const searchStart = Math.min(
+    Math.max(pendingUserMessage.submittedMessageCount, 0),
+    messages.length,
+  );
+  const firstAssistantAfterSubmit = messages.findIndex(
+    (message, index) => index >= searchStart && message.role === "assistant",
+  );
+
+  if (firstAssistantAfterSubmit < 0) {
+    return [...messages, pendingUserMessage];
+  }
+
+  return [
+    ...messages.slice(0, firstAssistantAfterSubmit),
+    pendingUserMessage,
+    ...messages.slice(firstAssistantAfterSubmit),
+  ];
 }
 
 function getDebugParam(name: string): string | null {
@@ -654,8 +671,7 @@ export function useChatController({
         ((data as ReferencePayload).mcp_progress_events?.length ?? 0) > 0
       );
     });
-    const baseMapped =
-      valueMapped.length > mapped.length || hasValueProgress ? valueMapped : mapped;
+    const baseMapped = valueMapped.length > 0 || hasValueProgress ? valueMapped : mapped;
 
     // Fallback for cases where class-message metadata drops reference payloads.
     const lastAssistantValue = [...valueMessages]
@@ -668,18 +684,7 @@ export function useChatController({
         return role === "assistant" || type === "ai";
       });
     const fallbackRefs = toReferencesFromRawMessage(lastAssistantValue);
-    const pendingText = getMessageContent(pendingUserMessage);
-    const hasStreamedPendingUser =
-      pendingUserMessage != null &&
-      (hasVisibleUserMessageWithText(baseMapped, pendingText) ||
-        hasRawUserMessageWithText(
-          raw.slice(pendingUserMessage.submittedMessageCount),
-          pendingText,
-        ));
-    const visibleMessages =
-      pendingUserMessage && !hasStreamedPendingUser
-        ? [...baseMapped, pendingUserMessage]
-        : baseMapped;
+    const visibleMessages = mergePendingUserMessage(baseMapped, pendingUserMessage);
 
     if (!fallbackRefs) {
       return withLiveToolProgress(visibleMessages, liveToolProgressEvents);
@@ -808,7 +813,6 @@ export function useChatController({
     pendingSuggestion,
     suggestionsLoading,
     handleSuggestionClick,
-    showOptimisticSuggestion,
   } = useSuggestions({
     messages,
     status,
@@ -948,6 +952,5 @@ export function useChatController({
     pendingSuggestion,
     suggestionsLoading,
     handleSuggestionClick,
-    showOptimisticSuggestion,
   };
 }

@@ -60,10 +60,12 @@ export function useSuggestions({
 
   useEffect(() => {
     if (!pendingSuggestion || messages.length === 0) return;
-    const last = messages[messages.length - 1];
-    if (last?.role !== "user") return;
-    const text = getMessageContent(last as Parameters<typeof getMessageContent>[0]);
-    if (text.trim() === pendingSuggestion.trim()) {
+    const hasMatchingUserMessage = messages.some((message) => {
+      if (message?.role !== "user") return false;
+      const text = getMessageContent(message as Parameters<typeof getMessageContent>[0]);
+      return text.trim() === pendingSuggestion.trim();
+    });
+    if (hasMatchingUserMessage) {
       queueMicrotask(() => setPendingSuggestion(null));
     }
   }, [messages, pendingSuggestion]);
@@ -95,18 +97,6 @@ export function useSuggestions({
     );
   }, [status, messages, selectedModel]);
 
-  const showOptimisticSuggestion =
-    pendingSuggestion != null &&
-    (messages.length === 0 ||
-      (() => {
-        const last = messages[messages.length - 1];
-        if (last?.role !== "user") return true;
-        return (
-          getMessageContent(last as Parameters<typeof getMessageContent>[0]).trim() !==
-          pendingSuggestion.trim()
-        );
-      })());
-
   const fetchSuggestionsForText = (lastMessageText: string, lastUserMessage?: string) => {
     if (!lastMessageText?.trim() || !selectedModel) return;
     setSuggestionsLoading(true);
@@ -124,7 +114,6 @@ export function useSuggestions({
     pendingSuggestion,
     suggestionsLoading,
     handleSuggestionClick,
-    showOptimisticSuggestion,
     fetchSuggestionsForText,
   };
 }

@@ -2,6 +2,48 @@ import { expect, test, type Page } from '@playwright/test'
 
 const PROMPT = 'how can I deploy grafana?'
 
+type ProtocolMockEvent = {
+  method: 'values' | 'tools' | 'lifecycle'
+  data: unknown
+}
+
+function protocolEvent({ method, data }: ProtocolMockEvent, index: number) {
+  return {
+    type: 'event',
+    seq: index + 1,
+    event_id: `mock-event-${index + 1}`,
+    method,
+    params: { namespace: [], data },
+  }
+}
+
+function protocolSse(events: ProtocolMockEvent[]) {
+  return events
+    .map((event, index) => `event: event\ndata: ${JSON.stringify(protocolEvent(event, index))}\n`)
+    .join('\n')
+}
+
+async function mockLangGraphProtocol(page: Page, events: ProtocolMockEvent[]) {
+  await page.route('**/api/langgraph/**/commands', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 1,
+        type: 'success',
+        result: { run_id: 'mock-run', created_at: null },
+      }),
+    })
+  })
+  await page.route('**/api/langgraph/**/stream/events', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: protocolSse(events),
+    })
+  })
+}
+
 async function selectCollection(page: Page) {
   const select = page.getByRole('combobox', { name: 'Collection' })
   await expect(select).toBeVisible()
@@ -41,7 +83,7 @@ async function askQuestion(page: Page, prompt: string) {
   const chatResponsePromise = page.waitForResponse(
     (response) =>
       response.url().includes('/api/langgraph/threads/') &&
-      response.url().endsWith('/runs/stream') &&
+      response.url().endsWith('/commands') &&
       response.request().method() === 'POST',
   )
 
@@ -76,6 +118,46 @@ test.describe('chat streaming', () => {
       suggestions.getByRole('button', { name: 'What can you help me find in my documents?' }),
     ).toBeVisible()
     await expect(suggestions.getByRole('button', { name: /resume/i })).toHaveCount(0)
+  })
+
+  test('does not render clicked suggestions as duplicate user messages', async ({ page }) => {
+    const suggestion = 'Tell me about Oracle 26ai Database.'
+    await page.route('**/api/langgraph/**/history', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '[]',
+      })
+    })
+    await page.route('**/api/suggestions', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ suggestions: [] }),
+      })
+    })
+    await mockLangGraphProtocol(page, [
+      {
+        method: 'values',
+        data: {
+          messages: [
+            { type: 'human', content: suggestion },
+            { type: 'ai', content: 'Oracle 26ai deployment details.' },
+          ],
+        },
+      },
+      { method: 'lifecycle', data: { event: 'completed' } },
+    ])
+
+    await page.goto('/')
+    await page
+      .getByRole('navigation', { name: 'Suggested questions' })
+      .getByRole('button', { name: suggestion })
+      .click()
+
+    const messageList = page.getByTestId('chat-message-list')
+    await expect(messageList.getByText('Oracle 26ai deployment details.')).toBeVisible()
+    await expect(messageList.getByText(suggestion, { exact: true })).toHaveCount(1)
   })
 
   test('shows locally known chat history and switches active threads', async ({ page }) => {
@@ -220,20 +302,22 @@ test.describe('chat streaming', () => {
         body: '[]',
       })
     })
-    await page.route('**/api/langgraph/**/runs/stream', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        body: [
-          'event: values',
-          'data: {"messages":[{"type":"human","content":"Will title updates loop?"}]}',
-          '',
-          'event: values',
-          'data: {"messages":[{"type":"human","content":"Will title updates loop?"},{"type":"ai","content":"No."}]}',
-          '',
-        ].join('\n'),
-      })
-    })
+    await mockLangGraphProtocol(page, [
+      {
+        method: 'values',
+        data: { messages: [{ type: 'human', content: 'Will title updates loop?' }] },
+      },
+      {
+        method: 'values',
+        data: {
+          messages: [
+            { type: 'human', content: 'Will title updates loop?' },
+            { type: 'ai', content: 'No.' },
+          ],
+        },
+      },
+      { method: 'lifecycle', data: { event: 'completed' } },
+    ])
 
     await page.goto('/')
     await page.getByRole('textbox', { name: 'Message' }).fill('Will title updates loop?')
@@ -257,16 +341,34 @@ test.describe('chat streaming', () => {
         body: '[]',
       })
     })
-    await page.route('**/api/langgraph/**/runs/stream', async (route) => {
+    await page.route('**/api/langgraph/**/commands', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 1,
+          type: 'success',
+          result: { run_id: 'mock-run', created_at: null },
+        }),
+      })
+    })
+    await page.route('**/api/langgraph/**/stream/events', async (route) => {
       await streamStarted
       await route.fulfill({
         status: 200,
         contentType: 'text/event-stream',
-        body: [
-          'event: values',
-          `data: {"messages":[{"type":"human","content":"${PROMPT}"},{"type":"ai","content":"Use Grafana deployment docs."}]}`,
-          '',
-        ].join('\n'),
+        body: protocolSse([
+          {
+            method: 'values',
+            data: {
+              messages: [
+                { type: 'human', content: PROMPT },
+                { type: 'ai', content: 'Use Grafana deployment docs.' },
+              ],
+            },
+          },
+          { method: 'lifecycle', data: { event: 'completed' } },
+        ]),
       })
     })
 
@@ -340,20 +442,11 @@ test.describe('chat streaming', () => {
         body: '[]',
       })
     })
-    await page.route('**/api/langgraph/**/runs/stream', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        body: [
-          'event: values',
-          `data: ${JSON.stringify(progressPayload)}`,
-          '',
-          'event: values',
-          `data: ${JSON.stringify(finalPayload)}`,
-          '',
-        ].join('\n'),
-      })
-    })
+    await mockLangGraphProtocol(page, [
+      { method: 'values', data: progressPayload },
+      { method: 'values', data: finalPayload },
+      { method: 'lifecycle', data: { event: 'completed' } },
+    ])
 
     await page.goto('/')
     await page.getByRole('textbox', { name: 'Message' }).fill(prompt)
@@ -376,9 +469,20 @@ test.describe('chat streaming', () => {
       const encoder = new TextEncoder()
       const originalFetch = window.fetch.bind(window)
       let historyCalls = 0
+      let eventSeq = 0
 
-      const sseChunk = (event: string, payload: unknown) =>
-        encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
+      const sseChunk = (event: string, payload: unknown) => {
+        eventSeq += 1
+        return encoder.encode(
+          `event: event\ndata: ${JSON.stringify({
+            type: 'event',
+            seq: eventSeq,
+            event_id: `browser-mock-${eventSeq}`,
+            method: event,
+            params: { namespace: [], data: payload },
+          })}\n\n`,
+        )
+      }
 
       window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
         const url =
@@ -421,7 +525,23 @@ test.describe('chat streaming', () => {
           )
         }
 
-        if (url.includes('/api/langgraph/') && url.endsWith('/runs/stream')) {
+        if (url.includes('/api/langgraph/') && url.endsWith('/commands')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: 1,
+                type: 'success',
+                result: { run_id: 'browser-mock-run', created_at: null },
+              }),
+              {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+              },
+            ),
+          )
+        }
+
+        if (url.includes('/api/langgraph/') && url.endsWith('/stream/events')) {
           let releaseFinal: (() => void) | undefined
           ;(window as typeof window & { __releaseChatFinal?: () => void }).__releaseChatFinal =
             () => releaseFinal?.()
@@ -640,7 +760,7 @@ test.describe('chat streaming', () => {
     })
 
     await page.goto('/')
-    await page.route('**/api/langgraph/**/runs/stream', (route) => route.abort())
+    await page.route('**/api/langgraph/**/commands', (route) => route.abort())
 
     await page.getByRole('textbox', { name: 'Message' }).fill('Will this fail gracefully?')
     await page.getByRole('button', { name: 'Ask' }).click()

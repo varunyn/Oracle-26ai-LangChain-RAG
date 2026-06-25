@@ -25,8 +25,6 @@ type ChatMessageListProps = {
   onFeedback: (stars: number, messageIndex: number) => void;
   feedbackSubmittedMessageIndexes: ReadonlySet<number>;
   enableUserFeedback?: boolean;
-  pendingSuggestion: string | null;
-  showOptimisticSuggestion: boolean;
 };
 
 function hasAssistantProgress(message: MessageLike): boolean {
@@ -53,8 +51,6 @@ export function ChatMessageList({
   onFeedback,
   feedbackSubmittedMessageIndexes,
   enableUserFeedback,
-  pendingSuggestion,
-  showOptimisticSuggestion,
 }: ChatMessageListProps): React.ReactElement {
   const isStreamingTurn = status === "submitted" || status === "streaming";
   const showStreamingIndicator = isStreamingTurn && !hasActiveAssistantOutput(messages);
@@ -130,14 +126,6 @@ export function ChatMessageList({
           </Message>
         ) : null}
       </div>
-
-      {showOptimisticSuggestion && pendingSuggestion != null ? (
-        <div key="pending-suggestion" className="pt-2">
-          <Message from="user">
-            <MessageContent>{pendingSuggestion}</MessageContent>
-          </Message>
-        </div>
-      ) : null}
     </div>
   );
 }

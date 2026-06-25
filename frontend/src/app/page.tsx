@@ -198,8 +198,6 @@ function ChatPageContent({
               onFeedback={chat.handleFeedback}
               feedbackSubmittedMessageIndexes={chat.feedbackSubmittedMessageIndexes}
               enableUserFeedback={appConfig?.enable_user_feedback}
-              pendingSuggestion={chat.pendingSuggestion}
-              showOptimisticSuggestion={chat.showOptimisticSuggestion}
             />
             <ChatInputBar
               input={chat.input}
