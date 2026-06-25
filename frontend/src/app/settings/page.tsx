@@ -272,7 +272,7 @@ export default function SettingsPage(): React.ReactElement {
   }, [toast]);
 
   useEffect(() => {
-    void loadServers();
+    void Promise.resolve().then(loadServers);
   }, [loadServers]);
 
   const selectServer = useCallback((server: McpServerConfig) => {

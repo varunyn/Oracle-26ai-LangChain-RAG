@@ -46,7 +46,7 @@ export function useProcessedSources(collectionName: string) {
   }, [collectionName]);
 
   useEffect(() => {
-    void refresh();
+    void Promise.resolve().then(refresh);
   }, [refresh]);
 
   const deleteSource = useCallback(

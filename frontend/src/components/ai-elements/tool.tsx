@@ -77,6 +77,7 @@ type ToolProps = React.HTMLAttributes<HTMLDivElement> & {
   type?: string;
 };
 
+/** @lintignore */
 export function Tool({
   className,
   defaultOpen,
@@ -159,6 +160,7 @@ export function ToolInput({
   );
 }
 
+/** @lintignore */
 export function ToolStatusBadge({
   state,
   className,
