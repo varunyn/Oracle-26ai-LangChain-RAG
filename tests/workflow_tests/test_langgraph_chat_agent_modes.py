@@ -160,3 +160,55 @@ def test_build_chat_agent_preserves_messages_across_same_thread(tmp_path, monkey
         "reply-1",
         "follow up",
     ]
+
+
+def test_build_chat_agent_dedupes_same_thread_full_transcript_replay(tmp_path, monkeypatch) -> None:
+    call_messages: list[list[dict[str, object]]] = []
+
+    class StubService:
+        async def run_chat(self, **kwargs: object) -> dict[str, object]:
+            messages = kwargs["messages"]
+            assert isinstance(messages, list)
+            call_messages.append(messages)
+            final_answer = f"reply-{len(call_messages)}"
+            return {
+                "final_answer": final_answer,
+                "citations": [],
+                "reranker_docs": [],
+                "context_usage": None,
+                "mcp_used": False,
+                "mcp_tools_used": [],
+            }
+
+    monkeypatch.setattr(direct_node_module, "ChatRuntimeService", StubService)
+
+    async def run() -> None:
+        db_path = tmp_path / "chat-agent-replay.sqlite"
+        async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
+            await checkpointer.setup()
+            graph = build_chat_agent(checkpointer=checkpointer)
+            config = {"configurable": {"thread_id": "chat-thread"}}
+
+            first = await graph.ainvoke(
+                {"messages": [{"role": "user", "content": "hello"}]},
+                config,
+            )
+            await graph.ainvoke(
+                {
+                    "messages": [
+                        {"role": "user", "content": "hello"},
+                        {"role": "assistant", "content": _content(first["messages"][-1])},
+                        {"role": "user", "content": "follow up"},
+                    ]
+                },
+                config,
+            )
+
+    asyncio.run(run())
+
+    assert len(call_messages) == 2
+    assert [_content(message) for message in call_messages[1]] == [
+        "hello",
+        "reply-1",
+        "follow up",
+    ]
