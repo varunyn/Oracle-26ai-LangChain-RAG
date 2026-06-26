@@ -56,6 +56,16 @@ The UI includes the main chat workspace, document upload controls, source review
 
 The active backend runtime is centered on `ChatRuntimeService` in `src/rag_agent/runtime/chat_service.py`. API routes normalize incoming chat turns, dispatch to one of the explicit runtime modes, and return stable chat responses or LangGraph-compatible `event: values` streams.
 
+## LangGraph Agent Server development
+
+Run the graph server locally:
+
+```bash
+uv run langgraph dev
+```
+
+The graph id is `chat_agent`, and `langgraph.json` keeps FastAPI mounted through `api/main.py:app` for the current compatibility phase.
+
 ### Key Directories
 
 | Directory                       | Purpose                                                                                        |

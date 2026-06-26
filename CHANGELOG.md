@@ -12,3 +12,4 @@
 - Split Playwright coverage into deterministic mocked chat-streaming tests and live-backend RAG chat tests.
 - Switched the Playwright frontend web server default port to `4040` to keep e2e runs separate from the normal frontend dev port.
 - Aligned LangGraph protocol user-message ids between frontend optimistic values and backend current-turn values so submitted questions render once and before the assistant response.
+- Added the initial LangGraph Agent Server bootstrap surface with `langgraph.json` and a minimal `chat_agent` graph.

@@ -1,0 +1,9 @@
+{
+  "graphs": {
+    "chat_agent": "./src/rag_agent/graphs/chat_agent.py:chat_agent"
+  },
+  "env": ".env",
+  "http": {
+    "app": "./api/main.py:app"
+  }
+}
