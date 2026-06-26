@@ -6,6 +6,8 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from src.rag_agent.graphs.chat_agent import build_chat_agent, route_mode
 from src.rag_agent.graphs.nodes import direct as direct_node_module
+from src.rag_agent.graphs.nodes import mcp as mcp_node_module
+from src.rag_agent.graphs.nodes import mixed as mixed_node_module
 from src.rag_agent.graphs.nodes import rag as rag_node_module
 
 
@@ -27,15 +29,14 @@ def _content(message: object) -> object:
 def test_route_mode_reads_runtime_context() -> None:
     assert route_mode({"messages": []}, _runtime(context=None)) == "direct"
     assert route_mode({"messages": []}, _runtime(context={"mode": "direct"})) == "direct"
+    assert route_mode({"messages": []}, _runtime(context={"mode": "mcp"})) == "mcp"
+    assert route_mode({"messages": []}, _runtime(context={"mode": "mixed"})) == "mixed"
     assert route_mode({"messages": []}, _runtime(context={"mode": "rag"})) == "rag"
 
 
 def test_route_mode_rejects_unimplemented_modes() -> None:
-    with pytest.raises(NotImplementedError, match="mcp"):
-        route_mode({"messages": []}, _runtime(context={"mode": "mcp"}))
-
-    with pytest.raises(NotImplementedError, match="mixed"):
-        route_mode({"messages": []}, _runtime(context={"mode": "mixed"}))
+    with pytest.raises(NotImplementedError, match="bogus"):
+        route_mode({"messages": []}, _runtime(context={"mode": "bogus"}))
 
 
 def test_run_direct_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -111,6 +112,87 @@ def test_run_rag_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
     assert captured["mode"] == "rag"
     assert result["messages"][-1]["content"] == "RAG READY"
     assert result["references"]["mode"] == "rag"
+
+
+def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class StubService:
+        async def run_chat(self, **kwargs: object) -> dict[str, object]:
+            captured.update(kwargs)
+            return {
+                "final_answer": "42",
+                "citations": [],
+                "reranker_docs": [],
+                "context_usage": None,
+                "mcp_used": True,
+                "mcp_tools_used": ["calculator"],
+                "mcp_tool_invocations": [{"tool_name": "calculator", "result": "42"}],
+            }
+
+    monkeypatch.setattr(mcp_node_module, "ChatRuntimeService", StubService)
+
+    result = asyncio.run(
+        mcp_node_module.run_mcp_node(
+            {"messages": [{"role": "user", "content": "19 + 23"}]},
+            _runtime(context={"mode": "mcp", "model_id": "model-c", "mcp_server_keys": ["calculator"]}),
+        )
+    )
+
+    assert captured["model_id"] == "model-c"
+    assert captured["thread_id"] == "thread-123"
+    assert captured["mode"] == "mcp"
+    assert captured["mcp_server_keys"] == ["calculator"]
+    assert captured["collection_name"] is None
+    assert result["messages"][-1]["content"] == "42"
+    assert result["references"]["mode"] == "mcp"
+    assert result["references"]["mcp_used"] is True
+
+
+def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class StubService:
+        async def run_chat(self, **kwargs: object) -> dict[str, object]:
+            captured.update(kwargs)
+            return {
+                "final_answer": "Net 45 days; plus 5 is 50.",
+                "citations": [{"source": "summit"}],
+                "reranker_docs": [{"id": "doc-2"}],
+                "context_usage": {"retrieved_docs_count": 1},
+                "mcp_used": True,
+                "mcp_tools_used": ["calculator"],
+                "mcp_tool_invocations": [{"tool_name": "calculator", "result": "50"}],
+            }
+
+    monkeypatch.setattr(mixed_node_module, "ChatRuntimeService", StubService)
+
+    result = asyncio.run(
+        mixed_node_module.run_mixed_node(
+            {"messages": [{"role": "user", "content": "payment terms plus 5"}]},
+            _runtime(
+                context={
+                    "mode": "mixed",
+                    "model_id": "model-d",
+                    "collection_name": "ORACLE_WEB_EMBEDDINGS",
+                    "enable_reranker": True,
+                    "enable_tracing": True,
+                    "mcp_server_keys": ["calculator"],
+                }
+            ),
+        )
+    )
+
+    assert captured["model_id"] == "model-d"
+    assert captured["thread_id"] == "thread-123"
+    assert captured["collection_name"] == "ORACLE_WEB_EMBEDDINGS"
+    assert captured["enable_reranker"] is True
+    assert captured["enable_tracing"] is True
+    assert captured["mode"] == "mixed"
+    assert captured["mcp_server_keys"] == ["calculator"]
+    assert result["messages"][-1]["content"] == "Net 45 days; plus 5 is 50."
+    assert result["references"]["mode"] == "mixed"
+    assert result["references"]["mcp_used"] is True
 
 
 def test_build_chat_agent_preserves_messages_across_same_thread(tmp_path, monkeypatch) -> None:

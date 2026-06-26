@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from api.routes.config_route import router
 from src.rag_agent.infrastructure import mcp_adapter_runtime
+from src.rag_agent.infrastructure import mcp_config_store as mod
 from src.rag_agent.infrastructure.mcp_config_store import (
     MCPServerAuthConfig,
     MCPServerConfig,
@@ -478,3 +480,22 @@ def test_mcp_config_route_times_out_connection_test(tmp_path, monkeypatch) -> No
         "tools": [],
         "error": "Connection test timed out after 0.01 seconds",
     }
+
+
+def test_resolve_store_path_uses_project_root_for_relative_paths(monkeypatch) -> None:
+    def _unexpected_cwd(cls) -> Path:  # pragma: no cover - should never run
+        raise AssertionError("resolve_store_path should not use Path.cwd()")
+
+    monkeypatch.setattr(mod.Path, "cwd", classmethod(_unexpected_cwd))
+
+    resolved = mod.resolve_store_path(".local-data/mcp_servers.json")
+
+    assert resolved == mod.PROJECT_ROOT / ".local-data/mcp_servers.json"
+
+
+def test_resolve_store_path_preserves_absolute_paths() -> None:
+    absolute = Path("/tmp/custom-mcp.json")
+
+    resolved = mod.resolve_store_path(absolute)
+
+    assert resolved == absolute
