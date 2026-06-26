@@ -64,7 +64,7 @@ Run the graph server locally:
 uv run langgraph dev
 ```
 
-The graph id is `chat_agent`, and `langgraph.json` keeps FastAPI mounted through `api/main.py:app` for the current compatibility phase.
+The graph id is `chat_agent`, and `langgraph.json` keeps FastAPI mounted through `api/main.py:app` while the legacy chat surface still coexists during this compatibility phase.
 
 ### Key Directories
 
