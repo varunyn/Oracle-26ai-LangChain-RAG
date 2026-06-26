@@ -37,10 +37,8 @@ def test_chat_agent_direct_mode_live(configured_langgraph_url: str) -> None:
     result = client.runs.wait(
         None,
         "chat_agent",
-        input={
-            "messages": [{"role": "user", "content": "Reply with the word READY"}],
-            "context": {"mode": "direct"},
-        },
+        input={"messages": [{"role": "user", "content": "Reply with the word READY"}]},
+        context={"mode": "direct"},
     )
     messages = result["messages"]
     assert any("READY" in str(message.get("content", "")) for message in messages)
@@ -58,8 +56,8 @@ def test_chat_agent_rag_mode_live(configured_langgraph_url: str) -> None:
                     "role": "user",
                     "content": "Use retrieval to answer the configured corpus question",
                 }
-            ],
-            "context": {"mode": "rag", "collection_name": "default"},
+            ]
         },
+        context={"mode": "rag", "collection_name": "default"},
     )
     assert result["references"]["mode"] == "rag"

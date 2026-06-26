@@ -55,6 +55,7 @@ docs-site/docs/
 # Log files (created at runtime)
 logs/
 .local-data/
+.langgraph_api/
 
 local-data/*
 

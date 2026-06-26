@@ -1,22 +1,27 @@
 from __future__ import annotations
 
-from src.rag_agent.graphs.state import ChatGraphState
+from langgraph.runtime import Runtime
+
+from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
 from src.rag_agent.runtime.chat_service import ChatRuntimeService
 
 
-async def run_rag_node(state: ChatGraphState) -> ChatGraphState:
-    context = state.get("context", {})
+async def run_rag_node(
+    state: ChatGraphState, runtime: Runtime[ChatGraphContext]
+) -> ChatGraphState:
+    context = runtime.context
+    thread_id = getattr(runtime.execution_info, "thread_id", None)
     service = ChatRuntimeService()
     result = await service.run_chat(
         messages=state["messages"],
         model_id=context.get("model_id"),
-        thread_id=None,
+        thread_id=thread_id,
         session_id=None,
         collection_name=context.get("collection_name"),
         enable_reranker=context.get("enable_reranker"),
         enable_tracing=context.get("enable_tracing"),
         mode="rag",
-        mcp_server_keys=None,
+        mcp_server_keys=context.get("mcp_server_keys"),
         stream=False,
     )
     return {

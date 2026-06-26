@@ -647,12 +647,14 @@ class ChatRuntimeService:
                     run_config=run_cfg,
                 )
 
-                docs = rag_runtime.retrieve_oracle_docs(
+                docs = await asyncio.to_thread(
+                    rag_runtime.retrieve_oracle_docs,
                     query=standalone_question,
                     collection_name=collection_name,
                     k=5,
                 )
-                docs = rag_runtime.rerank_retrieved_docs(
+                docs = await asyncio.to_thread(
+                    rag_runtime.rerank_retrieved_docs,
                     standalone_question,
                     docs,
                     enable_reranker=enable_reranker,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.nodes.direct import run_direct_node
 from src.rag_agent.graphs.nodes.rag import run_rag_node
@@ -12,11 +13,11 @@ def _bootstrap_node(state: ChatGraphState) -> ChatGraphState:
     return state
 
 
-def route_mode(state: ChatGraphState) -> str:
-    mode = state.get("context", {}).get("mode", "direct")
-    if mode == "rag":
-        return "rag"
-    return "direct"
+def route_mode(_state: ChatGraphState, runtime: Runtime[ChatGraphContext]) -> str:
+    mode = runtime.context.get("mode", "direct")
+    if mode in {"direct", "rag"}:
+        return mode
+    raise NotImplementedError(f"Graph mode '{mode}' is not implemented yet.")
 
 
 def build_chat_agent() -> CompiledStateGraph:

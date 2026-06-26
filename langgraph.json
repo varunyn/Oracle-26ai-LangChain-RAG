@@ -1,4 +1,5 @@
 {
+  "dependencies": ["."],
   "graphs": {
     "chat_agent": "./src/rag_agent/graphs/chat_agent.py:chat_agent"
   },
