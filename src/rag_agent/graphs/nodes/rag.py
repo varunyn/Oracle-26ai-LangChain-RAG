@@ -4,7 +4,7 @@ from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
 from src.rag_agent.runtime.chat_service import ChatRuntimeService
-from src.rag_agent.runtime.memory import collapse_replayed_messages, langchain_messages_to_dicts
+from src.rag_agent.runtime.memory import langchain_messages_to_dicts
 
 
 def _runtime_context(runtime: Runtime[ChatGraphContext]) -> ChatGraphContext:
@@ -19,7 +19,7 @@ async def run_rag_node(
 ) -> ChatGraphState:
     context = _runtime_context(runtime)
     thread_id = getattr(runtime.execution_info, "thread_id", None)
-    messages = langchain_messages_to_dicts(collapse_replayed_messages(state["messages"]))
+    messages = langchain_messages_to_dicts(state["messages"])
     service = ChatRuntimeService()
     result = await service.run_chat(
         messages=messages,

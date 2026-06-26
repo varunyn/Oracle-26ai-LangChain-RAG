@@ -136,25 +136,6 @@ def merge_chat_messages(left: Sequence[object], right: Sequence[object]) -> list
     return [*left_messages, *new_incoming_messages(left_messages, right_messages)]
 
 
-def collapse_replayed_messages(messages: Sequence[object]) -> list[object]:
-    collapsed = list(messages)
-    while True:
-        updated = False
-        for split in range(len(collapsed) // 2, 1, -1):
-            prefix = collapsed[:split]
-            suffix = collapsed[split:]
-            prefix_tail = message_signature(prefix[-1])
-            if prefix_tail is None or prefix_tail[0] != "assistant":
-                continue
-            if not messages_are_prefix(prefix, suffix):
-                continue
-            collapsed = [*prefix, *new_incoming_messages(prefix, suffix)]
-            updated = True
-            break
-        if not updated:
-            return collapsed
-
-
 def message_signature(message: object) -> tuple[str, str] | None:
     if isinstance(message, HumanMessage):
         return ("user", str(message.content or ""))
@@ -188,7 +169,6 @@ def langchain_messages_to_dicts(messages: Sequence[object]) -> list[dict[str, ob
 
 __all__ = [
     "chat_history_before_latest_user",
-    "collapse_replayed_messages",
     "contextualize_question",
     "hydrate_thread_messages",
     "langchain_messages_to_dicts",
