@@ -74,6 +74,19 @@ The following custom compatibility endpoints are migration targets for deletion:
 
 `ChatRuntimeService` should stop owning thread hydration, thread state snapshots, homemade event buffering, `astream_events`, and LangGraph protocol conversion. Its remaining reusable logic can be kept temporarily as helpers while graph nodes are introduced.
 
+## Mode Strategy
+
+The migration should preserve the current four modes during the first Agent Server adoption pass. The modes should become graph routing policy, not API or protocol shape.
+
+- `direct`: model-only response. No Oracle retrieval and no MCP tool calls.
+- `rag`: Oracle retrieval plus answer synthesis. No MCP tools.
+- `mcp`: MCP/tool-agent path. No Oracle retrieval tool unless that capability is explicitly provided by a selected MCP server.
+- `mixed`: a graph path where the agent can use both MCP tools and Oracle retrieval.
+
+This preserves current user-facing behavior and makes parity testable. The cleanup is that `mode` is carried as normal graph context/config and interpreted inside graph routing, instead of being handled by custom `/api/langgraph` route logic or duplicated across route-level payload fields.
+
+After the Agent Server migration is stable, the app can add an `auto` mode as the default and keep the four existing modes as advanced overrides. That is a follow-up product decision, not part of the first migration.
+
 ## Frontend Shape
 
 The current product UI should be preserved unless an upstream pattern clearly reduces custom code without dropping functionality.
@@ -165,6 +178,7 @@ Move direct, RAG, MCP, and mixed behavior into graph nodes and graph tools. Deco
 Acceptance:
 
 - Direct, RAG, MCP, and mixed paths run as graph paths.
+- The four modes preserve their current boundaries: direct does not retrieve or use MCP, RAG does not use MCP, MCP does not use Oracle retrieval unless that is explicitly available as an MCP capability, and mixed can use both.
 - Thread memory comes from LangGraph state/checkpointing, not custom thread hydration.
 - Product references are produced by graph nodes.
 
@@ -217,6 +231,7 @@ For direct, RAG, MCP, and mixed graph paths, acceptance requires real configured
 - RAG retrieval plus answer synthesis using configured retrieval resources
 - MCP tool call using configured MCP settings/tools
 - mixed MCP plus retrieval behavior
+- mode-boundary checks proving each mode uses only the capabilities it is supposed to use
 - frontend stream rendering against the real LangGraph Agent Server path
 
 These should be gated integration or e2e tests. If the provider, database, MCP server, or credentials are unavailable, the test must skip with an explicit reason. It must not silently fall back to fake behavior and claim parity.
@@ -279,6 +294,7 @@ The migration is successful when:
 - Chat execution runs through real LangGraph Agent Server.
 - The frontend uses standard `useStream` against the graph server.
 - Direct, RAG, MCP, and mixed modes pass gated live integration/e2e checks using configured providers and tools.
+- The four current modes remain available as explicit user-facing controls after the migration.
 - Product UI behavior remains available: models, collections, modes, uploads, citations, feedback, tracing, and MCP settings.
 - The custom `/api/langgraph` compatibility router is deleted.
 - Docs, tests, and local commands describe the Agent Server path as the default.
