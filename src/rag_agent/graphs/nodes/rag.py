@@ -4,16 +4,25 @@ from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
 from src.rag_agent.runtime.chat_service import ChatRuntimeService
+from src.rag_agent.runtime.memory import langchain_messages_to_dicts
+
+
+def _runtime_context(runtime: Runtime[ChatGraphContext]) -> ChatGraphContext:
+    context = runtime.context
+    if isinstance(context, dict):
+        return context
+    return {}
 
 
 async def run_rag_node(
     state: ChatGraphState, runtime: Runtime[ChatGraphContext]
 ) -> ChatGraphState:
-    context = runtime.context
+    context = _runtime_context(runtime)
     thread_id = getattr(runtime.execution_info, "thread_id", None)
+    messages = langchain_messages_to_dicts(state["messages"])
     service = ChatRuntimeService()
     result = await service.run_chat(
-        messages=state["messages"],
+        messages=messages,
         model_id=context.get("model_id"),
         thread_id=thread_id,
         session_id=None,
@@ -25,7 +34,6 @@ async def run_rag_node(
         stream=False,
     )
     return {
-        "messages": [*state["messages"], {"role": "assistant", "content": result["final_answer"]}],
-        "context": context,
+        "messages": [{"role": "assistant", "content": result["final_answer"]}],
         "references": {"mode": "rag", **{k: v for k, v in result.items() if k != "final_answer"}},
     }

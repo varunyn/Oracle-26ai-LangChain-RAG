@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
@@ -13,14 +15,21 @@ def _bootstrap_node(state: ChatGraphState) -> ChatGraphState:
     return state
 
 
+def _runtime_context(runtime: Runtime[ChatGraphContext]) -> ChatGraphContext:
+    context = runtime.context
+    if isinstance(context, dict):
+        return context
+    return {}
+
+
 def route_mode(_state: ChatGraphState, runtime: Runtime[ChatGraphContext]) -> str:
-    mode = runtime.context.get("mode", "direct")
+    mode = _runtime_context(runtime).get("mode", "direct")
     if mode in {"direct", "rag"}:
         return mode
     raise NotImplementedError(f"Graph mode '{mode}' is not implemented yet.")
 
 
-def build_chat_agent() -> CompiledStateGraph:
+def build_chat_agent(*, checkpointer: Any | None = None) -> CompiledStateGraph:
     graph = StateGraph(ChatGraphState, context_schema=ChatGraphContext)
     graph.add_node("bootstrap", _bootstrap_node)
     graph.add_node("direct", run_direct_node)
@@ -36,7 +45,7 @@ def build_chat_agent() -> CompiledStateGraph:
     )
     graph.add_edge("direct", END)
     graph.add_edge("rag", END)
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
 
 
 chat_agent = build_chat_agent()

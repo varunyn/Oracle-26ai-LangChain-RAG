@@ -131,6 +131,11 @@ def message_signature(message: object) -> tuple[str, str] | None:
         return ("assistant", str(message.content or ""))
     if isinstance(message, SystemMessage):
         return ("system", str(message.content or ""))
+    if isinstance(message, dict):
+        role = str(message.get("role") or "").strip().lower()
+        content = str(message.get("content") or "")
+        if role in {"user", "assistant", "system"}:
+            return (role, content)
     return None
 
 
