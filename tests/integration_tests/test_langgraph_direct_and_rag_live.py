@@ -54,10 +54,12 @@ def test_chat_agent_rag_mode_live(configured_langgraph_url: str) -> None:
             "messages": [
                 {
                     "role": "user",
-                    "content": "Use retrieval to answer the configured corpus question",
+                    "content": (
+                        "Can you tell me about net payment terms for Summit Technologies"
+                    ),
                 }
             ]
         },
-        context={"mode": "rag", "collection_name": "default"},
+        context={"mode": "rag", "collection_name": "ORACLE_WEB_EMBEDDINGS"},
     )
     assert result["references"]["mode"] == "rag"
