@@ -1,0 +1,145 @@
+import {
+  AIMessage,
+  HumanMessage,
+  SystemMessage,
+  type BaseMessage,
+} from "@langchain/core/messages";
+import type {
+  ContextUsage,
+  McpProgressEvent,
+  McpToolInvocation,
+} from "@/lib/types/chat";
+import type { MessageLike, ReferencePayload } from "@/hooks/chat/controller-types";
+
+export type BaseMessageWithKwargs = BaseMessage & {
+  additional_kwargs?: Record<string, unknown>;
+  response_metadata?: Record<string, unknown>;
+};
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return value;
+}
+
+export function normalizeContextUsage(raw: unknown): ContextUsage | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const usage = raw as Record<string, unknown>;
+  const tokens = toFiniteNumber(usage.tokens);
+  const max = toFiniteNumber(usage.max);
+  const percent = toFiniteNumber(usage.percent);
+  if (tokens == null || max == null || percent == null) return undefined;
+  return {
+    tokens,
+    max,
+    percent,
+    model_id: typeof usage.model_id === "string" ? usage.model_id : undefined,
+  };
+}
+
+export function isSameContextUsage(a: ContextUsage | null, b: ContextUsage): boolean {
+  return (
+    a?.tokens === b.tokens &&
+    a?.max === b.max &&
+    a?.percent === b.percent &&
+    a?.model_id === b.model_id
+  );
+}
+
+export function readText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" ? text : "";
+    })
+    .join("");
+}
+
+export function toRole(message: BaseMessage): "user" | "assistant" | "system" {
+  if (HumanMessage.isInstance(message)) return "user";
+  if (AIMessage.isInstance(message)) return "assistant";
+  if (SystemMessage.isInstance(message)) return "system";
+  const msgType = (message as { type?: unknown }).type;
+  if (msgType === "human") return "user";
+  if (msgType === "ai") return "assistant";
+  return "system";
+}
+
+function toReferencePayload(raw: Record<string, unknown>): ReferencePayload | null {
+  const hasKnownReferenceField =
+    Array.isArray(raw.citations) ||
+    Array.isArray(raw.reranker_docs) ||
+    Array.isArray(raw.mcp_tools_used) ||
+    Array.isArray(raw.mcp_tool_invocations) ||
+    Array.isArray(raw.mcp_progress_events) ||
+    typeof raw.trace_id === "string" ||
+    typeof raw.standalone_question === "string" ||
+    typeof raw.error === "string" ||
+    raw.mcp_used === true;
+  if (!hasKnownReferenceField) return null;
+  return {
+    trace_id: typeof raw.trace_id === "string" ? raw.trace_id : undefined,
+    standalone_question:
+      typeof raw.standalone_question === "string" ? raw.standalone_question : undefined,
+    citations: Array.isArray(raw.citations)
+      ? (raw.citations as { source: string; page: string | null; link?: string | null }[])
+      : [],
+    reranker_docs: Array.isArray(raw.reranker_docs)
+      ? (raw.reranker_docs as { page_content: string; metadata: Record<string, unknown> }[])
+      : [],
+    context_usage: normalizeContextUsage(raw.context_usage),
+    mcp_used: raw.mcp_used === true,
+    mcp_tools_used: Array.isArray(raw.mcp_tools_used)
+      ? (raw.mcp_tools_used as string[])
+      : undefined,
+    mcp_tool_invocations: Array.isArray(raw.mcp_tool_invocations)
+      ? (raw.mcp_tool_invocations as McpToolInvocation[])
+      : undefined,
+    mcp_progress_events: Array.isArray(raw.mcp_progress_events)
+      ? (raw.mcp_progress_events as McpProgressEvent[])
+      : undefined,
+    error: typeof raw.error === "string" ? raw.error : undefined,
+  };
+}
+
+export function toReferences(message: BaseMessageWithKwargs): ReferencePayload | null {
+  const candidates: unknown[] = [
+    message.additional_kwargs,
+    message.additional_kwargs?.references,
+    message.response_metadata,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const references = toReferencePayload(candidate as Record<string, unknown>);
+    if (references) return references;
+  }
+  return null;
+}
+
+export function toReferencesFromRawMessage(rawMessage: unknown): ReferencePayload | null {
+  if (!rawMessage || typeof rawMessage !== "object") return null;
+  const data = rawMessage as Record<string, unknown>;
+  const candidates: unknown[] = [
+    data.additional_kwargs,
+    (data.additional_kwargs as Record<string, unknown> | undefined)?.references,
+    data.response_metadata,
+    data,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const references = toReferencePayload(candidate as Record<string, unknown>);
+    if (references) return references;
+  }
+  return null;
+}
+
+export function traceIdFromMessage(message: MessageLike): string | undefined {
+  const traceId = message.references?.trace_id;
+  return typeof traceId === "string" && traceId.trim() ? traceId : undefined;
+}
+
+export function referencePayloadFromMessage(message: MessageLike): ReferencePayload | null {
+  return message.references ?? null;
+}

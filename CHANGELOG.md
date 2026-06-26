@@ -6,3 +6,9 @@
 - Updated LangChain/LangGraph-related runtime dependencies and removed the local `langchain-oracle` Docker build override.
 - Refreshed API docs, Bruno requests, and OpenAPI fixtures for `/commands` and `/stream/events`.
 - Fixed frontend chat rendering so submitted suggestion prompts are not rendered twice.
+
+## 2026-06-26
+
+- Split Playwright coverage into deterministic mocked chat-streaming tests and live-backend RAG chat tests.
+- Switched the Playwright frontend web server default port to `4040` to keep e2e runs separate from the normal frontend dev port.
+- Aligned LangGraph protocol user-message ids between frontend optimistic values and backend current-turn values so submitted questions render once and before the assistant response.

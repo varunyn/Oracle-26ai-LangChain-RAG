@@ -39,7 +39,7 @@ def _json_response_body(content: object) -> str:
 
 
 def _stream_input_payload(messages: list[ChatMessage]) -> dict[str, object]:
-    return {"messages": [message.model_dump() for message in messages]}
+    return {"messages": [message.model_dump(exclude_none=True) for message in messages]}
 
 
 def _stream_config(
@@ -566,24 +566,29 @@ async def _thread_stream_events(
     except Exception:
         base_messages = []
 
-    for idx, pending_message in enumerate(messages):
-        role = str(pending_message.role or "").strip().lower()
-        content = str(pending_message.content or "")
+    for idx, current_message in enumerate(messages):
+        role = str(current_message.role or "").strip().lower()
+        content = str(current_message.content or "")
         if not role or not content:
             continue
-        pending = _to_stream_message(
+        message_id = getattr(current_message, "id", None)
+        current = _to_stream_message(
             role=role,
             content=content,
-            message_id=f"{thread_id}:pending:{turn_id}:{idx}",
+            message_id=(
+                message_id
+                if isinstance(message_id, str) and message_id.strip()
+                else f"{thread_id}:input:{turn_id}:{idx}"
+            ),
         )
         last = base_messages[-1] if base_messages else None
         if (
             last
-            and last.get("type") == pending.get("type")
-            and last.get("content") == pending.get("content")
+            and last.get("type") == current.get("type")
+            and last.get("content") == current.get("content")
         ):
             continue
-        base_messages.append(pending)
+        base_messages.append(current)
 
     if base_messages:
         yield "values", {"messages": base_messages}

@@ -14,13 +14,14 @@ from src.rag_agent.runtime.mcp_turn import MCPAgentTurn
 def test_runtime_agent_normalize_messages_accepts_langchain_types() -> None:
     messages = normalize_messages(
         [
-            {"type": "human", "content": "hello"},
+            {"id": "client-user-1", "type": "human", "content": "hello"},
             {"type": "ai", "content": "hi"},
             {"type": "system", "content": "rules"},
         ],
         None,
     )
 
+    assert messages[0].id == "client-user-1"
     assert [m.role for m in messages] == ["user", "assistant", "system"]
     assert [m.content for m in messages] == ["hello", "hi", "rules"]
 

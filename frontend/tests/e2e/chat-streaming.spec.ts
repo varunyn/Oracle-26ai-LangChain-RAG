@@ -160,6 +160,87 @@ test.describe('chat streaming', () => {
     await expect(messageList.getByText(suggestion, { exact: true })).toHaveCount(1)
   })
 
+  test('keeps the submitted user message before the assistant response', async ({
+    page,
+  }) => {
+    const previousQuestion = 'What is our standard invoicing cycle?'
+    const previousAnswer = 'Invoices are issued monthly.'
+    const prompt = 'Tell me about the payment terms for summit technologies.'
+    const answer = 'Payment terms are net 45 with a 1.5% early-payment discount.'
+    let submittedMessageId: string | undefined
+
+    await page.route('**/api/langgraph/**/history', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          { type: 'human', content: previousQuestion },
+          { type: 'ai', content: previousAnswer },
+        ]),
+      })
+    })
+    await page.route('**/api/suggestions', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ suggestions: [] }),
+      })
+    })
+    await page.route('**/api/langgraph/**/commands', async (route) => {
+      const body = route.request().postDataJSON() as {
+        params?: { input?: { messages?: Array<{ id?: string; content?: string; type?: string }> } }
+      }
+      const submittedMessage = body.params?.input?.messages?.[0]
+      submittedMessageId = submittedMessage?.id
+      expect(submittedMessage?.type).toBe('human')
+      expect(submittedMessage?.content).toBe(prompt)
+      expect(submittedMessageId).toBeTruthy()
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 1,
+          type: 'success',
+          result: { run_id: 'mock-run', created_at: null },
+        }),
+      })
+    })
+    await page.route('**/api/langgraph/**/stream/events', async (route) => {
+      await expect.poll(() => submittedMessageId).toBeTruthy()
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: protocolSse([
+          {
+            method: 'values',
+            data: {
+              messages: [
+                { id: submittedMessageId, type: 'human', content: prompt },
+                { type: 'ai', content: answer },
+              ],
+            },
+          },
+          { method: 'lifecycle', data: { event: 'completed' } },
+        ]),
+      })
+    })
+
+    await page.goto('/')
+    const input = page.getByRole('textbox', { name: 'Message' })
+    await input.fill(prompt)
+    await page.getByRole('button', { name: 'Ask' }).click()
+
+    const messageList = page.getByTestId('chat-message-list')
+    await expect(messageList.getByText(answer, { exact: true })).toBeVisible()
+    await expect(messageList.getByText(prompt, { exact: true })).toHaveCount(1)
+    await expect
+      .poll(async () => {
+        const text = await messageList.innerText()
+        return text.indexOf(prompt) < text.indexOf(answer)
+      })
+      .toBe(true)
+  })
+
   test('shows locally known chat history and switches active threads', async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem('rag_agent_thread_id', 'thread-history-1')
@@ -771,44 +852,4 @@ test.describe('chat streaming', () => {
     expect(pageErrors).toEqual([])
   })
 
-  test('streams responses and renders citations', async ({ page }) => {
-    await page.goto('/')
-    await selectCollection(page)
-    await selectFlowMode(page, 'RAG only')
-
-    const { input, chatResponsePromise } = await askQuestion(page, PROMPT)
-
-    await expect(input).toBeDisabled({ timeout: 5_000 })
-    await expect(page.getByTestId('chat-streaming-indicator')).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByText(/Opening answer stream|Preparing response/)).toBeVisible({
-      timeout: 5_000,
-    })
-    await expect(page.getByTestId('chat-message-list').getByText(PROMPT)).toBeVisible()
-    await expect(page.getByText('Ask a question about your documents')).toHaveCount(0)
-
-    const chatResponse = await chatResponsePromise
-    const chatHeaders = chatResponse.headers()
-    expect(chatHeaders['content-type']).toContain('text/event-stream')
-
-    await expect(input).toBeEnabled({ timeout: 120_000 })
-
-    await expectAssistantAnswer(page)
-    await expect(page.getByRole('button', { name: /Used \d+ sources?/ })).toBeVisible()
-  })
-
-  test('clear chat resets the visible conversation', async ({ page }) => {
-    await page.goto('/')
-    await selectCollection(page)
-    await selectFlowMode(page, 'RAG only')
-
-    const { input } = await askQuestion(page, PROMPT)
-
-    await expect(input).toBeEnabled({ timeout: 120_000 })
-    await expectAssistantAnswer(page)
-
-    await page.getByRole('button', { name: 'Clear Chat History' }).click()
-
-    await expect(page.getByText('Ask a question about your documents')).toBeVisible()
-    await expect(page.getByRole('button', { name: /Used \d+ sources?/ })).toHaveCount(0)
-  })
 })

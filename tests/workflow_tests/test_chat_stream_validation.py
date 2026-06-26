@@ -225,7 +225,9 @@ def test_langgraph_commands_endpoint_accepts_run_start_command_envelope(monkeypa
 
     assert stub.input_payload is not None
     messages = cast(list[dict[str, object]], stub.input_payload.get("messages") or [])
-    assert messages == [{"role": "user", "content": "hello from command envelope"}]
+    assert messages == [
+        {"id": "msg-1", "role": "user", "content": "hello from command envelope"}
+    ]
     assert stub.config is not None
     configurable = cast(dict[str, object], stub.config.get("configurable") or {})
     assert configurable.get("mode") == "rag"

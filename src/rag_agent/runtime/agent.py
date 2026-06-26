@@ -35,7 +35,14 @@ def normalize_messages(
                 )
             if role_raw in {"user", "assistant", "system"} and isinstance(content_raw, str):
                 role = cast(Literal["user", "assistant", "system"], role_raw)
-                normalized.append(ChatMessage(role=role, content=content_raw))
+                message_id = item.get("id")
+                normalized.append(
+                    ChatMessage(
+                        id=message_id if isinstance(message_id, str) else None,
+                        role=role,
+                        content=content_raw,
+                    )
+                )
         if normalized:
             return normalized
     return [ChatMessage(role="user", content=str(message or "").strip())]

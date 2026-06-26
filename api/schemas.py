@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ChatMessage(BaseModel):
+    id: str | None = None
     role: Literal["user", "assistant", "system"]
     content: str
 

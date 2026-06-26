@@ -32,6 +32,8 @@ PORT=4000 pnpm dev
 
 Open [http://localhost:4000](http://localhost:4000). Next.js defaults to port 3000, but this repo standardizes on 4000 to match the Docker mapping.
 
+For Playwright e2e, the local test web server defaults to port `4040` so it stays separate from the usual dev or Docker frontend port.
+
 ## Scripts
 
 | Command       | Description                |
