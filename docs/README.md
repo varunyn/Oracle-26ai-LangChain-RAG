@@ -40,7 +40,7 @@ config:
 ---
 graph TD;
     __start__([<p>__start__</p>]):::first
-    ChatRequest["POST /api/langgraph/threads/{thread_id}/commands"]
+    ChatRequest["Agent Server chat_agent run"]
     Mode{"mode"}
     RAG["RAG path<br/>vector search + prompt"]
     MCP["MCP path<br/>create_agent + MCP tools"]
@@ -224,16 +224,17 @@ cp env.example .env.local
 PORT=4000 pnpm dev
 ```
 
-#### Option B – Docker Compose (backend + frontend)
+#### Option B – Docker Compose (backend + LangGraph + frontend)
 
 ```bash
-docker compose up -d backend frontend
+docker compose up -d backend langgraph frontend
 # or just `docker compose up -d` to include any other services defined
 ```
 
 - API: http://localhost:3002 (default; override with `PORT` env var)
+- LangGraph Agent Server: http://localhost:2024
 - Frontend: http://localhost:4000 (container exposes port 3000 at 4000 per compose)
-- Logs: `docker compose logs -f backend` (or `frontend`)
+- Logs: `docker compose logs -f backend langgraph frontend`
 - Stop: `docker compose down`
 
 #### Optional observability stack (Grafana/Loki/Tempo)

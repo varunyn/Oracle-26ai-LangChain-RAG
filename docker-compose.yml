@@ -8,6 +8,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      target: runner
     image: custom-rag-agent-backend:latest
     container_name: rag-backend
     networks:
@@ -55,6 +56,56 @@ services:
       retries: 5
       start_period: 120s
 
+  langgraph:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: langgraph-runner
+    image: custom-rag-agent-langgraph:latest
+    container_name: rag-langgraph
+    networks:
+      - rag-network
+    ports:
+      - "2024:2024"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - VECTOR_WALLET_DIR=/app/wallet
+      - OCI_KEY_FILE=/run/secrets/oci_api_key
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://otel-collector:4318/v1/logs
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://otel-collector:4318/v1/traces
+      - LANGFUSE_HOST=http://langfuse-web:3000
+      - LANGFUSE_UI_URL=http://localhost:3300
+      - GRAFANA_URL=http://localhost:3051
+      - MCP_USE_ANONYMIZED_TELEMETRY=false
+      - SCARF_NO_ANALYTICS=true
+      - DO_NOT_TRACK=true
+      - POSTHOG_DISABLED=true
+      - CORS_ALLOW_ORIGINS=http://localhost:3000,http://localhost:4000,http://localhost:4040,http://127.0.0.1:3000,http://127.0.0.1:4000,http://127.0.0.1:4040
+    secrets:
+      - oci_api_key
+    env_file:
+      - .env
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./langgraph.json:/app/langgraph.json:ro
+      - ./local-config:/app/local-config:ro
+      - ./local-config/wallet:/app/wallet:ro
+      - ./local-data:/app/.local-data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:2024/docs', timeout=10)",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
   frontend:
     build:
       context: ./frontend
@@ -62,7 +113,9 @@ services:
       args:
         NEXT_PUBLIC_DEFAULT_FLOW_MODE: ${NEXT_PUBLIC_DEFAULT_FLOW_MODE:-mixed}
         NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:3002}
+        NEXT_PUBLIC_LANGGRAPH_API_BASE: ${NEXT_PUBLIC_LANGGRAPH_API_BASE:-http://localhost:2024}
         FASTAPI_BACKEND_URL: http://backend:3002
+        LANGGRAPH_BACKEND_URL: ${LANGGRAPH_BACKEND_URL:-http://langgraph:2024}
     image: custom-rag-agent-frontend:latest
     container_name: rag-frontend
     networks:
@@ -71,11 +124,15 @@ services:
       - "4000:3000"
     environment:
       - FASTAPI_BACKEND_URL=http://backend:3002
+      - LANGGRAPH_BACKEND_URL=${LANGGRAPH_BACKEND_URL:-http://langgraph:2024}
       - NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE:-http://localhost:3002}
+      - NEXT_PUBLIC_LANGGRAPH_API_BASE=${NEXT_PUBLIC_LANGGRAPH_API_BASE:-http://localhost:2024}
       - NEXT_PUBLIC_DEFAULT_FLOW_MODE=${NEXT_PUBLIC_DEFAULT_FLOW_MODE:-mixed}
       - NODE_ENV=production
     depends_on:
       backend:
+        condition: service_healthy
+      langgraph:
         condition: service_healthy
     restart: unless-stopped
 

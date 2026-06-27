@@ -1,6 +1,6 @@
 # Docker setup
 
-This page describes how to run the backend, frontend, and optional stacks using Docker. The **Makefile** is the preferred entrypoint for all commands.
+This page describes how to run the backend, LangGraph Agent Server, frontend, and optional stacks using Docker. The **Makefile** is the preferred entrypoint for all commands.
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ From the repo root, use `make` to run core and optional stacks:
 make help
 ```
 
-**Core app (backend + frontend):**
+**Core app (backend + LangGraph + frontend):**
 
 ```bash
 make core-up          # Start backend + frontend
@@ -60,15 +60,25 @@ Ports:
 - UI: <http://localhost:4000>
 - Langfuse (if run): <http://localhost:3300>
 
-## 2. Backend + frontend (without Makefile)
+## 2. Backend + LangGraph + frontend (without Makefile)
 
 If you prefer to call Docker Compose directly:
 
 ```bash
-docker compose up -d backend frontend
-docker compose logs -f backend
+docker compose up -d backend langgraph frontend
+docker compose logs -f backend langgraph frontend
 docker compose down
 ```
+
+Ports:
+
+- API: <http://localhost:3002>
+- LangGraph Agent Server: <http://localhost:2024>
+- UI: <http://localhost:4000>
+
+The Docker frontend image uses `NEXT_PUBLIC_LANGGRAPH_API_BASE=http://localhost:2024` by default for browser-to-Agent-Server streaming. Rebuild the frontend image after changing this value.
+
+The LangGraph container sets `CORS_ALLOW_ORIGINS` for local browser origins and bind-mounts `./langgraph.json`, including local CORS settings for `localhost:3000`, `localhost:4000`, and `localhost:4040`. Recreate `rag-langgraph` after changing either setting.
 
 ## 3. Configure OCI + wallet for Docker
 

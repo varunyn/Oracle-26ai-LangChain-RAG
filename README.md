@@ -216,16 +216,19 @@ cp env.example .env.local
 PORT=4000 pnpm dev
 ```
 
-#### Option B – Docker Compose (backend + frontend)
+#### Option B – Docker Compose (backend + LangGraph + frontend)
 
 ```bash
-docker compose up -d backend frontend
+docker compose up -d backend langgraph frontend
 # or just `docker compose up -d` to include any other services defined
 ```
 
 - API: http://localhost:3002 (default; override with `PORT` env var)
+- LangGraph Agent Server: http://localhost:2024
 - Frontend: http://localhost:4000 (container exposes port 3000 at 4000 per compose)
-- Logs: `docker compose logs -f backend` (or `frontend`)
+- The Docker frontend is built with `NEXT_PUBLIC_LANGGRAPH_API_BASE=http://localhost:2024` by default so browser streaming talks directly to the local Agent Server.
+- The Docker LangGraph service allows local browser origins through `CORS_ALLOW_ORIGINS` and bind-mounts `./langgraph.json`, so local CORS/config changes apply after recreating `rag-langgraph`.
+- Logs: `docker compose logs -f backend langgraph frontend`
 - Stop: `docker compose down`
 
 #### Optional observability stack (Grafana/Loki/Tempo)

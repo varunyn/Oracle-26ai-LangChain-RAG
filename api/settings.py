@@ -311,7 +311,7 @@ class Settings(BaseSettings):
             "core": {
                 "enabled": False,
                 "compose_file": "docker-compose.yml",
-                "services": ["backend", "frontend"],
+                "services": ["backend", "langgraph", "frontend"],
                 "profiles": [],
             },
             "observability": {

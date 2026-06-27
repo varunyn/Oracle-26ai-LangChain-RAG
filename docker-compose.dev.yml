@@ -25,3 +25,23 @@ services:
       - ./src:/app/src:ro
       - ./scripts:/app/scripts:ro
       - ./mcp_servers:/app/mcp_servers:ro
+  langgraph:
+    command:
+      - langgraph
+      - dev
+      - --config
+      - /app/langgraph.json
+      - --host
+      - 0.0.0.0
+      - --port
+      - "2024"
+      - --allow-blocking
+      - --no-browser
+    environment:
+      - WATCHFILES_FORCE_POLLING=true
+    volumes:
+      - ./langgraph.json:/app/langgraph.json:ro
+      - ./api:/app/api:ro
+      - ./src:/app/src:ro
+      - ./scripts:/app/scripts:ro
+      - ./mcp_servers:/app/mcp_servers:ro

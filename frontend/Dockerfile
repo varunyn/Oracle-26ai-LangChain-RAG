@@ -21,7 +21,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ARG NEXT_PUBLIC_DEFAULT_FLOW_MODE=mixed
 ARG NEXT_PUBLIC_API_BASE=http://localhost:3002
+ARG NEXT_PUBLIC_LANGGRAPH_API_BASE=http://localhost:2024
 ARG FASTAPI_BACKEND_URL=http://localhost:3002
+ARG LANGGRAPH_BACKEND_URL=http://langgraph:2024
 
 # Next.js collects completely anonymous telemetry data about general usage.
 # Learn more here: https://nextjs.org/telemetry
@@ -29,7 +31,9 @@ ARG FASTAPI_BACKEND_URL=http://localhost:3002
 ENV NEXT_TELEMETRY_DISABLED 1
 ENV NEXT_PUBLIC_DEFAULT_FLOW_MODE=${NEXT_PUBLIC_DEFAULT_FLOW_MODE}
 ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
+ENV NEXT_PUBLIC_LANGGRAPH_API_BASE=${NEXT_PUBLIC_LANGGRAPH_API_BASE}
 ENV FASTAPI_BACKEND_URL=${FASTAPI_BACKEND_URL}
+ENV LANGGRAPH_BACKEND_URL=${LANGGRAPH_BACKEND_URL}
 
 RUN pnpm build
 
@@ -42,7 +46,9 @@ ENV NODE_ENV production
 ENV NEXT_TELEMETRY_DISABLED 1
 ENV NEXT_PUBLIC_DEFAULT_FLOW_MODE mixed
 ENV NEXT_PUBLIC_API_BASE http://localhost:3002
+ENV NEXT_PUBLIC_LANGGRAPH_API_BASE http://localhost:2024
 ENV FASTAPI_BACKEND_URL http://localhost:3002
+ENV LANGGRAPH_BACKEND_URL http://langgraph:2024
 
 # Don't run as root
 RUN addgroup --system --gid 1001 nodejs
