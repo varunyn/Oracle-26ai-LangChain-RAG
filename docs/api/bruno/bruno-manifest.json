@@ -11,41 +11,39 @@
     },
     {
       "method": "POST",
-      "path": "/api/langgraph/threads",
-      "mode": "curated",
+      "path": "/threads",
+      "mode": "external",
       "name": "Create Thread",
       "output": "bruno/CustomRAGAgent/Chat/create-thread.bru"
     },
     {
       "method": "POST",
-      "path": "/api/langgraph/threads/{thread_id}/commands",
-      "mode": "curated",
+      "path": "/threads/{thread_id}/runs/stream",
+      "mode": "external",
       "name": "Chat Stream",
       "output": "bruno/CustomRAGAgent/Chat/chat-stream.bru"
     },
     {
       "method": "POST",
-      "path": "/api/langgraph/threads/{thread_id}/stream/events",
-      "mode": "curated",
+      "path": "/threads/{thread_id}/stream",
+      "mode": "external",
       "name": "Chat Stream Events",
       "output": "bruno/CustomRAGAgent/Chat/chat-stream-events.bru",
       "seq": 5
     },
     {
       "method": "GET",
-      "path": "/api/langgraph/threads/{thread_id}/state",
-      "mode": "generated",
+      "path": "/threads/{thread_id}/state",
+      "mode": "external",
       "name": "Thread State",
-      "bodyKind": "none",
       "output": "bruno/CustomRAGAgent/Chat/thread-state.bru",
       "seq": 6
     },
     {
       "method": "POST",
-      "path": "/api/langgraph/threads/{thread_id}/history",
-      "mode": "generated",
+      "path": "/threads/search",
+      "mode": "external",
       "name": "Thread History",
-      "bodyKind": "json",
       "output": "bruno/CustomRAGAgent/Chat/thread-history.bru",
       "seq": 7
     },
@@ -156,15 +154,6 @@
       "bodyKind": "multipart-form",
       "output": "bruno/CustomRAGAgent/Documents/upload.bru",
       "seq": 1
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/threads/{thread_id}",
-      "mode": "generated",
-      "name": "Delete Thread",
-      "bodyKind": "none",
-      "output": "bruno/CustomRAGAgent/Chat/delete-thread.bru",
-      "seq": 4
     }
   ]
 }

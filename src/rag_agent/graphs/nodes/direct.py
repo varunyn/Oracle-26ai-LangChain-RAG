@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from langgraph.runtime import Runtime
 
+from src.rag_agent.graphs.nodes.references import (
+    assistant_message_from_exception,
+    assistant_message_from_result,
+)
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
 from src.rag_agent.runtime.chat_service import ChatRuntimeService
 from src.rag_agent.runtime.memory import langchain_messages_to_dicts
@@ -21,19 +25,23 @@ async def run_direct_node(
     thread_id = getattr(runtime.execution_info, "thread_id", None)
     messages = langchain_messages_to_dicts(state["messages"])
     service = ChatRuntimeService()
-    result = await service.run_chat(
-        messages=messages,
-        model_id=context.get("model_id"),
-        thread_id=thread_id,
-        session_id=None,
-        collection_name=None,
-        enable_reranker=False,
-        enable_tracing=context.get("enable_tracing"),
-        mode="direct",
-        mcp_server_keys=context.get("mcp_server_keys"),
-        stream=False,
-    )
+    try:
+        result = await service.run_chat(
+            messages=messages,
+            model_id=context.get("model_id"),
+            thread_id=thread_id,
+            session_id=None,
+            collection_name=None,
+            enable_reranker=False,
+            enable_tracing=context.get("enable_tracing"),
+            mode="direct",
+            mcp_server_keys=context.get("mcp_server_keys"),
+            stream=False,
+        )
+        assistant_message = assistant_message_from_result("direct", result)
+    except Exception as exc:
+        assistant_message = assistant_message_from_exception("direct", exc)
     return {
-        "messages": [{"role": "assistant", "content": result["final_answer"]}],
-        "references": {"mode": "direct", **{k: v for k, v in result.items() if k != "final_answer"}},
+        "messages": [assistant_message],
+        "references": assistant_message.additional_kwargs,
     }

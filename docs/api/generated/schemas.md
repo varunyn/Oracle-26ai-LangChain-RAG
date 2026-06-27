@@ -189,45 +189,6 @@ Do not edit manually.
 
 - `suggestions`: `array` Follow-up question strings
 
-## `ThreadCreateRequest`
-
-- type: `object`
-
-### Properties
-
-- `thread_id`: `complex`
-
-## `ThreadCreateResponse`
-
-- type: `object`
-- required: `thread_id`
-
-### Properties
-
-- `thread_id`: `string`
-
-## `ThreadEventsRequest`
-
-- type: `object`
-
-### Properties
-
-- `channels`: `array`
-- `depth`: `complex`
-- `namespaces`: `complex`
-- `since`: `complex`
-
-## `ThreadHistoryRequest`
-
-- type: `object`
-
-### Properties
-
-- `before`: `complex`
-- `checkpoint`: `complex`
-- `limit`: `complex`
-- `metadata`: `complex`
-
 ## `ValidationError`
 
 - type: `object`

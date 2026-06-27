@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {baseUrl}/api/langgraph/threads/{thread_id}/history
+  url: {{langgraphBaseUrl}}/threads/search
   body: json
 }
 
@@ -14,7 +14,10 @@ headers {
 }
 
 body:json {
-{
-  "limit": 20
-}
+  {
+    "limit": 20,
+    "sort_by": "updated_at",
+    "sort_order": "desc",
+    "select": ["thread_id", "created_at", "updated_at", "values"]
+  }
 }

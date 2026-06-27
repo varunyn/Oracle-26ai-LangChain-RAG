@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/api/langgraph/threads/{{threadId}}/stream/events
+  url: {{langgraphBaseUrl}}/threads/{{threadId}}/stream
   body: json
 }
 
@@ -15,7 +15,7 @@ headers {
 
 body:json {
   {
-    "channels": ["values", "tools", "lifecycle"],
-    "depth": 1
+    "assistant_id": "chat_agent",
+    "stream_mode": ["values", "messages", "tools"]
   }
 }

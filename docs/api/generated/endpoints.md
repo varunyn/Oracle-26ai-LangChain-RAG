@@ -69,47 +69,11 @@ Do not edit manually.
 - tags: feedback
 - summary: Post Feedback
 
-## POST `/api/langgraph/threads`
-
-- operationId: `create_thread_api_langgraph_threads_post`
-- tags: langgraph-runtime
-- summary: Create Thread
-
-## POST `/api/langgraph/threads/{thread_id}/commands`
-
-- operationId: `stream_thread_command_api_langgraph_threads__thread_id__commands_post`
-- tags: langgraph-runtime
-- summary: Stream Thread Command
-
-## POST `/api/langgraph/threads/{thread_id}/history`
-
-- operationId: `get_thread_history_api_langgraph_threads__thread_id__history_post`
-- tags: langgraph-runtime
-- summary: Get Thread History
-
-## GET `/api/langgraph/threads/{thread_id}/state`
-
-- operationId: `get_thread_state_api_langgraph_threads__thread_id__state_get`
-- tags: langgraph-runtime
-- summary: Get Thread State
-
-## POST `/api/langgraph/threads/{thread_id}/stream/events`
-
-- operationId: `stream_thread_protocol_events_api_langgraph_threads__thread_id__stream_events_post`
-- tags: langgraph-runtime
-- summary: Stream Thread Protocol Events
-
 ## POST `/api/suggestions`
 
 - operationId: `post_suggestions_api_suggestions_post`
 - tags: suggestions
 - summary: Post Suggestions
-
-## DELETE `/api/threads/{thread_id}`
-
-- operationId: `delete_thread_api_threads__thread_id__delete`
-- tags: langgraph-runtime
-- summary: Delete Thread
 
 ## GET `/health`
 

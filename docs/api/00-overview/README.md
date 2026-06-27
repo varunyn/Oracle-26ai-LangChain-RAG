@@ -37,11 +37,12 @@ Use this docs tree for:
 
 ## Streaming contract summary
 
-For `/api/langgraph/threads/{thread_id}/stream/events` responses:
+Chat streaming is served by LangGraph Agent Server. The frontend browser client
+targets `NEXT_PUBLIC_LANGGRAPH_API_BASE` directly (local default:
+`http://localhost:2024`).
 
 - content-type: `text/event-stream`
-- event name: `event`
-- frame payload: LangGraph protocol event with `method="values"`, `method="tools"`, or `method="lifecycle"`
-- completion: stream close (no `[DONE]` frame)
+- stream payloads follow the LangGraph Agent Server protocol
+- completion is stream close (no `[DONE]` frame)
 
-These are contract requirements between frontend and backend.
+These are contract requirements between the frontend and Agent Server, not FastAPI.

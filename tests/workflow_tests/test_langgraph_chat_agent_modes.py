@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.messages import AIMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from src.rag_agent.graphs.chat_agent import build_chat_agent, route_mode
@@ -46,7 +47,7 @@ def test_run_direct_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -
         async def run_chat(self, **kwargs: object) -> dict[str, object]:
             captured.update(kwargs)
             return {
-                "final_answer": "READY",
+                "final_answer": [{"type": "text", "text": "READY"}],
                 "citations": [],
                 "reranker_docs": [],
                 "context_usage": None,
@@ -69,8 +70,10 @@ def test_run_direct_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -
     assert captured["thread_id"] == "thread-123"
     assert captured["mode"] == "direct"
     assert captured["enable_tracing"] is True
-    assert result["messages"][-1]["content"] == "READY"
-    assert result["references"]["mode"] == "direct"
+    assistant = result["messages"][-1]
+    assert isinstance(assistant, AIMessage)
+    assert assistant.content == [{"type": "text", "text": "READY"}]
+    assert assistant.additional_kwargs["mode"] == "direct"
 
 
 def test_run_rag_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -110,8 +113,35 @@ def test_run_rag_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
     assert captured["collection_name"] == "default"
     assert captured["enable_reranker"] is True
     assert captured["mode"] == "rag"
-    assert result["messages"][-1]["content"] == "RAG READY"
-    assert result["references"]["mode"] == "rag"
+    assistant = result["messages"][-1]
+    assert isinstance(assistant, AIMessage)
+    assert assistant.content == "RAG READY"
+    assert assistant.additional_kwargs["mode"] == "rag"
+
+
+def test_run_rag_node_returns_assistant_error_when_runtime_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubService:
+        async def run_chat(self, **kwargs: object) -> dict[str, object]:
+            _ = kwargs
+            raise RuntimeError("DPY-6005: cannot connect to database")
+
+    monkeypatch.setattr(rag_node_module, "ChatRuntimeService", StubService)
+
+    result = asyncio.run(
+        rag_node_module.run_rag_node(
+            {"messages": [{"role": "user", "content": "retrieve"}]},
+            _runtime(context={"mode": "rag"}),
+        )
+    )
+
+    assistant = result["messages"][-1]
+    assert isinstance(assistant, AIMessage)
+    assert "couldn't complete the request" in str(assistant.content)
+    assert assistant.additional_kwargs["mode"] == "rag"
+    assert assistant.additional_kwargs["error"]["type"] == "RuntimeError"
+    assert "DPY-6005" in assistant.additional_kwargs["error"]["message"]
 
 
 def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -144,9 +174,11 @@ def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
     assert captured["mode"] == "mcp"
     assert captured["mcp_server_keys"] == ["calculator"]
     assert captured["collection_name"] is None
-    assert result["messages"][-1]["content"] == "42"
-    assert result["references"]["mode"] == "mcp"
-    assert result["references"]["mcp_used"] is True
+    assistant = result["messages"][-1]
+    assert isinstance(assistant, AIMessage)
+    assert assistant.content == "42"
+    assert assistant.additional_kwargs["mode"] == "mcp"
+    assert assistant.additional_kwargs["mcp_used"] is True
 
 
 def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -190,9 +222,11 @@ def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) ->
     assert captured["enable_tracing"] is True
     assert captured["mode"] == "mixed"
     assert captured["mcp_server_keys"] == ["calculator"]
-    assert result["messages"][-1]["content"] == "Net 45 days; plus 5 is 50."
-    assert result["references"]["mode"] == "mixed"
-    assert result["references"]["mcp_used"] is True
+    assistant = result["messages"][-1]
+    assert isinstance(assistant, AIMessage)
+    assert assistant.content == "Net 45 days; plus 5 is 50."
+    assert assistant.additional_kwargs["mode"] == "mixed"
+    assert assistant.additional_kwargs["mcp_used"] is True
 
 
 def test_build_chat_agent_preserves_messages_across_same_thread(tmp_path, monkeypatch) -> None:

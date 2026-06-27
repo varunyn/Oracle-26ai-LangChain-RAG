@@ -97,7 +97,7 @@ The RAG backend and UIs **consume** MCP: they connect to MCP server(s) and attac
 MCP_SERVERS_CONFIG={"default":{"transport":"streamable-http","url":"http://localhost:9000/mcp"}}
 ```
 
-- **API note**: MCP-enabled chat is supported through `POST /api/langgraph/threads/{thread_id}/commands` with `mode="mcp"` or `mode="mixed"` in `params.input`.
+- **API note**: MCP-enabled chat is supported through the Agent Server `chat_agent` graph with `mode="mcp"` or `mode="mixed"` in top-level run `context`.
 
 ### 3. Use multiple MCPs in RAG chat at once
 
@@ -166,7 +166,7 @@ Chat is handled by `ChatRuntimeService` in `src/rag_agent/runtime/chat_service.p
 **Follow-up transform:** Before mode dispatch, the service may detect a follow-up that should **reformat** the previous assistant answer (LLM JSON `kind: transform`) and return that answer without running RAG or MCP.
 
 - **Default `mode`** (when not sent): `build_chat_config` in `api/dependencies.py` sets `mixed` when `ENABLE_MCP_TOOLS` is true and at least one MCP server is configured; otherwise `rag`.
-- **API**: Send `mode` and optional `mcp_server_keys` to limit which MCP servers load.
+- **API**: Send `mode` and optional `mcp_server_keys` in top-level run `context` to limit which MCP servers load.
 - **RAG path**: Uses Oracle vector similarity search and a single answer prompt in `ChatRuntimeService`.
 - **Mixed RAG handoff**: Mixed mode exposes `oracle_retrieval` and configured MCP tools together. When `oracle_retrieval` returns docs, the final answer is synthesized by the RAG runtime so answer text can stream after tool execution. Non-retrieval MCP tool results from the same turn are included as supplemental context. Retrieval infrastructure errors are surfaced as retrieval failures, not as "no documents found."
 - **MCP tool-call limit**: `MCP_MAX_ROUNDS` (default 4) caps total tool calls in one agent run. Mixed mode may need more than two calls when a turn combines Oracle retrieval with MCP tool actions.
@@ -175,7 +175,7 @@ Chat is handled by `ChatRuntimeService` in `src/rag_agent/runtime/chat_service.p
 
 **From the UI:** In the sidebar, set **Flow mode** to **Mixed (RAG + MCP)**. Send a question; the backend loads `oracle_retrieval` and configured MCP tools. If the turn uses retrieval and finds docs, the answer streams from the RAG answer path with any non-retrieval MCP tool outputs included as supplemental context. If the turn uses only MCP tools, the MCP agent answer is returned.
 
-**With curl:** `curl -X POST http://localhost:3002/api/langgraph/threads/demo-thread/commands -H "Content-Type: application/json" -d '{"id":1,"method":"run.start","params":{"assistant_id":"mcp_agent_executor","input":{"messages":[{"type":"human","content":"What is OCI CLI? Then compute 2+2."}],"mode":"mixed"}}}'`
+**With curl:** `curl -X POST http://localhost:2024/threads/demo-thread/runs/stream -H "Content-Type: application/json" -d '{"assistant_id":"chat_agent","input":{"messages":[{"role":"user","content":"What is OCI CLI? Then compute 2+2."}]},"context":{"mode":"mixed"},"stream_mode":["values","messages","tools"]}'`
 
 Use `"mode": "mcp"` for MCP tools only, `"mode": "rag"` for retrieval-only, `"mode": "direct"` for no retrieval and no MCP tools. Optionally send `"mcp_server_keys": ["default", "calculator"]` for configured server keys.
 
@@ -189,7 +189,7 @@ MCP and mixed chat modes load tools through **`langchain_mcp_adapters.MultiServe
 
 ```mermaid
 flowchart TD
-    A[POST /api/langgraph/threads/{thread_id}/commands] --> C{mode}
+    A[Agent Server chat_agent run] --> C{mode}
     C -->|direct| D[LLM on message history]
     C -->|rag| E[Vector search + answer prompt]
     C -->|mcp| F[MultiServerMCPClient.get_tools + get_mcp_answer_async]

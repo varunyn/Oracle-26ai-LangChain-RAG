@@ -115,8 +115,6 @@ def default_body_for_operation(path: str) -> dict[str, Any] | None:
             "last_message": "Oracle vector search combines embeddings with document retrieval.",
             "model": None,
         }
-    if path == "/api/langgraph/threads/{thread_id}/history":
-        return {"limit": 20}
     if path == "/api/config/mcp-servers/{key}":
         return {
             "transport": "streamable-http",
@@ -187,6 +185,7 @@ def generate_bruno_files(route_index: dict[str, Any], manifest: dict[str, Any]) 
     outputs[BRUNO_ROOT / "environments.bru"] = (
         "vars {\n"
         "  baseUrl: http://127.0.0.1:3002\n"
+        "  langgraphBaseUrl: http://127.0.0.1:2024\n"
         "  defaultCollection: RAG_KNOWLEDGE_BASE\n"
         "  defaultModel: cohere.command-r-plus\n"
         "  threadId: bruno-local-thread\n"
@@ -195,11 +194,11 @@ def generate_bruno_files(route_index: dict[str, Any], manifest: dict[str, Any]) 
     )
 
     for item in manifest["operations"]:
+        if item["mode"] != "generated":
+            continue
         key = (item["method"], item["path"])
         if key not in operations:
             raise ValueError(f"Manifest operation missing from OpenAPI: {key}")
-        if item["mode"] != "generated":
-            continue
         out_path = DOCS_API / item["output"]
         body_kind = item.get("bodyKind", "none")
         body = None

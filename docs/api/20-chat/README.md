@@ -1,82 +1,44 @@
 # Chat API
 
-This app exposes thread/run chat endpoints:
+Chat execution no longer uses FastAPI `/api/langgraph/*` compatibility routes.
 
-- `POST /api/langgraph/threads`
-- `POST /api/langgraph/threads/{thread_id}/commands`
-- `POST /api/langgraph/threads/{thread_id}/stream/events`
+The end state is the LangGraph Agent Server graph `chat_agent`, typically served
+locally from `http://127.0.0.1:2024`.
 
-## Request model highlights
+## What FastAPI still owns
 
-`ThreadRunRequest` accepts:
+The FastAPI app continues to serve product endpoints such as:
 
-- top-level `messages` or nested `input.messages`
-- top-level `message` or nested `input.message`
-- optional runtime options (`model`, `session_id`, `collection_name`, `enable_reranker`, `enable_tracing`, `mode`, `mcp_server_keys`) at top level or under `input`
+- `/api/config`
+- `/api/suggestions`
+- `/api/feedback`
+- `/api/documents/*`
 
-`mcp_server_keys` limits which configured MCP servers/tools are loaded when MCP is enabled. It does not by itself choose the chat mode; use `mode="mcp"` or `mode="mixed"` for MCP-enabled chat.
+## What Agent Server owns
 
-## Important validation rule
+Chat threads, runs, state, history, and streaming now come directly from the
+LangGraph Agent Server:
 
-Thread/run payloads must provide either `input.messages` (with at least one user/human message) or
-`input.message`.
+- `POST /threads`
+- `POST /threads/{thread_id}/runs/stream`
+- `POST /threads/{thread_id}/stream`
+- `GET /threads/{thread_id}/state`
+- `POST /threads/search`
 
-## POST `/api/langgraph/threads/{thread_id}/commands`
+Use the LangGraph base URL instead of the FastAPI base URL when exercising chat
+manually or from frontend integrations.
 
-### Command request example
+## Frontend contract
 
-```json
-{
-  "id": 1,
-  "method": "run.start",
-  "params": {
-    "assistant_id": "mcp_agent_executor",
-    "input": {
-      "model": "cohere.command-r-plus",
-      "messages": [
-        {
-          "role": "user",
-          "content": "Answer with a markdown table when appropriate."
-        },
-        {
-          "role": "assistant",
-          "content": "Understood."
-        },
-        {
-          "role": "user",
-          "content": "What documents mention Oracle vector search?"
-        }
-      ],
-      "collection_name": "RAG_KNOWLEDGE_BASE"
-    }
-  }
-}
-```
+The frontend uses `@langchain/react` with:
 
-### Streaming behavior
+- `assistantId: "chat_agent"`
+- standard `messages` graph input plus top-level runtime `context`
+- server-backed thread history via `stream.client.threads.search(...)`
 
-The command response is JSON. Stream data is read from
-`POST /api/langgraph/threads/{thread_id}/stream/events`.
-
-The stream response is SSE (`text/event-stream`) using repeated `event: event`
-frames. Each payload is a protocol event. `method="values"` events contain the
-full `messages` snapshot.
-
-Example frame:
-
-```text
-event: event
-data: {"type":"event","seq":1,"event_id":"...","method":"values","params":{"namespace":[],"data":{"messages":[...]}}}
-```
-
-There is no `[DONE]` sentinel; completion is stream close.
-
-Assistant message metadata carries references, sources, tool activity, and MCP invocation details. The frontend consumes this values-stream through `@langchain/react` and renders answer text, tool activity, and sources from the latest assistant snapshot.
-
-For `mode="mixed"`, the runtime loads MCP tools plus the local `oracle_retrieval` tool in one agent loop. If retrieval returns documents, the final answer streams through the RAG answer path and includes non-retrieval MCP tool outputs as supplemental context. If retrieval is not used or no documents are returned, the response is the MCP agent answer or a retrieval error.
-
-### Recommended verification
+## Recommended local workflow
 
 ```bash
-./scripts/streaming_smoke_test.sh
+uv run langgraph dev
+./run_api.sh
 ```

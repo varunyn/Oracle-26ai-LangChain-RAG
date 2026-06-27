@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from fastapi.testclient import TestClient
 
 # Import the FastAPI app
 from api.main import app
@@ -55,3 +56,9 @@ def test_openapi_matches_baseline():
             diff,
         ]
         pytest.fail("\n".join(lines))
+
+
+def test_custom_langgraph_routes_are_absent() -> None:
+    with TestClient(app) as client:
+        response = client.post("/api/langgraph/threads", json={})
+    assert response.status_code == 404

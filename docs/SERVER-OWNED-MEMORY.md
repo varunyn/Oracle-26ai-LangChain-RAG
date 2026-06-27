@@ -4,16 +4,14 @@ This app keeps chat memory on the backend in `ChatRuntimeService` (`src/rag_agen
 
 ## Key behaviors
 
-- API contract: `POST /api/langgraph/threads/{thread_id}/commands` plus
-  `POST /api/langgraph/threads/{thread_id}/stream/events`
+- Agent Server contract: thread/run/stream endpoints on the LangGraph Agent Server
   - Request input should include at least one latest user/human message.
-  - `thread_id` identifies a conversation; create one with `POST /api/langgraph/threads`.
-  - Stream responses emit `event: event` SSE protocol frames.
+  - `thread_id` identifies a conversation and is created/managed by the Agent Server.
 - Storage model
   - Runtime always keeps a process-local cache (`self._thread_state`).
   - When `ENABLE_PERSISTENT_MEMORY=true`, state is also stored in the SQLite checkpoint file configured by `LANGGRAPH_SQLITE_PATH`.
   - State includes normalized LangChain messages and the last answer metadata.
-  - `DELETE /api/threads/{thread_id}` removes a conversation state entry and is idempotent.
+  - Thread deletion is now done through Agent Server client APIs.
 
 ## Scope and limitations
 
@@ -44,5 +42,5 @@ PY
 
 ## Delete one thread
 
-- API: `DELETE /api/threads/{thread_id}` returns 204 whether or not the thread already exists.
-- Programmatic: `await ChatRuntimeService().delete_thread("<thread_id>")`
+- Programmatic runtime cleanup: `await ChatRuntimeService().delete_thread("<thread_id>")`
+- Product UI cleanup uses the LangGraph client thread delete API.

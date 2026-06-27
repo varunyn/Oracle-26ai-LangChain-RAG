@@ -7,13 +7,12 @@ Composes all individual routers into a single router for inclusion in the main a
 from fastapi import APIRouter
 
 from api.routes import config_route as config
-from api.routes import documents, feedback, health, langgraph_server, suggestions
+from api.routes import documents, feedback, health, suggestions
 
 router = APIRouter()
 
 # Include routers in the same order as currently done in main.py
 router.include_router(health.router)
-router.include_router(langgraph_server.router)
 router.include_router(suggestions.router)
 router.include_router(config.router)
 router.include_router(feedback.router)

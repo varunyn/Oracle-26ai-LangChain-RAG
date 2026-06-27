@@ -36,7 +36,11 @@ def _manifest() -> BrunoManifest:
 
 def test_api_docs_manifest_covers_all_openapi_operations() -> None:
     manifest = _manifest()
-    manifest_ops = {(item["method"], item["path"]) for item in manifest["operations"]}
+    manifest_ops = {
+        (item["method"], item["path"])
+        for item in manifest["operations"]
+        if item["mode"] == "generated"
+    }
     assert manifest_ops == _openapi_operations()
 
 
@@ -50,15 +54,13 @@ def test_generated_bruno_entries_reference_real_openapi_operations() -> None:
         assert (ROOT / "docs" / "api" / item["output"]).is_file()
 
 
-def test_curated_operations_still_exist_in_openapi() -> None:
-    openapi_ops = _openapi_operations()
+def test_external_operations_reference_existing_files() -> None:
     manifest = _manifest()
-    curated: list[ManifestOperation] = [
-        item for item in manifest["operations"] if item["mode"] == "curated"
+    external: list[ManifestOperation] = [
+        item for item in manifest["operations"] if item["mode"] == "external"
     ]
-    assert curated
-    for item in curated:
-        assert (item["method"], item["path"]) in openapi_ops
+    assert external
+    for item in external:
         assert (ROOT / "docs" / "api" / item["output"]).is_file()
 
 

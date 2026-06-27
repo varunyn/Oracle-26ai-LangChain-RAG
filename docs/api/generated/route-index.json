@@ -101,65 +101,11 @@
     },
     {
       "method": "POST",
-      "operationId": "create_thread_api_langgraph_threads_post",
-      "path": "/api/langgraph/threads",
-      "summary": "Create Thread",
-      "tags": [
-        "langgraph-runtime"
-      ]
-    },
-    {
-      "method": "POST",
-      "operationId": "stream_thread_command_api_langgraph_threads__thread_id__commands_post",
-      "path": "/api/langgraph/threads/{thread_id}/commands",
-      "summary": "Stream Thread Command",
-      "tags": [
-        "langgraph-runtime"
-      ]
-    },
-    {
-      "method": "POST",
-      "operationId": "get_thread_history_api_langgraph_threads__thread_id__history_post",
-      "path": "/api/langgraph/threads/{thread_id}/history",
-      "summary": "Get Thread History",
-      "tags": [
-        "langgraph-runtime"
-      ]
-    },
-    {
-      "method": "GET",
-      "operationId": "get_thread_state_api_langgraph_threads__thread_id__state_get",
-      "path": "/api/langgraph/threads/{thread_id}/state",
-      "summary": "Get Thread State",
-      "tags": [
-        "langgraph-runtime"
-      ]
-    },
-    {
-      "method": "POST",
-      "operationId": "stream_thread_protocol_events_api_langgraph_threads__thread_id__stream_events_post",
-      "path": "/api/langgraph/threads/{thread_id}/stream/events",
-      "summary": "Stream Thread Protocol Events",
-      "tags": [
-        "langgraph-runtime"
-      ]
-    },
-    {
-      "method": "POST",
       "operationId": "post_suggestions_api_suggestions_post",
       "path": "/api/suggestions",
       "summary": "Post Suggestions",
       "tags": [
         "suggestions"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "operationId": "delete_thread_api_threads__thread_id__delete",
-      "path": "/api/threads/{thread_id}",
-      "summary": "Delete Thread",
-      "tags": [
-        "langgraph-runtime"
       ]
     },
     {

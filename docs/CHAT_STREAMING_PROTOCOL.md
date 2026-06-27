@@ -1,82 +1,58 @@
 # Chat streaming protocol
 
-This repo supports chat streaming on:
+This repo supports chat streaming through LangGraph Agent Server:
 
-- `POST /api/langgraph/threads/{thread_id}/commands`
-- `POST /api/langgraph/threads/{thread_id}/stream/events`
+- `POST /threads/{thread_id}/runs/stream`
+- `POST /threads/{thread_id}/stream`
 
 ## Streaming
 
-The frontend uses the `@langchain/react` v1 protocol. It submits a command as JSON,
-then reads protocol events from the event stream endpoint.
+The frontend uses `@langchain/react` against `assistantId: "chat_agent"`. It submits
+standard `messages` input plus top-level runtime `context` and receives Agent
+Server streaming updates.
 
-Command request shape:
-
-```json
-{
-  "id": 1,
-  "method": "run.start",
-  "params": {
-    "assistant_id": "mcp_agent_executor",
-    "input": {
-      "messages": [{ "type": "human", "content": "Hello" }]
-    }
-  }
-}
-```
-
-The command response is JSON:
+Run-start request shape:
 
 ```json
 {
-  "id": 1,
-  "type": "success",
-  "result": { "run_id": "generated-run-id", "created_at": null }
+  "assistant_id": "chat_agent",
+  "input": {
+    "messages": [{ "role": "user", "content": "Hello" }]
+  },
+  "context": {
+    "mode": "rag"
+  },
+  "stream_mode": ["values", "messages", "tools"]
 }
-```
-
-The event stream response is SSE with protocol events whose `method` is `values`,
-`tools`, or `lifecycle`.
-
-SSE framing:
-
-```text
-event: event
-data: {"type":"event","seq":1,"event_id":"...","method":"values","params":{"namespace":[],"data":{"messages":[...]}}}
-
-event: event
-data: {"type":"event","seq":2,"event_id":"...","method":"lifecycle","params":{"namespace":[],"data":{"event":"completed"}}}
 ```
 
 Notes:
 
 - Stream completion is transport close (there is no `[DONE]` sentinel).
 - Assistant references, sources, and tool activity are carried in `response_metadata` / `additional_kwargs` on assistant messages.
-- Frontend uses `@langchain/react` `useStream` against `${NEXT_PUBLIC_API_BASE}/api/langgraph`.
-- Internally, the command route consumes `ChatRuntimeService.astream_events(..., version="v3")`
-  and adapts text/tool-call/reference projections into this values-stream contract.
+- Frontend uses `@langchain/react` directly against `NEXT_PUBLIC_LANGGRAPH_API_BASE` (local default: `http://localhost:2024`).
+- FastAPI no longer adapts or proxies the chat protocol.
 
 Example request:
 
 ```bash
 curl -sS -N \
   -H 'Content-Type: application/json' \
-  -d '{"id":1,"method":"run.start","params":{"assistant_id":"mcp_agent_executor","input":{"messages":[{"type":"human","content":"Hello"}]}}}' \
-  http://localhost:3002/api/langgraph/threads/thread-1/commands
+  -d '{"assistant_id":"chat_agent","input":{"messages":[{"role":"user","content":"Hello"}]},"context":{"mode":"direct"},"stream_mode":["values","messages","tools"]}' \
+  http://localhost:2024/threads/thread-1/runs/stream
 
 curl -sS -N \
   -H 'Content-Type: application/json' \
-  -d '{"channels":["values","tools","lifecycle"],"depth":1}' \
-  http://localhost:3002/api/langgraph/threads/thread-1/stream/events
+  -d '{"assistant_id":"chat_agent","stream_mode":["values","messages","tools"]}' \
+  http://localhost:2024/threads/thread-1/stream
 ```
 
 ## Server-owned memory: delta-only input + thread IDs
 
 - The server is the source of truth for conversation context in `ChatRuntimeService` (`src/rag_agent/runtime/chat_service.py`).
-- API requests should contain at least one user/human message in `input.messages`.
+- API requests should contain at least one user message in `input.messages`.
 - `thread_id` is the conversation identifier.
   - Frontend persists `thread_id` in `localStorage` and reuses it on later turns.
-- Streaming contract uses `event: event` SSE frames with protocol event payloads.
 
 ### Inspecting + deleting thread state
 
@@ -98,5 +74,5 @@ asyncio.run(main())
 PY
 ```
 
-- Delete via API: `DELETE /api/threads/{thread_id}` (idempotent 204)
-- Reset all state: restart the API process (current memory store is process-local)
+- Delete via LangGraph client or Agent Server thread APIs.
+- Reset all state: restart the relevant process if you are using process-local memory.

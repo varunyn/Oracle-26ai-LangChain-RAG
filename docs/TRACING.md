@@ -51,7 +51,7 @@ If mode/tool usage is unexpected (for example a RAG-only question calling MCP to
 
 ## 6. Langfuse SDK (optional)
 
-Tracing is done **via the LangChain callback stack** (no API-level manual trace). When enabled, each `/api/langgraph/threads/{thread_id}/commands` request produces one Langfuse trace with nested spans for runtime steps, LLM calls, and tools.
+Tracing is done **via the LangChain callback stack** (no API-level manual trace). When enabled, each chat run on the `chat_agent` Agent Server graph produces one Langfuse trace with nested spans for runtime steps, LLM calls, and tools.
 
 1. **Bring up Langfuse (optional)**
    - Copy `observability/langfuse/.env.example` → `.env` and update all secrets

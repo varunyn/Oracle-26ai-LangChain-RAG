@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/api/langgraph/threads
+  url: {{langgraphBaseUrl}}/threads
   body: json
 }
 
@@ -15,6 +15,9 @@ headers {
 
 body:json {
   {
-    "thread_id": "{{threadId}}"
+    "thread_id": "{{threadId}}",
+    "metadata": {
+      "source": "bruno"
+    }
   }
 }
