@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from contextlib import contextmanager
 from typing import cast
 
@@ -11,6 +12,14 @@ from langchain_core.tools import tool
 from src.rag_agent.runtime import chat_service as mod
 from src.rag_agent.runtime import rag_runtime
 from src.rag_agent.runtime.chat_service import ChatRuntimeService
+
+
+def test_chat_runtime_service_constructor_does_not_accept_legacy_graph_arg() -> None:
+    assert "graph" not in inspect.signature(ChatRuntimeService).parameters
+
+
+def test_chat_runtime_service_does_not_expose_unused_delete_thread_helper() -> None:
+    assert not hasattr(ChatRuntimeService, "delete_thread")
 
 
 def test_called_tool_names_combines_tools_used_and_invocations() -> None:
@@ -55,7 +64,7 @@ def test_graph_service_run_chat_direct_mode_uses_oci_llm(monkeypatch) -> None:
         "src.rag_agent.runtime.chat_service.get_llm", lambda model_id=None: FakeLLM()
     )
 
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
 
     result = asyncio.run(
         service.run_chat(
@@ -79,7 +88,7 @@ def test_graph_service_run_chat_direct_mode_uses_oci_llm(monkeypatch) -> None:
 
 def test_graph_service_direct_mode_hydrates_prior_thread_messages(monkeypatch) -> None:
     captured: dict[str, object] = {}
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     thread_id = "thread-direct-memory"
     service._thread_state[thread_id] = {
         "messages": [
@@ -123,7 +132,7 @@ def test_graph_service_direct_mode_hydrates_prior_thread_messages(monkeypatch) -
 
 
 def test_graph_service_run_chat_defaults_to_mixed_when_mcp_enabled(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     captured: dict[str, object] = {}
 
     @tool
@@ -196,7 +205,7 @@ def test_graph_service_run_chat_defaults_to_mixed_when_mcp_enabled(monkeypatch) 
 
 
 def test_graph_service_run_chat_mcp_mode_uses_mcp_answer_async(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     captured: dict[str, object] = {}
 
     @tool
@@ -267,7 +276,7 @@ def test_graph_service_run_chat_mcp_mode_uses_mcp_answer_async(monkeypatch) -> N
 
 
 def test_graph_service_mcp_mode_passes_prior_thread_history_to_agent(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     thread_id = "thread-mcp-memory"
     captured: dict[str, object] = {}
     service._thread_state[thread_id] = {
@@ -334,7 +343,7 @@ def test_graph_service_mcp_mode_passes_prior_thread_history_to_agent(monkeypatch
 
 
 def test_graph_service_mcp_mode_honors_require_tool_call_setting(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     captured: dict[str, object] = {}
 
     @tool
@@ -384,7 +393,7 @@ def test_graph_service_mcp_mode_honors_require_tool_call_setting(monkeypatch) ->
 
 
 def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
 
     @contextmanager
     def fake_get_pooled_connection():
@@ -442,7 +451,7 @@ def test_graph_service_run_chat_rag_mode_uses_oracle_retrieval(monkeypatch) -> N
 def test_graph_service_rag_mode_returns_not_found_when_retrieval_has_no_docs(
     monkeypatch,
 ) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
 
     def fake_retrieve_oracle_docs(**kwargs: object) -> list[Document]:
         assert kwargs["query"] == "How can we land on moon?"
@@ -477,7 +486,7 @@ def test_graph_service_rag_mode_returns_not_found_when_retrieval_has_no_docs(
 
 
 def test_graph_service_rag_mode_uses_native_reranker_when_enabled(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     docs = [
         Document(page_content="Less relevant chunk", metadata={"source": "Doc1"}),
         Document(page_content="Best matching chunk", metadata={"source": "Doc2"}),
@@ -536,7 +545,7 @@ def test_graph_service_rag_mode_uses_native_reranker_when_enabled(monkeypatch) -
 
 
 def test_graph_service_rag_mode_contextualizes_followup_before_retrieval(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     thread_id = "thread-rag-memory"
     captured: dict[str, object] = {}
     service._thread_state[thread_id] = {
@@ -605,7 +614,7 @@ def test_graph_service_rag_mode_contextualizes_followup_before_retrieval(monkeyp
 
 
 def test_graph_service_run_chat_mixed_mode_uses_mcp_answer_async(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     captured: dict[str, object] = {}
 
     @tool
@@ -687,7 +696,7 @@ def test_graph_service_run_chat_mixed_mode_uses_mcp_answer_async(monkeypatch) ->
 def test_graph_service_mixed_mode_lets_agent_loop_continue_with_retrieval_tool(
     monkeypatch,
 ) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     captured: dict[str, object] = {}
 
     @tool
@@ -754,7 +763,7 @@ def test_graph_service_mixed_mode_lets_agent_loop_continue_with_retrieval_tool(
 
 
 def test_graph_service_mixed_mode_honors_require_tool_call_setting(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     captured: dict[str, object] = {}
 
     @tool
@@ -814,7 +823,7 @@ def test_graph_service_mixed_mode_honors_require_tool_call_setting(monkeypatch) 
 
 
 def test_graph_service_mixed_mode_passes_prior_thread_history_to_agent(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     thread_id = "thread-mixed-memory"
     captured: dict[str, object] = {}
     service._thread_state[thread_id] = {
@@ -893,7 +902,7 @@ def test_graph_service_mixed_mode_passes_prior_thread_history_to_agent(monkeypat
 
 
 def test_graph_service_run_chat_mcp_mode_uses_all_servers_when_not_specified(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     captured: dict[str, object] = {}
 
     @tool
@@ -957,7 +966,7 @@ def test_graph_service_run_chat_mcp_mode_uses_all_servers_when_not_specified(mon
 
 
 def test_graph_service_mixed_mode_invokes_mcp_answer_per_request(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     call_count = {"value": 0}
 
     @tool
@@ -1029,7 +1038,7 @@ def test_graph_service_mixed_mode_invokes_mcp_answer_per_request(monkeypatch) ->
 
 
 def test_graph_service_mixed_mode_includes_retrieval_references_when_available(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
 
     class _Tool:
         name = "oracle_retrieval"
@@ -1097,7 +1106,7 @@ def test_graph_service_mixed_mode_includes_retrieval_references_when_available(m
 def test_graph_service_mixed_mode_uses_only_retrieval_tool_state_for_citations(
     monkeypatch,
 ) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
 
     class _Tool:
         name = "oracle_retrieval"
@@ -1164,7 +1173,7 @@ def test_graph_service_mixed_mode_uses_only_retrieval_tool_state_for_citations(
 def test_graph_service_mixed_mode_does_not_run_direct_retrieval_after_tool_error(
     monkeypatch,
 ) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
 
     class _Tool:
         name = "oracle_retrieval"
@@ -1230,7 +1239,7 @@ def test_graph_service_mixed_mode_does_not_run_direct_retrieval_after_tool_error
 def test_graph_service_mixed_mode_keeps_non_retrieval_mcp_answer_without_rag_override(
     monkeypatch,
 ) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
 
     class _Tool:
         name = "oracle_retrieval"
@@ -1298,7 +1307,7 @@ def test_graph_service_mixed_mode_keeps_non_retrieval_mcp_answer_without_rag_ove
 def test_graph_service_mixed_mode_keeps_metadata_answer_without_rag_override(
     monkeypatch,
 ) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
 
     class _Tool:
         name = "oracle_retrieval"
@@ -1368,7 +1377,7 @@ def test_graph_service_mixed_mode_keeps_metadata_answer_without_rag_override(
 def test_graph_service_mixed_mode_requires_tool_call_when_mcp_tools_explicitly_referenced(
     monkeypatch,
 ) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     call_kwargs: list[dict[str, object]] = []
 
     @tool
@@ -1456,7 +1465,7 @@ def test_graph_service_mixed_mode_requires_tool_call_when_mcp_tools_explicitly_r
 def test_graph_service_mixed_mode_runs_repeated_workflow_before_normal_agent(
     monkeypatch,
 ) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
 
     @tool
     def retrieval_tool(question: str) -> str:
@@ -1551,7 +1560,7 @@ def test_graph_service_mixed_mode_runs_repeated_workflow_before_normal_agent(
 def test_graph_service_mixed_mode_stops_when_repeated_workflow_has_no_queue(
     monkeypatch,
 ) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     normal_calls = 0
 
     @tool
@@ -1638,7 +1647,7 @@ def test_graph_service_mixed_mode_stops_when_repeated_workflow_has_no_queue(
 def test_graph_service_mixed_mode_enforces_generic_workflow_policy_when_activated(
     monkeypatch,
 ) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
 
     class _Settings:
         MCP_WORKFLOW_POLICY = {
@@ -1723,7 +1732,7 @@ def test_graph_service_mixed_mode_enforces_generic_workflow_policy_when_activate
 def test_graph_service_mixed_mode_workflow_policy_does_not_apply_when_not_activated(
     monkeypatch,
 ) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
 
     class _Settings:
         MCP_WORKFLOW_POLICY = {
@@ -1797,7 +1806,7 @@ def test_graph_service_mixed_mode_workflow_policy_does_not_apply_when_not_activa
 def test_graph_service_mixed_mode_replaces_trivial_answer_with_tool_failure_summary(
     monkeypatch,
 ) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
 
     @tool
     def retrieval_tool(question: str) -> str:
@@ -1866,7 +1875,7 @@ def test_graph_service_mixed_mode_replaces_trivial_answer_with_tool_failure_summ
 
 
 def test_graph_service_run_chat_does_not_apply_custom_transform_prepass(monkeypatch) -> None:
-    service = ChatRuntimeService(graph=object())
+    service = ChatRuntimeService()
     thread_id = "thread-transform"
 
     class FakeLLM:

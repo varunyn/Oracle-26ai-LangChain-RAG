@@ -30,7 +30,7 @@ async def run_rag_node(
             messages=messages,
             model_id=context.get("model_id"),
             thread_id=thread_id,
-            session_id=None,
+            session_id=context.get("session_id"),
             collection_name=context.get("collection_name"),
             enable_reranker=context.get("enable_reranker"),
             enable_tracing=context.get("enable_tracing"),

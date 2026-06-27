@@ -11,6 +11,7 @@ Mode = Literal["direct", "rag", "mcp", "mixed"]
 
 class ChatGraphContext(TypedDict, total=False):
     model_id: str
+    session_id: str
     collection_name: str
     mode: Mode
     enable_reranker: bool

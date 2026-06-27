@@ -2,6 +2,10 @@
 
 ## 2026-06-27
 
+- Removed the unused `graph` constructor argument from `ChatRuntimeService` and updated the remaining unit tests that were still passing it as dead compatibility baggage.
+- Removed the unused `ChatRuntimeService.delete_thread()` helper, renamed the runtime docstrings to reflect shared LangGraph/FastAPI ownership, and added section markers in `chat_service.py` to make future cleanup safer.
+- Restored LangGraph-to-Langfuse session propagation by carrying `session_id` through the Agent Server context schema into graph node runtime calls, so LangGraph chat traces keep the same session correlation as the FastAPI runtime path.
+- Fixed follow-up suggestions for OCI Grok-selected chats by falling back to the default suggestions model when LangChain structured output passes unsupported `strict` kwargs through `langchain-oci`.
 - Fixed LangGraph graph nodes to return a terminal assistant error message when the runtime backend raises, so `@langchain/react` streams stop loading instead of leaving the UI on “Preparing response” after retrieval/backend failures.
 - Updated Docker and local frontend defaults to use `NEXT_PUBLIC_LANGGRAPH_API_BASE=http://localhost:2024` for direct browser-to-Agent-Server streaming, and kept LangGraph stream ownership inside the active `@langchain/react` controller when new thread ids are assigned.
 - Configured LangGraph Agent Server CORS for local frontend origins so browser-direct thread search and streaming requests can call `http://localhost:2024`.

@@ -61,13 +61,19 @@ def test_run_direct_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -
         direct_node_module.run_direct_node(
             {"messages": [{"role": "user", "content": "hi"}]},
             _runtime(
-                context={"mode": "direct", "model_id": "model-a", "enable_tracing": True}
+                context={
+                    "mode": "direct",
+                    "model_id": "model-a",
+                    "enable_tracing": True,
+                    "session_id": "session-direct",
+                }
             ),
         )
     )
 
     assert captured["model_id"] == "model-a"
     assert captured["thread_id"] == "thread-123"
+    assert captured["session_id"] == "session-direct"
     assert captured["mode"] == "direct"
     assert captured["enable_tracing"] is True
     assistant = result["messages"][-1]
@@ -103,6 +109,7 @@ def test_run_rag_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
                     "collection_name": "default",
                     "enable_reranker": True,
                     "enable_tracing": False,
+                    "session_id": "session-rag",
                 }
             ),
         )
@@ -110,6 +117,7 @@ def test_run_rag_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert captured["model_id"] == "model-b"
     assert captured["thread_id"] == "thread-123"
+    assert captured["session_id"] == "session-rag"
     assert captured["collection_name"] == "default"
     assert captured["enable_reranker"] is True
     assert captured["mode"] == "rag"
@@ -165,12 +173,20 @@ def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
     result = asyncio.run(
         mcp_node_module.run_mcp_node(
             {"messages": [{"role": "user", "content": "19 + 23"}]},
-            _runtime(context={"mode": "mcp", "model_id": "model-c", "mcp_server_keys": ["calculator"]}),
+            _runtime(
+                context={
+                    "mode": "mcp",
+                    "model_id": "model-c",
+                    "mcp_server_keys": ["calculator"],
+                    "session_id": "session-mcp",
+                }
+            ),
         )
     )
 
     assert captured["model_id"] == "model-c"
     assert captured["thread_id"] == "thread-123"
+    assert captured["session_id"] == "session-mcp"
     assert captured["mode"] == "mcp"
     assert captured["mcp_server_keys"] == ["calculator"]
     assert captured["collection_name"] is None
@@ -210,6 +226,7 @@ def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) ->
                     "enable_reranker": True,
                     "enable_tracing": True,
                     "mcp_server_keys": ["calculator"],
+                    "session_id": "session-mixed",
                 }
             ),
         )
@@ -217,6 +234,7 @@ def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) ->
 
     assert captured["model_id"] == "model-d"
     assert captured["thread_id"] == "thread-123"
+    assert captured["session_id"] == "session-mixed"
     assert captured["collection_name"] == "ORACLE_WEB_EMBEDDINGS"
     assert captured["enable_reranker"] is True
     assert captured["enable_tracing"] is True

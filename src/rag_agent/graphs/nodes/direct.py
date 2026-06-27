@@ -30,7 +30,7 @@ async def run_direct_node(
             messages=messages,
             model_id=context.get("model_id"),
             thread_id=thread_id,
-            session_id=None,
+            session_id=context.get("session_id"),
             collection_name=None,
             enable_reranker=False,
             enable_tracing=context.get("enable_tracing"),

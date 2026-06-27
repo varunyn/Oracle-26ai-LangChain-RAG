@@ -1,4 +1,4 @@
-"""ChatRuntimeService: runtime boundary between FastAPI and OCI-backed chat execution."""
+"""Shared chat runtime for direct, RAG, MCP, and mixed execution paths."""
 
 from __future__ import annotations
 
@@ -46,6 +46,7 @@ _ORACLE_RETRIEVAL_FAILED_ANSWER = (
 )
 
 
+# Configuration and request-policy helpers.
 def get_llm(model_id: str | None = None) -> Any:
     return _oci_models.get_llm(model_id=model_id)
 
@@ -250,6 +251,7 @@ def _tool_was_called(
     )
 
 
+# Response/reference shaping helpers.
 def _references_from_result(
     result: dict[str, object],
     *,
@@ -366,14 +368,12 @@ def _mixed_tool_supplemental_context(
 
 
 class ChatRuntimeService:
-    """Small service to execute direct, MCP, RAG, and mixed OCI chat modes."""
+    """Shared runtime adapter used by FastAPI, LangGraph nodes, and stream events."""
 
     def __init__(
         self,
-        graph: Any = None,
         thread_state_store: LangGraphCheckpointThreadStateStore | None = None,
     ) -> None:
-        _ = graph
         self._thread_state: dict[str, dict[str, Any]] = {}
         self._thread_state_store = thread_state_store
 
@@ -869,6 +869,7 @@ class ChatRuntimeService:
             },
         )
 
+    # Internal execution/state helpers.
     def _build_oracle_retrieval_tool(self, collection_name: str | None) -> StructuredTool:
         return rag_runtime.build_oracle_retrieval_tool(
             collection_name=collection_name,
@@ -930,11 +931,6 @@ class ChatRuntimeService:
         if not thread_id:
             return None
         return self._get_thread_state(thread_id)
-
-    async def delete_thread(self, thread_id: str) -> None:
-        self._thread_state.pop(thread_id, None)
-        if self._thread_state_store is not None:
-            self._thread_state_store.delete(thread_id)
 
     def _thread_id_from_run_config(self, run_config: dict[str, Any]) -> str | None:
         configurable = run_config.get("configurable")

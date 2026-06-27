@@ -102,17 +102,20 @@ def _extract_structured_suggestions(result: object) -> list[str]:
     return []
 
 
+def _should_retry_with_default_model(exc: BaseException, *, model_id: str | None) -> bool:
+    if not model_id:
+        return False
+    if not isinstance(exc, TypeError):
+        return False
+    return "Unrecognized keyword arguments: strict" in str(exc)
+
+
 async def _generate_suggestions_async(
     *,
     last_message: str,
     last_user_message: str | None,
     model_id: str | None,
 ) -> list[str]:
-    llm = get_llm(
-        model_id=model_id,
-        temperature=0.2,
-        max_tokens=300,
-    )
     user_context = (last_user_message or "").strip()
     prompt_payload = (
         f"Latest user question:\n{user_context[:2000] or '(none)'}\n\n"
@@ -126,47 +129,63 @@ async def _generate_suggestions_async(
         )
         if tag is not None
     ]
-    run_config: dict[str, object] = {
-        "configurable": {"mode": "suggestions", "model_id": model_id or ""}
-    }
-    with start_langfuse_chat_trace(
-        enabled=True,
-        mode="suggestions",
-        model_id=model_id,
-        session_id=None,
-        thread_id=None,
-        input_payload={
-            "last_user_message": user_context[:2000] or None,
-            "last_message": last_message[:4000],
-        },
-        trace_name="suggestions",
-        tags=trace_tags,
-    ) as langfuse_trace:
-        add_langfuse_callbacks(
-            run_config,
+    for attempt_model_id in (model_id, None):
+        llm = get_llm(
+            model_id=attempt_model_id,
+            temperature=0.2,
+            max_tokens=300,
+        )
+        run_config: dict[str, object] = {
+            "configurable": {"mode": "suggestions", "model_id": attempt_model_id or ""}
+        }
+        with start_langfuse_chat_trace(
+            enabled=True,
+            mode="suggestions",
+            model_id=attempt_model_id,
             session_id=None,
-            user_id=None,
-            trace_context=langfuse_trace.trace_context,
+            thread_id=None,
+            input_payload={
+                "last_user_message": user_context[:2000] or None,
+                "last_message": last_message[:4000],
+            },
             trace_name="suggestions",
             tags=trace_tags,
-        )
-
-        def _invoke() -> object:
-            agent = create_agent(
-                model=llm,
-                tools=[],
-                system_prompt=FOLLOW_UP_SYSTEM,
-                response_format=FollowUpSuggestions,
-            )
-            return agent.invoke(
-                cast(Any, {"messages": [HumanMessage(content=prompt_payload)]}),
-                config=cast(Any, run_config),
+        ) as langfuse_trace:
+            add_langfuse_callbacks(
+                run_config,
+                session_id=None,
+                user_id=None,
+                trace_context=langfuse_trace.trace_context,
+                trace_name="suggestions",
+                tags=trace_tags,
             )
 
-        result = await asyncio.to_thread(_invoke)
-        suggestions = _extract_structured_suggestions(result)
-        langfuse_trace.update_output({"suggestion_count": len(suggestions)})
-        return suggestions
+            def _invoke() -> object:
+                agent = create_agent(
+                    model=llm,
+                    tools=[],
+                    system_prompt=FOLLOW_UP_SYSTEM,
+                    response_format=FollowUpSuggestions,
+                )
+                return agent.invoke(
+                    cast(Any, {"messages": [HumanMessage(content=prompt_payload)]}),
+                    config=cast(Any, run_config),
+                )
+
+            try:
+                result = await asyncio.to_thread(_invoke)
+            except Exception as exc:
+                if _should_retry_with_default_model(exc, model_id=attempt_model_id):
+                    logger.info(
+                        "Suggestions model %s rejected structured output strict mode; retrying with default model",
+                        attempt_model_id,
+                    )
+                    continue
+                raise
+            suggestions = _extract_structured_suggestions(result)
+            langfuse_trace.update_output({"suggestion_count": len(suggestions)})
+            return suggestions
+    return []
 
 
 @router.post("/api/suggestions", response_model=SuggestionsResponse)
