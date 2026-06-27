@@ -31,7 +31,7 @@ type ChatSidebarProps = {
   isUploading: boolean;
   onUpload: () => void;
   threadHistory: ChatThreadSummary[];
-  activeThreadId: string;
+  activeThreadId: string | null;
   onSelectThread: (threadId: string) => void;
   onNewChat: () => void;
 };

@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  CHAT_THREAD_HISTORY_STORAGE_KEY,
-  THREAD_ID_STORAGE_KEY,
-} from "@/constants/chat";
-import { generateThreadId } from "@/lib/chat/messages";
+import { THREAD_ID_STORAGE_KEY } from "@/constants/chat";
 
 const MAX_STORED_THREADS = 30;
 
@@ -14,14 +10,36 @@ export type ChatThreadSummary = {
   updatedAt: number;
 };
 
-type SessionState = {
-  threadId: string;
+export type SessionState = {
+  threadId: string | null;
   threadHistory: ChatThreadSummary[];
+  hydrated: boolean;
+};
+
+type ThreadSearchResult = {
+  thread_id: string;
+  created_at: string;
+  updated_at: string;
+  values?: {
+    messages?: Array<Record<string, unknown>>;
+  };
+};
+
+type ThreadHistoryClient = {
+  threads: {
+    search: (query: {
+      limit: number;
+      sortBy: "updated_at";
+      sortOrder: "desc";
+      select: ["thread_id", "created_at", "updated_at", "values"];
+    }) => Promise<ThreadSearchResult[]>;
+  };
 };
 
 const EMPTY_SESSION_STATE: SessionState = {
-  threadId: "",
+  threadId: null,
   threadHistory: [],
+  hydrated: false,
 };
 
 /** Session ID: new per tab load/refresh (not persisted). Used for Langfuse session grouping. */
@@ -46,31 +64,22 @@ function readStoredThreadId(): string | null {
   }
 }
 
-function readStoredThreadHistory(): ChatThreadSummary[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(CHAT_THREAD_HISTORY_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((item): ChatThreadSummary | null => {
-        if (!item || typeof item !== "object") return null;
-        const data = item as Record<string, unknown>;
-        const id = typeof data.id === "string" ? data.id.trim() : "";
-        if (!id) return null;
-        const title =
-          typeof data.title === "string" && data.title.trim()
-            ? data.title.trim()
-            : defaultTitle(id);
-        const createdAt = typeof data.createdAt === "number" ? data.createdAt : Date.now();
-        const updatedAt = typeof data.updatedAt === "number" ? data.updatedAt : createdAt;
-        return { id, title, createdAt, updatedAt };
-      })
-      .filter((item): item is ChatThreadSummary => item != null);
-  } catch {
-    return [];
-  }
+function parseTimestamp(value: string, fallback: number): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function deriveThreadTitle(thread: ThreadSearchResult): string {
+  const messages = Array.isArray(thread.values?.messages) ? thread.values.messages : [];
+  const firstUserMessage = messages.find((message) => {
+    const type = message.type;
+    const role = message.role;
+    return type === "human" || role === "user";
+  });
+  const content = typeof firstUserMessage?.content === "string" ? firstUserMessage.content : "";
+  const normalized = content.replace(/\s+/g, " ").trim();
+  if (!normalized) return defaultTitle(thread.thread_id);
+  return normalized.length > 56 ? `${normalized.slice(0, 53)}...` : normalized;
 }
 
 function sortAndLimit(history: ChatThreadSummary[]): ChatThreadSummary[] {
@@ -104,11 +113,63 @@ function updateThreadHistoryTitle(
   );
 }
 
-function createInitialState(): SessionState {
-  const threadId = readStoredThreadId() ?? generateThreadId();
+function sameThreadHistory(a: ChatThreadSummary[], b: ChatThreadSummary[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((thread, index) => {
+    const other = b[index];
+    return (
+      thread.id === other.id &&
+      thread.title === other.title &&
+      thread.createdAt === other.createdAt &&
+      thread.updatedAt === other.updatedAt
+    );
+  });
+}
+
+function mergeThreadHistory(
+  loaded: ChatThreadSummary[],
+  existing: ChatThreadSummary[],
+): ChatThreadSummary[] {
+  const overlayById = new Map(existing.map((thread) => [thread.id, thread]));
+  return sortAndLimit(
+    loaded.map((thread) => {
+      const overlay = overlayById.get(thread.id);
+      if (!overlay || overlay.title === defaultTitle(thread.id)) {
+        return thread;
+      }
+      return { ...thread, title: overlay.title };
+    }),
+  );
+}
+
+export async function loadThreadHistory(
+  client: ThreadHistoryClient,
+): Promise<ChatThreadSummary[]> {
+  const threads = await client.threads.search({
+    limit: MAX_STORED_THREADS,
+    sortBy: "updated_at",
+    sortOrder: "desc",
+    select: ["thread_id", "created_at", "updated_at", "values"],
+  });
+  return threads.map((thread) => {
+    const createdAtFallback = Date.now();
+    const createdAt = parseTimestamp(thread.created_at, createdAtFallback);
+    const updatedAt = parseTimestamp(thread.updated_at, createdAt);
+    return {
+      id: thread.thread_id,
+      title: deriveThreadTitle(thread),
+      createdAt,
+      updatedAt,
+    };
+  });
+}
+
+export function createInitialState(): SessionState {
+  const threadId = readStoredThreadId();
   return {
     threadId,
-    threadHistory: sortAndLimit(readStoredThreadHistory()),
+    threadHistory: [],
+    hydrated: true,
   };
 }
 
@@ -127,26 +188,25 @@ export function useChatSession() {
     if (!state.threadId) return;
     try {
       window.localStorage.setItem(THREAD_ID_STORAGE_KEY, state.threadId);
-      window.localStorage.setItem(
-        CHAT_THREAD_HISTORY_STORAGE_KEY,
-        JSON.stringify(state.threadHistory),
-      );
     } catch {
       // ignore
     }
-  }, [state.threadId, state.threadHistory]);
+  }, [state.threadId]);
 
-  const setThreadId = useCallback((threadId: string) => {
-    const nextThreadId = threadId.trim();
-    if (!nextThreadId) return;
+  const setThreadId = useCallback((threadId: string | null) => {
+    const nextThreadId = threadId?.trim() || null;
     setState((previous) =>
       previous.threadId === nextThreadId ? previous : { ...previous, threadId: nextThreadId },
     );
   }, []);
 
   const startNewChat = useCallback(() => {
-    const nextThreadId = generateThreadId();
-    setState((previous) => ({ ...previous, threadId: nextThreadId }));
+    try {
+      window.localStorage.removeItem(THREAD_ID_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    setState((previous) => ({ ...previous, threadId: null }));
   }, []);
 
   const updateThreadTitle = useCallback((threadId: string, title: string) => {
@@ -162,6 +222,16 @@ export function useChatSession() {
     });
   }, []);
 
+  const refreshThreadHistory = useCallback(async (client: ThreadHistoryClient) => {
+    const loaded = await loadThreadHistory(client);
+    setState((previous) => {
+      const threadHistory = mergeThreadHistory(loaded, previous.threadHistory);
+      return sameThreadHistory(threadHistory, previous.threadHistory)
+        ? previous
+        : { ...previous, threadHistory };
+    });
+  }, []);
+
   function clearChat<TMessage, TContext>(helpers: {
     setMessages?: (value: TMessage[] | ((prev: TMessage[]) => TMessage[])) => void;
     setFeedbackSubmitted: (value: boolean | ((prev: boolean) => boolean)) => void;
@@ -170,10 +240,17 @@ export function useChatSession() {
     ) => void;
   }): void {
     const previousThreadId = state.threadId;
-    const nextThreadId = generateThreadId();
+    try {
+      window.localStorage.removeItem(THREAD_ID_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
     setState((previous) => ({
-      threadId: nextThreadId,
-      threadHistory: previous.threadHistory.filter((thread) => thread.id !== previousThreadId),
+      threadId: null,
+      threadHistory: previousThreadId
+        ? previous.threadHistory.filter((thread) => thread.id !== previousThreadId)
+        : previous.threadHistory,
+      hydrated: true,
     }));
     helpers.setMessages?.([]);
     helpers.setFeedbackSubmitted(false);
@@ -188,6 +265,7 @@ export function useChatSession() {
     threadHistory: state.threadHistory,
     startNewChat,
     updateThreadTitle,
-    isReady: state.threadId.length > 0,
+    refreshThreadHistory,
+    isReady: state.hydrated,
   };
 }

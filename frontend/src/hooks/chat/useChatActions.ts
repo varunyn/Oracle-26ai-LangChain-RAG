@@ -10,15 +10,12 @@ import type {
   SendOverrides,
   ToastApi,
 } from "@/hooks/chat/controller-types";
-import { buildSubmitPayload, type ChatBodyParams } from "@/hooks/chat/stream-config";
+import { buildLangGraphSubmitPayload, type ChatBodyParams } from "@/hooks/chat/stream-config";
 import { getLastUserMessageText } from "@/hooks/chat/message-projection";
 import { traceIdFromMessage } from "@/hooks/chat/references";
-import { debugChatStream } from "@/hooks/chat/stream-debug";
 
 type StreamType = ReturnType<typeof useStream>;
-type SubmitOptions = Parameters<StreamType["submit"]>[1] & {
-  optimisticValues?: (previous: { messages?: unknown }) => { messages: unknown[] };
-};
+type SubmitOptions = Parameters<StreamType["submit"]>[1];
 
 function createClientMessageId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -38,7 +35,7 @@ export function useChatActions(args: {
   setInput: Dispatch<SetStateAction<string>>;
   setMaxCitationsToShow: Dispatch<SetStateAction<number>>;
   stream: StreamType;
-  threadId: string;
+  threadId: string | null;
   toast: ToastApi;
 }): {
   sendUserMessage: (text: string, overrides?: SendOverrides) => void;
@@ -72,29 +69,20 @@ export function useChatActions(args: {
       if (!trimmedText) return;
 
       const effectiveMode = overrides?.mode ?? bodyParams.mode;
-      debugChatStream("submit", {
-        threadId,
-        text: trimmedText,
-        bodyParams,
-        effectiveMode,
-      });
       const userMessageId = createClientMessageId();
+      const payload = buildLangGraphSubmitPayload(
+        trimmedText,
+        { ...bodyParams, mode: effectiveMode },
+        userMessageId,
+      );
       const submitOptions: SubmitOptions = {
-        optimisticValues: (previous) => ({
-          messages: [
-            ...(Array.isArray(previous.messages) ? previous.messages : []),
-            { id: userMessageId, type: "human", content: trimmedText },
-          ],
-        }),
+        config: payload.config,
       };
       void Promise.resolve(
-        stream.submit(
-          buildSubmitPayload(trimmedText, bodyParams, effectiveMode, userMessageId),
-          submitOptions,
-        ),
+        stream.submit(payload.input, submitOptions),
       ).catch(() => undefined);
     },
-    [bodyParams, stream, threadId],
+    [bodyParams, stream],
   );
 
   const handleSubmit = useCallback(
@@ -138,10 +126,9 @@ export function useChatActions(args: {
   }, [messages, sendUserMessage, setFeedbackSubmitted]);
 
   const handleStopStream = useCallback(() => {
-    debugChatStream("stop", { threadId });
     void stream.stop?.();
     toast.success("Generation stopped");
-  }, [stream, threadId, toast]);
+  }, [stream, toast]);
 
   const handleFeedback = useCallback(
     async (stars: number, messageIndex: number) => {
@@ -179,12 +166,12 @@ export function useChatActions(args: {
   );
 
   const handleClearChat = useCallback(async () => {
-    try {
-      await fetch(toApiUrl(`/api/threads/${encodeURIComponent(threadId)}`), {
-        method: "DELETE",
-      });
-    } catch (error) {
-      console.error("Thread cleanup failed:", error);
+    if (threadId) {
+      try {
+        await stream.client.threads.delete(threadId);
+      } catch (error) {
+        console.error("Thread cleanup failed:", error);
+      }
     }
 
     if (typeof stream.stop === "function") {

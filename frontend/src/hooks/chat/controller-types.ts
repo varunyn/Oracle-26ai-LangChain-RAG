@@ -31,7 +31,7 @@ export type ClearSessionChat = (helpers: {
 
 export type UseChatControllerArgs = {
   selectedModel: string;
-  threadId: string;
+  threadId: string | null;
   sessionId: string;
   collectionName: string;
   enableReranker: boolean;

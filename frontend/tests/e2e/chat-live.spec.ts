@@ -28,14 +28,14 @@ async function askQuestion(page: Page, prompt: string) {
 
   const commandResponsePromise = page.waitForResponse(
     (response) =>
-      response.url().includes('/api/langgraph/threads/') &&
-      response.url().endsWith('/commands') &&
+      response.url().includes('/langgraph/threads/') &&
+      response.url().includes('/runs/stream') &&
       response.request().method() === 'POST',
   )
   const streamResponsePromise = page.waitForResponse(
     (response) =>
-      response.url().includes('/api/langgraph/threads/') &&
-      response.url().endsWith('/stream/events') &&
+      response.url().includes('/langgraph/threads/') &&
+      response.url().endsWith('/stream') &&
       response.request().method() === 'POST',
   )
 

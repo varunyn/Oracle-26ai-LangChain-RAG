@@ -12,6 +12,8 @@ import { useSessionUIState } from "@/hooks/chat/useSessionUIState";
 import { useAppConfig } from "@/components/config-provider";
 import { useToast } from "@/components/toaster";
 import { ProcessedSourcesPanel } from "@/components/chat/ProcessedSourcesPanel";
+import { LangGraphStreamProvider } from "@/providers/langgraph-stream-provider";
+import { useLangGraphStream } from "@/providers/langgraph-stream-provider";
 
 const ChatSidebar = dynamic(
   () => import("@/components/chat/ChatSidebar").then((mod) => mod.ChatSidebar),
@@ -39,35 +41,39 @@ export default function Chat() {
     threadHistory,
     startNewChat,
     updateThreadTitle,
+    refreshThreadHistory,
     isReady,
   } = chatSession;
   if (!isReady) {
     return <div className="h-screen bg-muted/20" aria-hidden />;
   }
   return (
-    <ChatPageContent
-      key={threadId}
-      appConfig={appConfig}
-      threadId={threadId}
-      sessionId={sessionId}
-      clearChat={clearChat}
-      threadHistory={threadHistory}
-      onSelectThread={setThreadId}
-      onNewChat={startNewChat}
-      onUpdateThreadTitle={updateThreadTitle}
-    />
+    <LangGraphStreamProvider threadId={threadId} setThreadId={setThreadId}>
+      <ChatPageContent
+        appConfig={appConfig}
+        threadId={threadId}
+        sessionId={sessionId}
+        clearChat={clearChat}
+        threadHistory={threadHistory}
+        onSelectThread={setThreadId}
+        onNewChat={startNewChat}
+        onUpdateThreadTitle={updateThreadTitle}
+        onRefreshThreadHistory={refreshThreadHistory}
+      />
+    </LangGraphStreamProvider>
   );
 }
 
 type ChatPageContentProps = {
   appConfig: ReturnType<typeof useAppConfig>["config"];
-  threadId: string;
+  threadId: string | null;
   sessionId: string;
   clearChat: ReturnType<typeof useChatSession>["clearChat"];
   threadHistory: ReturnType<typeof useChatSession>["threadHistory"];
   onSelectThread: ReturnType<typeof useChatSession>["setThreadId"];
   onNewChat: ReturnType<typeof useChatSession>["startNewChat"];
   onUpdateThreadTitle: ReturnType<typeof useChatSession>["updateThreadTitle"];
+  onRefreshThreadHistory: ReturnType<typeof useChatSession>["refreshThreadHistory"];
 };
 
 type ChatMessageLike = {
@@ -92,8 +98,10 @@ function ChatPageContent({
   onSelectThread,
   onNewChat,
   onUpdateThreadTitle,
+  onRefreshThreadHistory,
 }: ChatPageContentProps) {
   const { toast } = useToast();
+  const { stream } = useLangGraphStream();
   const sessionUI = useSessionUIState(appConfig);
   const [mainView, setMainView] = useState<MainView>("chat");
   const chat = useChatController({
@@ -111,8 +119,13 @@ function ChatPageContent({
 
   useEffect(() => {
     const title = deriveThreadTitle(chat.messages as ChatMessageLike[]);
-    if (title) onUpdateThreadTitle(threadId, title);
+    if (threadId && title) onUpdateThreadTitle(threadId, title);
   }, [chat.messages, onUpdateThreadTitle, threadId]);
+
+  useEffect(() => {
+    if (chat.status !== "ready") return;
+    void onRefreshThreadHistory(stream.client).catch(() => undefined);
+  }, [chat.status, onRefreshThreadHistory, stream.client, threadId]);
 
   return (
     <div

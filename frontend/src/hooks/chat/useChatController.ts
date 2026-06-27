@@ -1,4 +1,4 @@
-import { useStream, type AssembledToolCall } from "@langchain/react";
+import type { AssembledToolCall } from "@langchain/react";
 import {
   startTransition,
   useEffect,
@@ -7,7 +7,6 @@ import {
   useState,
 } from "react";
 import {
-  type MessageLike,
   type UseChatControllerArgs,
 } from "@/hooks/chat/controller-types";
 import {
@@ -19,18 +18,12 @@ import {
   type BaseMessageWithKwargs,
   isSameContextUsage,
 } from "@/hooks/chat/references";
-import {
-  debugChatStream,
-  summarizeBaseMessage,
-  summarizeToolProgress,
-  summarizeVisibleMessage,
-} from "@/hooks/chat/stream-debug";
-import { resolveLanggraphApiUrl } from "@/hooks/chat/stream-config";
-import { toolCallsToMcpEvents, type SdkToolProgress } from "@/hooks/chat/tool-progress";
+import { toolCallsToMcpEvents } from "@/hooks/chat/tool-progress";
 import { useChatActions } from "@/hooks/chat/useChatActions";
 import { useSuggestions } from "@/hooks/useSuggestions";
 import { useChatBodyParams } from "@/hooks/useChatBodyParams";
 import { useScrollToBottom } from "@/hooks/useScrollToBottom";
+import { useLangGraphStream } from "@/providers/langgraph-stream-provider";
 import type { ContextUsage } from "@/lib/types/chat";
 
 const EMPTY_TOOL_CALLS: AssembledToolCall[] = [];
@@ -65,13 +58,7 @@ export function useChatController({
     flowMode,
   });
 
-  const langgraphApiUrl = useMemo(() => resolveLanggraphApiUrl(), []);
-
-  const stream = useStream({
-    apiUrl: langgraphApiUrl,
-    assistantId: "mcp_agent_executor",
-    threadId,
-  });
+  const { stream } = useLangGraphStream();
 
   const streamMessages = stream.messages;
   const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
@@ -97,47 +84,7 @@ export function useChatController({
   );
 
   useEffect(() => {
-    debugChatStream("status", {
-      threadId,
-      status,
-      rawStatus: rawStreamStatus,
-      isLoading: stream.isLoading,
-      hasError: stream.error != null,
-      error: stream.error,
-    });
-  }, [rawStreamStatus, status, stream.error, stream.isLoading, threadId]);
-
-  useEffect(() => {
-    const raw = (streamMessages ?? []) as BaseMessageWithKwargs[];
-    debugChatStream("stream.messages", {
-      threadId,
-      count: raw.length,
-      messages: raw.map(summarizeBaseMessage),
-      raw,
-    });
-  }, [streamMessages, threadId]);
-
-  useEffect(() => {
-    debugChatStream("stream.toolProgress", {
-      threadId,
-      count: streamToolCalls.length,
-      progress: summarizeToolProgress(
-        streamToolCalls.map((tool) => ({
-          toolCallId: tool.callId,
-          name: tool.name,
-          state: tool.status,
-          input: tool.input,
-          result: tool.output,
-          error: tool.error,
-        })),
-      ),
-      mcpProgressEvents: liveToolProgressEvents,
-    });
-  }, [liveToolProgressEvents, streamToolCalls, threadId]);
-
-  useEffect(() => {
     if (stream.error == null) return;
-    debugChatStream("error", { threadId, error: stream.error });
     console.error("Chat error:", stream.error);
     const message =
       stream.error instanceof Error ? stream.error.message : String(stream.error);
@@ -146,15 +93,6 @@ export function useChatController({
     lastErrorToastKeyRef.current = errorToastKey;
     toast.error(message);
   }, [stream.error, threadId, toast]);
-
-  useEffect(() => {
-    debugChatStream("visible.messages", {
-      threadId,
-      count: messages.length,
-      messages: messages.map(summarizeVisibleMessage),
-      raw: messages,
-    });
-  }, [messages, threadId]);
 
   useEffect(() => {
     const lastAssistant = [...messages]

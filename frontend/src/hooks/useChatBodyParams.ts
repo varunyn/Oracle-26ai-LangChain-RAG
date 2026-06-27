@@ -22,7 +22,7 @@ export function useChatBodyParams({
   flowMode,
 }: {
   selectedModel: string;
-  threadId: string;
+  threadId: string | null;
   sessionId: string;
   collectionName: string;
   enableReranker: boolean;
