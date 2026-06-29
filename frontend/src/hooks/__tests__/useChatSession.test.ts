@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { THREAD_ID_STORAGE_KEY } from "@/constants/chat";
-import { createInitialState, loadThreadHistory } from "../useChatSession";
+import {
+  CHAT_THREAD_HISTORY_STORAGE_KEY,
+  THREAD_ID_STORAGE_KEY,
+} from "@/constants/chat";
+import {
+  createInitialState,
+  loadThreadHistory,
+  mergeThreadHistory,
+} from "../useChatSession";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -54,6 +61,29 @@ describe("loadThreadHistory", () => {
       },
     ]);
   });
+
+  it("preserves locally known thread history when the server has not indexed it yet", () => {
+    expect(
+      mergeThreadHistory(
+        [],
+        [
+          {
+            id: "thread-from-browser",
+            title: "Latest invoice workflow",
+            createdAt: 2,
+            updatedAt: 2,
+          },
+        ],
+      ),
+    ).toEqual([
+      {
+        id: "thread-from-browser",
+        title: "Latest invoice workflow",
+        createdAt: 2,
+        updatedAt: 2,
+      },
+    ]);
+  });
 });
 
 describe("createInitialState", () => {
@@ -73,6 +103,45 @@ describe("createInitialState", () => {
     expect(createInitialState()).toEqual({
       threadId: "thread-from-server",
       threadHistory: [],
+      hydrated: true,
+    });
+  });
+
+  it("rehydrates locally known chat history for immediate sidebar state", () => {
+    stubLocalStorage({
+      [THREAD_ID_STORAGE_KEY]: "thread-from-server",
+      [CHAT_THREAD_HISTORY_STORAGE_KEY]: JSON.stringify([
+        {
+          id: "thread-from-server",
+          title: "Latest invoice workflow",
+          createdAt: 2,
+          updatedAt: 2,
+        },
+        {
+          id: "thread-older",
+          title: "Vendor payment terms",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ]),
+    });
+
+    expect(createInitialState()).toEqual({
+      threadId: "thread-from-server",
+      threadHistory: [
+        {
+          id: "thread-from-server",
+          title: "Latest invoice workflow",
+          createdAt: 2,
+          updatedAt: 2,
+        },
+        {
+          id: "thread-older",
+          title: "Vendor payment terms",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
       hydrated: true,
     });
   });

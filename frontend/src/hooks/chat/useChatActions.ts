@@ -10,6 +10,7 @@ import type {
   SendOverrides,
   ToastApi,
 } from "@/hooks/chat/controller-types";
+import { debugChatStage, summarizeMessages } from "@/hooks/chat/debug";
 import { buildLangGraphSubmitPayload, type ChatBodyParams } from "@/hooks/chat/stream-config";
 import { getLastUserMessageText } from "@/hooks/chat/message-projection";
 import { traceIdFromMessage } from "@/hooks/chat/references";
@@ -34,6 +35,7 @@ export function useChatActions(args: {
   setFeedbackSubmittedMessageIndexes: Dispatch<SetStateAction<Set<number>>>;
   setInput: Dispatch<SetStateAction<string>>;
   setMaxCitationsToShow: Dispatch<SetStateAction<number>>;
+  setSubmitError: Dispatch<SetStateAction<Error | null>>;
   stream: StreamType;
   threadId: string | null;
   toast: ToastApi;
@@ -58,6 +60,7 @@ export function useChatActions(args: {
     setFeedbackSubmittedMessageIndexes,
     setInput,
     setMaxCitationsToShow,
+    setSubmitError,
     stream,
     threadId,
     toast,
@@ -75,14 +78,25 @@ export function useChatActions(args: {
         { ...bodyParams, mode: effectiveMode },
         userMessageId,
       );
+      debugChatStage("sendUserMessage", {
+        threadId,
+        effectiveMode,
+        userMessageId,
+        inputPreview: trimmedText.slice(0, 120),
+        visibleMessages: summarizeMessages(messages),
+        payloadInputCount: Array.isArray(payload.input.messages) ? payload.input.messages.length : 0,
+      });
       const submitOptions: SubmitOptions = {
         config: payload.config,
       };
+      setSubmitError(null);
       void Promise.resolve(
         stream.submit(payload.input, submitOptions),
-      ).catch(() => undefined);
+      ).catch((error: unknown) => {
+        setSubmitError(error instanceof Error ? error : new Error(String(error)));
+      });
     },
-    [bodyParams, stream],
+    [bodyParams, messages, setSubmitError, stream, threadId],
   );
 
   const handleSubmit = useCallback(

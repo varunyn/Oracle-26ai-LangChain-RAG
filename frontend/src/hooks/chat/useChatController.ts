@@ -11,6 +11,7 @@ import {
 } from "@/hooks/chat/controller-types";
 import {
   getLastUserMessageText,
+  mergeProjectedMessages,
   normalizeStatus,
   projectStreamMessages,
 } from "@/hooks/chat/message-projection";
@@ -46,6 +47,7 @@ export function useChatController({
     Set<number>
   >(() => new Set());
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
+  const [submitError, setSubmitError] = useState<Error | null>(null);
   const lastErrorToastKeyRef = useRef<string | null>(null);
   const lastRecoveredMissingThreadKeyRef = useRef<string | null>(null);
 
@@ -59,24 +61,32 @@ export function useChatController({
     flowMode,
   });
 
-  const { stream } = useLangGraphStream();
+  const { serverThreadMessages, stream, transportError } = useLangGraphStream();
 
   const streamMessages = stream.messages;
+  const stateMessages = useMemo(() => {
+    const messages =
+      serverThreadMessages ??
+      (stream.values as { messages?: BaseMessageWithKwargs[] } | undefined)?.messages;
+    return Array.isArray(messages) ? messages : undefined;
+  }, [serverThreadMessages, stream.values]);
   const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
 
-  const messages = useMemo(
-    () =>
-      projectStreamMessages({
-        streamMessages: streamMessages as BaseMessageWithKwargs[] | undefined,
-      }),
-    [streamMessages],
-  );
+  const messages = useMemo(() => {
+    const liveMessages = projectStreamMessages({
+      streamMessages: streamMessages as BaseMessageWithKwargs[] | undefined,
+    });
+    const finalizedMessages = projectStreamMessages({
+      streamMessages: stateMessages,
+    });
+    return mergeProjectedMessages(liveMessages, finalizedMessages);
+  }, [stateMessages, streamMessages]);
 
   const rawStreamStatus = (stream as { status?: unknown }).status;
   const status = normalizeStatus(
     rawStreamStatus,
     stream.isLoading,
-    stream.error != null,
+    stream.error != null || submitError != null || transportError != null,
   );
 
   useEffect(() => {
@@ -99,6 +109,24 @@ export function useChatController({
     lastErrorToastKeyRef.current = errorToastKey;
     toast.error(message);
   }, [clearSessionChat, setContextUsage, setFeedbackSubmitted, stream.error, threadId, toast]);
+
+  useEffect(() => {
+    if (submitError == null) return;
+    const message = submitError.message || "Chat request failed";
+    const errorToastKey = `submit:${threadId}:${message}`;
+    if (lastErrorToastKeyRef.current === errorToastKey) return;
+    lastErrorToastKeyRef.current = errorToastKey;
+    toast.error(message);
+  }, [submitError, threadId, toast]);
+
+  useEffect(() => {
+    if (transportError == null) return;
+    const message = transportError.message || "Chat request failed";
+    const errorToastKey = `transport:${threadId}:${message}`;
+    if (lastErrorToastKeyRef.current === errorToastKey) return;
+    lastErrorToastKeyRef.current = errorToastKey;
+    toast.error(message);
+  }, [threadId, toast, transportError]);
 
   useEffect(() => {
     const lastAssistant = [...messages]
@@ -142,6 +170,7 @@ export function useChatController({
     setFeedbackSubmittedMessageIndexes,
     setInput,
     setMaxCitationsToShow,
+    setSubmitError,
     stream,
     threadId,
     toast,

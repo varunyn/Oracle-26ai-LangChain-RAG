@@ -1,7 +1,7 @@
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
 
-import { projectStreamMessages } from "../message-projection";
+import { mergeProjectedMessages, projectStreamMessages } from "../message-projection";
 
 describe("projectStreamMessages", () => {
   it("drops replayed messages with the same stable id", () => {
@@ -144,5 +144,55 @@ describe("projectStreamMessages", () => {
     });
 
     expect(projected[0]).not.toHaveProperty("toolCallIds");
+  });
+});
+
+describe("mergeProjectedMessages", () => {
+  it("preserves finalized assistant references from state snapshots", () => {
+    const liveMessages = projectStreamMessages({
+      streamMessages: [
+        new HumanMessage({
+          id: "user-1",
+          content: "Give me info about payment terms for Northway Solutions",
+        }),
+        new AIMessage({
+          id: "assistant-1",
+          content: "Northway Solutions payment terms are Net 30 days.",
+        }),
+      ],
+    });
+
+    const finalizedMessages = projectStreamMessages({
+      streamMessages: [
+        new HumanMessage({
+          id: "user-1",
+          content: "Give me info about payment terms for Northway Solutions",
+        }),
+        new AIMessage({
+          id: "assistant-1",
+          content: "Northway Solutions payment terms are Net 30 days.",
+          additional_kwargs: {
+            citations: [{ source: "000-Northway_Solutions.pdf", page: "2" }],
+          },
+        }),
+      ],
+    });
+
+    expect(mergeProjectedMessages(liveMessages, finalizedMessages)).toMatchObject([
+      {
+        id: "user-1",
+        role: "user",
+        content: "Give me info about payment terms for Northway Solutions",
+      },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        content: "Northway Solutions payment terms are Net 30 days.",
+        references: {
+          citations: [{ source: "000-Northway_Solutions.pdf", page: "2" }],
+          reranker_docs: [],
+        },
+      },
+    ]);
   });
 });

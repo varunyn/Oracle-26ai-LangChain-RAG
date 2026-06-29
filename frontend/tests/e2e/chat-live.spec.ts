@@ -28,14 +28,14 @@ async function askQuestion(page: Page, prompt: string) {
 
   const commandResponsePromise = page.waitForResponse(
     (response) =>
-      response.url().includes('/langgraph/threads/') &&
-      response.url().includes('/runs/stream') &&
+      response.url().includes('/threads/') &&
+      response.url().endsWith('/commands') &&
       response.request().method() === 'POST',
   )
   const streamResponsePromise = page.waitForResponse(
     (response) =>
-      response.url().includes('/langgraph/threads/') &&
-      response.url().endsWith('/stream') &&
+      response.url().includes('/threads/') &&
+      response.url().endsWith('/stream/events') &&
       response.request().method() === 'POST',
   )
 
@@ -93,7 +93,7 @@ test.describe('chat live backend', () => {
     await expect(page.getByText('Ask a question about your documents')).toHaveCount(0)
 
     const commandResponse = await commandResponsePromise
-    expect(commandResponse.headers()['content-type']).toContain('application/json')
+    expect(commandResponse.ok()).toBe(true)
 
     const streamResponse = await streamResponsePromise
     expect(streamResponse.headers()['content-type']).toContain('text/event-stream')

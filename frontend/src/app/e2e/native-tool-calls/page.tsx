@@ -2,13 +2,14 @@
 
 import type { AssembledToolCall } from "@langchain/react";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useSyncExternalStore } from "react";
 import { ChatMessageList } from "@/components/chat/ChatMessageList";
 import { projectStreamMessages } from "@/hooks/chat/message-projection";
 
 type Phase = "running" | "final";
 
 const STORAGE_KEY = "native-tool-calls-e2e-phase";
+const PHASE_EVENT = "native-tool-calls-e2e-phase-change";
 
 const RUNNING_STREAM_MESSAGES = [
   new HumanMessage({
@@ -141,9 +142,30 @@ const FINAL_TOOL_CALLS = [
   },
 ] satisfies AssembledToolCall[];
 
-function readInitialPhase(): Phase {
+function readPhaseSnapshot(): Phase {
   if (typeof window === "undefined") return "running";
   return window.localStorage.getItem(STORAGE_KEY) === "final" ? "final" : "running";
+}
+
+function subscribeToPhase(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const handleChange = () => {
+    onStoreChange();
+  };
+
+  window.addEventListener("storage", handleChange);
+  window.addEventListener(PHASE_EVENT, handleChange);
+
+  return () => {
+    window.removeEventListener("storage", handleChange);
+    window.removeEventListener(PHASE_EVENT, handleChange);
+  };
+}
+
+function setStoredPhase(phase: Phase): void {
+  window.localStorage.setItem(STORAGE_KEY, phase);
+  window.dispatchEvent(new Event(PHASE_EVENT));
 }
 
 function phaseFixture(phase: Phase) {
@@ -157,13 +179,13 @@ function phaseFixture(phase: Phase) {
   };
 }
 
-export default function NativeToolCallsE2EPage(): React.ReactElement {
-  const [phase, setPhase] = useState<Phase>("running");
-  const chatContainerRef = useRef<HTMLDivElement | null>(null);
+function useStoredPhase(): Phase {
+  return useSyncExternalStore(subscribeToPhase, readPhaseSnapshot, () => "running");
+}
 
-  useEffect(() => {
-    setPhase(readInitialPhase());
-  }, []);
+export default function NativeToolCallsE2EPage(): React.ReactElement {
+  const phase = useStoredPhase();
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
 
   const fixture = phaseFixture(phase);
 
@@ -174,8 +196,7 @@ export default function NativeToolCallsE2EPage(): React.ReactElement {
           <button
             type="button"
             onClick={() => {
-              window.localStorage.setItem(STORAGE_KEY, "running");
-              setPhase("running");
+              setStoredPhase("running");
             }}
             className="rounded border px-3 py-2 text-sm"
           >
@@ -184,8 +205,7 @@ export default function NativeToolCallsE2EPage(): React.ReactElement {
           <button
             type="button"
             onClick={() => {
-              window.localStorage.setItem(STORAGE_KEY, "final");
-              setPhase("final");
+              setStoredPhase("final");
             }}
             className="rounded border px-3 py-2 text-sm"
           >
@@ -194,8 +214,7 @@ export default function NativeToolCallsE2EPage(): React.ReactElement {
           <button
             type="button"
             onClick={() => {
-              window.localStorage.setItem(STORAGE_KEY, "final");
-              setPhase("final");
+              setStoredPhase("final");
             }}
             className="rounded border px-3 py-2 text-sm"
           >

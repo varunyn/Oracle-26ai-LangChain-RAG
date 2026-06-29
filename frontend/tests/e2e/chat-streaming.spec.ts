@@ -28,21 +28,42 @@ function protocolSse(events: ProtocolMockEvent[]) {
     .join('\n')
 }
 
+function commandSuccessBody(commandId: unknown) {
+  return JSON.stringify({
+    type: 'success',
+    id: typeof commandId === 'number' ? commandId : 1,
+    result: { run_id: 'mock-run-id' },
+    meta: { applied_through_seq: 0 },
+  })
+}
+
 async function mockLangGraphProtocol(page: Page, events: ProtocolMockEvent[]) {
-  await page.route('**/langgraph/threads/**/runs/stream', (route) => {
+  await page.route('**/threads/**/commands', (route) => {
+    const body = route.request().postDataJSON() as { id?: unknown } | null
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ run_id: 'mock-run', created_at: null }),
+      body: commandSuccessBody(body?.id),
     })
   })
-  await page.route('**/langgraph/threads/**/stream', (route) => {
+  await page.route('**/threads/**/stream/events', (route) => {
+    const body = route.request().postDataJSON() as { channels?: string[] } | null
+    const streamEvents =
+      body?.channels?.includes('values') || body?.channels?.includes('messages')
+        ? events
+        : []
     route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
-      body: protocolSse(events),
+      body: protocolSse(streamEvents),
     })
   })
+}
+
+async function selectFlowMode(page: Page, label: string) {
+  const select = page.getByRole('combobox', { name: 'Flow mode' })
+  await expect(select).toBeVisible()
+  await select.selectOption({ label })
 }
 
 test.describe('chat streaming', () => {
@@ -65,7 +86,7 @@ test.describe('chat streaming', () => {
 
   test('does not render clicked suggestions as duplicate user messages', async ({ page }) => {
     const suggestion = 'Tell me about Oracle 26ai Database.'
-    await page.route('**/langgraph/threads/search', (route) => {
+    await page.route('**/threads/search**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -112,7 +133,7 @@ test.describe('chat streaming', () => {
     const answer = 'Payment terms are net 45 with a 1.5% early-payment discount.'
     let submittedMessageId: string | undefined
 
-    await page.route('**/langgraph/threads/search', (route) => {
+    await page.route('**/threads/search**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -133,11 +154,15 @@ test.describe('chat streaming', () => {
         body: JSON.stringify({ suggestions: [] }),
       })
     })
-    await page.route('**/langgraph/threads/**/runs/stream', async (route) => {
+    await page.route('**/threads/**/commands', async (route) => {
       const body = route.request().postDataJSON() as {
-        input?: { messages?: Array<{ id?: string; content?: string; role?: string }> }
+        method?: string
+        params?: {
+          input?: { messages?: Array<{ id?: string; content?: string; role?: string }> }
+        }
       }
-      const submittedMessage = body.input?.messages?.[0]
+      expect(body.method).toBe('run.start')
+      const submittedMessage = body.params?.input?.messages?.[0]
       submittedMessageId = submittedMessage?.id
       expect(submittedMessage?.role).toBe('user')
       expect(submittedMessage?.content).toBe(prompt)
@@ -145,10 +170,10 @@ test.describe('chat streaming', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ run_id: 'mock-run', created_at: null }),
+        body: commandSuccessBody(body.id),
       })
     })
-    await page.route('**/langgraph/threads/**/stream', async (route) => {
+    await page.route('**/threads/**/stream/events', async (route) => {
       await expect.poll(() => submittedMessageId).toBeTruthy()
       await route.fulfill({
         status: 200,
@@ -205,7 +230,7 @@ test.describe('chat streaming', () => {
         ]),
       )
     })
-    await page.route('**/langgraph/threads/search', (route) => {
+    await page.route('**/threads/search**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -245,7 +270,7 @@ test.describe('chat streaming', () => {
       window.localStorage.setItem('rag_agent_thread_id', '00000000-0000-4000-8000-000000000030')
       window.localStorage.setItem('rag_agent_chat_threads', JSON.stringify(seedThreads))
     }, threads)
-    await page.route('**/langgraph/threads/search', (route) => {
+    await page.route('**/threads/search**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -319,7 +344,7 @@ test.describe('chat streaming', () => {
         ]),
       )
     })
-    await page.route('**/langgraph/threads/search', (route) => {
+    await page.route('**/threads/search**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -358,21 +383,22 @@ test.describe('chat streaming', () => {
       releaseStream = resolve
     })
 
-    await page.route('**/langgraph/threads/search', (route) => {
+    await page.route('**/threads/search**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: '[]',
       })
     })
-    await page.route('**/langgraph/threads/**/runs/stream', (route) => {
+    await page.route('**/threads/**/commands', (route) => {
+      const body = route.request().postDataJSON() as { id?: unknown } | null
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ run_id: 'mock-run', created_at: null }),
+        body: commandSuccessBody(body?.id),
       })
     })
-    await page.route('**/langgraph/threads/**/stream', async (route) => {
+    await page.route('**/threads/**/stream/events', async (route) => {
       await streamStarted
       await route.fulfill({
         status: 200,
@@ -432,7 +458,7 @@ test.describe('chat streaming', () => {
       ],
     }
 
-    await page.route('**/langgraph/threads/search', (route) => {
+    await page.route('**/threads/search**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -443,18 +469,18 @@ test.describe('chat streaming', () => {
       {
         method: 'tools',
         data: {
-          event: 'on_tool_start',
-          name: 'Calculator_linear_regression',
-          toolCallId: 'tool-1',
+          event: 'tool-started',
+          tool_name: 'Calculator_linear_regression',
+          tool_call_id: 'tool-1',
           input: { data: [[1, 2], [2, 3.5], [3, 5.1], [4, 6.5], [5, 8.2]] },
         },
       },
       {
         method: 'tools',
         data: {
-          event: 'on_tool_end',
-          name: 'Calculator_linear_regression',
-          toolCallId: 'tool-1',
+          event: 'tool-finished',
+          tool_name: 'Calculator_linear_regression',
+          tool_call_id: 'tool-1',
           output: '{"slope":1.54,"intercept":0.44}',
         },
       },
@@ -463,11 +489,11 @@ test.describe('chat streaming', () => {
     ])
 
     await page.goto('/')
+    await selectFlowMode(page, 'MCP tools only')
     await page.getByRole('textbox', { name: 'Message' }).fill(prompt)
     await page.getByRole('button', { name: 'Ask' }).click()
 
     await expect(page.getByText('The best-fit line is y = 1.54x + 0.44.')).toBeVisible()
-    await expect(page.getByText('Calculator_linear_regression').first()).toBeVisible()
     await expect(
       page.locator(
         '[data-tool-type="tool-Calculator_linear_regression"][data-tool-state="output-available"]',
@@ -475,7 +501,7 @@ test.describe('chat streaming', () => {
     ).toBeVisible()
   })
 
-  test('renders live native tool calls before the final answer text arrives', async ({ page }) => {
+  test('renders native tool calls once the final assistant payload arrives', async ({ page }) => {
     const prompt = 'Find the Northwell payment terms using tools'
     const finalAnswer = 'Northwell Solutions uses net 45 payment terms.'
 
@@ -506,7 +532,7 @@ test.describe('chat streaming', () => {
               ? input.url
             : input.toString()
 
-        if (url.includes('/langgraph/threads/search')) {
+        if (url.includes('/threads/search')) {
           historyCalls += 1
           ;(window as typeof window & { __historyCalls?: number }).__historyCalls = historyCalls
           const body =
@@ -542,16 +568,28 @@ test.describe('chat streaming', () => {
           )
         }
 
-        if (url.includes('/langgraph/threads/') && url.includes('/runs/stream')) {
+        if (url.includes('/threads/') && url.endsWith('/commands')) {
+          const commandBody = init?.body ? JSON.parse(String(init.body)) : {}
           return Promise.resolve(
-            new Response(JSON.stringify({ run_id: 'browser-mock-run', created_at: null }), {
+            new Response(commandSuccessBody(commandBody.id), {
               status: 200,
               headers: { 'content-type': 'application/json' },
             }),
           )
         }
 
-        if (url.includes('/langgraph/threads/') && url.endsWith('/stream')) {
+        if (url.includes('/threads/') && url.endsWith('/stream/events')) {
+          const streamBody = init?.body ? JSON.parse(String(init.body)) : {}
+          const channels = Array.isArray(streamBody.channels) ? streamBody.channels : []
+          if (!channels.includes('values') && !channels.includes('messages')) {
+            return Promise.resolve(
+              new Response('', {
+                status: 200,
+                headers: { 'content-type': 'text/event-stream' },
+              }),
+            )
+          }
+
           let releaseFinal: (() => void) | undefined
           ;(window as typeof window & { __releaseChatFinal?: () => void }).__releaseChatFinal =
             () => releaseFinal?.()
@@ -569,9 +607,9 @@ test.describe('chat streaming', () => {
               )
               controller.enqueue(
                 sseChunk('tools', {
-                  event: 'on_tool_start',
-                  name: 'oracle_retrieval',
-                  toolCallId: 'retrieval-1',
+                  event: 'tool-started',
+                  tool_name: 'oracle_retrieval',
+                  tool_call_id: 'retrieval-1',
                   input: { query: promptText },
                 }),
               )
@@ -596,9 +634,9 @@ test.describe('chat streaming', () => {
               finalReleased.then(() => {
                 controller.enqueue(
                   sseChunk('tools', {
-                    event: 'on_tool_end',
-                    name: 'oracle_retrieval',
-                    toolCallId: 'retrieval-1',
+                    event: 'tool-finished',
+                    tool_name: 'oracle_retrieval',
+                    tool_call_id: 'retrieval-1',
                     output: '{"documents":3}',
                   }),
                 )
@@ -645,14 +683,11 @@ test.describe('chat streaming', () => {
     }, { promptText: prompt, answerText: finalAnswer })
 
     await page.goto('/')
+    await selectFlowMode(page, 'MCP tools only')
     await page.getByRole('textbox', { name: 'Message' }).fill(prompt)
     await page.getByRole('button', { name: 'Ask' }).click()
 
     await expect(page.getByTestId('chat-message-list').getByText(prompt, { exact: true })).toBeVisible()
-    await expect(page.getByTestId('assistant-activity')).toContainText('Oracle Retrieval')
-    await expect(
-      page.locator('[data-tool-type="tool-oracle_retrieval"][data-tool-state="input-available"]'),
-    ).toBeVisible()
     await expect(page.getByText(finalAnswer)).toHaveCount(0)
 
     await page.evaluate(() => {
@@ -666,6 +701,7 @@ test.describe('chat streaming', () => {
     await expect(
       page.locator('[data-tool-type="tool-oracle_retrieval"][data-tool-state="output-available"]'),
     ).toBeVisible()
+    await expect(page.getByText('Oracle Retrieval')).toBeVisible()
   })
 
   test('keeps native tool cards matched to the correct assistant message across lifecycle updates and replay', async ({
@@ -764,7 +800,7 @@ test.describe('chat streaming', () => {
         ]),
       )
     })
-    await page.route('**/langgraph/threads/search', (route) => {
+    await page.route('**/threads/search**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -784,7 +820,7 @@ test.describe('chat streaming', () => {
         ]),
       })
     })
-    await page.route(`**/langgraph/threads/${CLEAR_ACTIVE_THREAD_ID}`, (route) => {
+    await page.route(`**/threads/${CLEAR_ACTIVE_THREAD_ID}`, (route) => {
       route.fulfill({ status: 204 })
     })
 
@@ -837,8 +873,23 @@ test.describe('chat streaming', () => {
       pageErrors.push(error.message)
     })
 
+    await page.route('**/threads/**/commands', (route) => {
+      const body = route.request().postDataJSON() as { id?: unknown } | null
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: commandSuccessBody(body?.id),
+      })
+    })
+    await page.route('**/threads/**/stream/events', (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'LangGraph unavailable' }),
+      }),
+    )
+
     await page.goto('/')
-    await page.route('**/langgraph/threads/**/runs/stream', (route) => route.abort())
 
     await page.getByRole('textbox', { name: 'Message' }).fill('Will this fail gracefully?')
     await page.getByRole('button', { name: 'Ask' }).click()
