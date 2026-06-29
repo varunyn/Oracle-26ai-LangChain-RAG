@@ -2,6 +2,8 @@
 
 ## 2026-06-29
 
+- Removed persisted browser sidebar thread history so LangGraph/SQLite server state is the sole conversation-history source; localStorage now keeps only the active thread ID pointer.
+- Fixed chat-history deletion so the active thread is removed from the sidebar only after the Agent Server DELETE succeeds, and a cleared unbound chat no longer refreshes and re-adds that thread.
 - Added a mixed-mode progress state update so the SSE stream communicates retrieval/tool work before emitting one final citation-bearing assistant message.
 - Added the matching RAG-mode progress state update so retrieval runs expose explicit progress before the single citation-bearing answer.
 - Fixed live-to-final chat projection so the completed LangGraph state, including citation metadata, replaces the token-stream snapshot before rendering the finished answer.

@@ -209,32 +209,28 @@ test.describe('chat streaming', () => {
       .toBe(true)
   })
 
-  test('shows locally known chat history and switches active threads', async ({ page }) => {
+  test('shows server-backed chat history and switches active threads', async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem('rag_agent_thread_id', '00000000-0000-4000-8000-000000000002')
-      window.localStorage.setItem(
-        'rag_agent_chat_threads',
-        JSON.stringify([
-          {
-            id: '00000000-0000-4000-8000-000000000002',
-            title: 'Latest invoice workflow',
-            createdAt: 2,
-            updatedAt: 2,
-          },
-          {
-            id: '00000000-0000-4000-8000-000000000003',
-            title: 'Vendor payment terms',
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        ]),
-      )
     })
     await page.route('**/threads/search**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([]),
+        body: JSON.stringify([
+          {
+            thread_id: '00000000-0000-4000-8000-000000000002',
+            created_at: '2026-06-26T10:00:00Z',
+            updated_at: '2026-06-26T10:00:00Z',
+            values: { messages: [{ type: 'human', content: 'Latest invoice workflow' }] },
+          },
+          {
+            thread_id: '00000000-0000-4000-8000-000000000003',
+            created_at: '2026-06-26T09:00:00Z',
+            updated_at: '2026-06-26T09:00:00Z',
+            values: { messages: [{ type: 'human', content: 'Vendor payment terms' }] },
+          },
+        ]),
       })
     })
 
@@ -266,15 +262,21 @@ test.describe('chat streaming', () => {
     }).reverse()
 
     await page.setViewportSize({ width: 1280, height: 720 })
-    await page.addInitScript((seedThreads) => {
+    await page.addInitScript(() => {
       window.localStorage.setItem('rag_agent_thread_id', '00000000-0000-4000-8000-000000000030')
-      window.localStorage.setItem('rag_agent_chat_threads', JSON.stringify(seedThreads))
-    }, threads)
+    })
     await page.route('**/threads/search**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([]),
+        body: JSON.stringify(
+          threads.map((thread) => ({
+            thread_id: thread.id,
+            created_at: new Date(thread.createdAt).toISOString(),
+            updated_at: new Date(thread.updatedAt).toISOString(),
+            values: { messages: [{ type: 'human', content: thread.title }] },
+          })),
+        ),
       })
     })
 
@@ -332,23 +334,19 @@ test.describe('chat streaming', () => {
     })
     await page.addInitScript(() => {
       window.localStorage.setItem('rag_agent_thread_id', '00000000-0000-4000-8000-000000000004')
-      window.localStorage.setItem(
-        'rag_agent_chat_threads',
-        JSON.stringify([
-          {
-            id: '00000000-0000-4000-8000-000000000004',
-            title: 'Existing title',
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        ]),
-      )
     })
     await page.route('**/threads/search**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: '[]',
+        body: JSON.stringify([
+          {
+            thread_id: '00000000-0000-4000-8000-000000000004',
+            created_at: '2026-06-26T10:00:00Z',
+            updated_at: '2026-06-26T10:00:00Z',
+            values: { messages: [{ type: 'human', content: 'Existing title' }] },
+          },
+        ]),
       })
     })
     await mockLangGraphProtocol(page, [
@@ -855,42 +853,37 @@ test.describe('chat streaming', () => {
   test('removes the cleared chat from local history', async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem('rag_agent_thread_id', '00000000-0000-4000-8000-000000000006')
-      window.localStorage.setItem(
-        'rag_agent_chat_threads',
-        JSON.stringify([
-          {
-            id: '00000000-0000-4000-8000-000000000006',
-            title: 'Active chat to clear',
-            createdAt: 2,
-            updatedAt: 2,
-          },
-          {
-            id: '00000000-0000-4000-8000-000000000007',
-            title: 'Keep this chat',
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        ]),
-      )
     })
+    let searchCount = 0
     await page.route('**/threads/search**', (route) => {
+      searchCount += 1
+      const threads = searchCount === 1
+        ? [
+            {
+              thread_id: CLEAR_ACTIVE_THREAD_ID,
+              created_at: '2026-06-26T10:00:00Z',
+              updated_at: '2026-06-26T10:00:00Z',
+              values: { messages: [{ type: 'human', content: 'Active chat to clear' }] },
+            },
+            {
+              thread_id: KEEP_THREAD_ID,
+              created_at: '2026-06-26T09:00:00Z',
+              updated_at: '2026-06-26T09:00:00Z',
+              values: { messages: [{ type: 'human', content: 'Keep this chat' }] },
+            },
+          ]
+        : [
+            {
+              thread_id: KEEP_THREAD_ID,
+              created_at: '2026-06-26T09:00:00Z',
+              updated_at: '2026-06-26T09:00:00Z',
+              values: { messages: [{ type: 'human', content: 'Keep this chat' }] },
+            },
+          ]
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            thread_id: CLEAR_ACTIVE_THREAD_ID,
-            created_at: '2026-06-26T10:00:00Z',
-            updated_at: '2026-06-26T10:00:00Z',
-            values: {},
-          },
-          {
-            thread_id: KEEP_THREAD_ID,
-            created_at: '2026-06-26T09:00:00Z',
-            updated_at: '2026-06-26T09:00:00Z',
-            values: {},
-          },
-        ]),
+        body: JSON.stringify(threads),
       })
     })
     await page.route(`**/threads/${CLEAR_ACTIVE_THREAD_ID}`, (route) => {

@@ -49,10 +49,11 @@ curl -sS -N \
 
 ## Server-owned memory: delta-only input + thread IDs
 
-- The server is the source of truth for conversation context in `ChatRuntimeService` (`src/rag_agent/runtime/chat_service.py`).
+- The LangGraph Agent Server is the source of truth for conversation context and thread state.
 - API requests should contain at least one user message in `input.messages`.
 - `thread_id` is the conversation identifier.
-  - Frontend persists `thread_id` in `localStorage` and reuses it on later turns.
+  - Frontend persists only the active `thread_id` as a reopen pointer and reuses it on later turns.
+  - Sidebar history is loaded from the Agent Server `threads.search(...)` response and is not persisted in browser storage.
 
 ### Inspecting + deleting thread state
 

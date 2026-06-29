@@ -6,9 +6,6 @@
 /** localStorage key for persisting thread ID */
 export const THREAD_ID_STORAGE_KEY = "rag_agent_thread_id";
 
-/** localStorage key for known chat threads in this browser */
-export const CHAT_THREAD_HISTORY_STORAGE_KEY = "rag_agent_chat_threads";
-
 /** localStorage key for user's default model (persists across refresh and server restarts) */
 export const DEFAULT_MODEL_STORAGE_KEY = "rag_default_model";
 

@@ -180,23 +180,28 @@ export function useChatActions(args: {
   );
 
   const handleClearChat = useCallback(async () => {
-    if (threadId) {
-      try {
-        await stream.client.threads.delete(threadId);
-      } catch (error) {
-        console.error("Thread cleanup failed:", error);
+    debugChatStage("clearChat.start", { threadId });
+    try {
+      if (typeof stream.stop === "function") {
+        await stream.stop();
       }
-    }
-
-    if (typeof stream.stop === "function") {
-      stream.stop();
+      if (threadId) {
+        await stream.client.threads.delete(threadId);
+      }
+    } catch (error) {
+      console.error("Thread cleanup failed:", error);
+      debugChatStage("clearChat.failed", { threadId, error: String(error) });
+      toast.error("Could not clear chat history");
+      return;
     }
 
     clearSessionChat({
+      threadId,
       setFeedbackSubmitted,
       setContextUsage,
     });
     setFeedbackSubmittedMessageIndexes(new Set());
+    debugChatStage("clearChat.succeeded", { threadId });
     toast.success("Chat cleared");
   }, [
     clearSessionChat,

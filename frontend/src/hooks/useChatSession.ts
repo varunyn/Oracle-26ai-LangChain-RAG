@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import {
-  CHAT_THREAD_HISTORY_STORAGE_KEY,
-  THREAD_ID_STORAGE_KEY,
-} from "@/constants/chat";
+import { THREAD_ID_STORAGE_KEY } from "@/constants/chat";
+import { debugChatStage } from "@/hooks/chat/debug";
 
 const MAX_STORED_THREADS = 30;
 const CHAT_SESSION_EVENT = "rag-agent-chat-session-change";
@@ -45,7 +43,7 @@ const EMPTY_SESSION_STATE: SessionState = {
   threadHistory: [],
   hydrated: false,
 };
-let cachedSessionSnapshot: SessionState = EMPTY_SESSION_STATE;
+let cachedSessionSnapshot: SessionState | null = null;
 
 /** Session ID: new per tab load/refresh (not persisted). Used for Langfuse session grouping. */
 function generateSessionId(): string {
@@ -66,37 +64,6 @@ function readStoredThreadId(): string | null {
     return storedThreadId?.trim() || null;
   } catch {
     return null;
-  }
-}
-
-function readStoredThreadHistory(): ChatThreadSummary[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const stored = window.localStorage.getItem(CHAT_THREAD_HISTORY_STORAGE_KEY);
-    if (!stored) return [];
-    const parsed = JSON.parse(stored);
-    if (!Array.isArray(parsed)) return [];
-    const history = parsed.flatMap((entry): ChatThreadSummary[] => {
-      if (entry == null || typeof entry !== "object") return [];
-      const candidate = entry as Partial<ChatThreadSummary>;
-      if (
-        typeof candidate.id !== "string" ||
-        typeof candidate.title !== "string" ||
-        typeof candidate.createdAt !== "number" ||
-        typeof candidate.updatedAt !== "number"
-      ) {
-        return [];
-      }
-      return [{
-        id: candidate.id,
-        title: candidate.title,
-        createdAt: candidate.createdAt,
-        updatedAt: candidate.updatedAt,
-      }];
-    });
-    return sortAndLimit(history);
-  } catch {
-    return [];
   }
 }
 
@@ -162,25 +129,6 @@ function sameThreadHistory(a: ChatThreadSummary[], b: ChatThreadSummary[]): bool
   });
 }
 
-export function mergeThreadHistory(
-  loaded: ChatThreadSummary[],
-  existing: ChatThreadSummary[],
-): ChatThreadSummary[] {
-  const overlayById = new Map(existing.map((thread) => [thread.id, thread]));
-  const merged = loaded.map((thread) => {
-      const overlay = overlayById.get(thread.id);
-      if (!overlay || overlay.title === defaultTitle(thread.id)) {
-        return thread;
-      }
-      return { ...thread, title: overlay.title };
-    });
-  const loadedIds = new Set(loaded.map((thread) => thread.id));
-  return sortAndLimit([
-    ...merged,
-    ...existing.filter((thread) => !loadedIds.has(thread.id)),
-  ]);
-}
-
 export async function loadThreadHistory(
   client: ThreadHistoryClient,
 ): Promise<ChatThreadSummary[]> {
@@ -207,7 +155,7 @@ export function createInitialState(): SessionState {
   const threadId = readStoredThreadId();
   return {
     threadId,
-    threadHistory: readStoredThreadHistory(),
+    threadHistory: [],
     hydrated: true,
   };
 }
@@ -220,11 +168,7 @@ function emitSessionChange(): void {
 function subscribeToSessionState(onStoreChange: () => void): () => void {
   if (typeof window === "undefined") return () => undefined;
   const handleStorage = (event: StorageEvent) => {
-    if (
-      event.key != null &&
-      event.key !== THREAD_ID_STORAGE_KEY &&
-      event.key !== CHAT_THREAD_HISTORY_STORAGE_KEY
-    ) {
+    if (event.key != null && event.key !== THREAD_ID_STORAGE_KEY) {
       return;
     }
     onStoreChange();
@@ -238,15 +182,14 @@ function subscribeToSessionState(onStoreChange: () => void): () => void {
 }
 
 function getSessionSnapshot(): SessionState {
-  const nextSnapshot = createInitialState();
-  if (
-    cachedSessionSnapshot.threadId === nextSnapshot.threadId &&
-    cachedSessionSnapshot.hydrated === nextSnapshot.hydrated &&
-    sameThreadHistory(cachedSessionSnapshot.threadHistory, nextSnapshot.threadHistory)
-  ) {
+  if (cachedSessionSnapshot == null) {
+    cachedSessionSnapshot = createInitialState();
     return cachedSessionSnapshot;
   }
-  cachedSessionSnapshot = nextSnapshot;
+  const storedThreadId = readStoredThreadId();
+  if (cachedSessionSnapshot.threadId !== storedThreadId) {
+    cachedSessionSnapshot = { ...cachedSessionSnapshot, threadId: storedThreadId };
+  }
   return cachedSessionSnapshot;
 }
 
@@ -256,19 +199,12 @@ function getServerSessionSnapshot(): SessionState {
 
 function writeSessionState(state: SessionState): void {
   if (typeof window === "undefined") return;
+  cachedSessionSnapshot = state;
   try {
     if (state.threadId) {
       window.localStorage.setItem(THREAD_ID_STORAGE_KEY, state.threadId);
     } else {
       window.localStorage.removeItem(THREAD_ID_STORAGE_KEY);
-    }
-    if (state.threadHistory.length > 0) {
-      window.localStorage.setItem(
-        CHAT_THREAD_HISTORY_STORAGE_KEY,
-        JSON.stringify(state.threadHistory),
-      );
-    } else {
-      window.localStorage.removeItem(CHAT_THREAD_HISTORY_STORAGE_KEY);
     }
   } catch {
     // ignore
@@ -313,19 +249,29 @@ export function useChatSession() {
   const refreshThreadHistory = useCallback(async (client: ThreadHistoryClient) => {
     const loaded = await loadThreadHistory(client);
     const snapshot = getSessionSnapshot();
-    const threadHistory = mergeThreadHistory(loaded, snapshot.threadHistory);
+    const threadHistory = sortAndLimit(loaded);
+    debugChatStage("refreshThreadHistory", {
+      loadedThreadIds: loaded.map((thread) => thread.id),
+      existingThreadIds: snapshot.threadHistory.map((thread) => thread.id),
+      nextThreadIds: threadHistory.map((thread) => thread.id),
+    });
     if (sameThreadHistory(threadHistory, snapshot.threadHistory)) return;
     writeSessionState({ ...snapshot, threadHistory, hydrated: true });
   }, []);
 
   function clearChat<TMessage, TContext>(helpers: {
+    threadId?: string | null;
     setMessages?: (value: TMessage[] | ((prev: TMessage[]) => TMessage[])) => void;
     setFeedbackSubmitted: (value: boolean | ((prev: boolean) => boolean)) => void;
     setContextUsage: (
       value: TContext | null | ((prev: TContext | null) => TContext | null),
     ) => void;
   }): void {
-    const previousThreadId = state.threadId;
+    const previousThreadId = helpers.threadId === undefined ? state.threadId : helpers.threadId;
+    debugChatStage("clearChatSession", {
+      previousThreadId,
+      removedFromHistory: Boolean(previousThreadId),
+    });
     writeSessionState({
       threadId: null,
       threadHistory: previousThreadId

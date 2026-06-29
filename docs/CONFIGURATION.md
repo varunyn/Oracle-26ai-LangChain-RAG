@@ -197,7 +197,7 @@ Thread state behavior.
 
 ### Clear chat
 
-When the user clears the chat, the frontend calls **`DELETE /api/threads/{thread_id}`** to remove the thread’s server-side runtime state, then clears local UI state and starts a new thread. A success toast is shown.
+When the user clears the chat, the frontend calls the LangGraph Agent Server **`DELETE /threads/{thread_id}`** endpoint to remove the thread’s server-side state, then clears local UI state and starts a new thread. A success toast is shown.
 
 ---
 
