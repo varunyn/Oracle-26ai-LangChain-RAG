@@ -11,16 +11,6 @@ export type McpToolInvocation = {
   error?: string | null;
 };
 
-/** Streaming MCP tool lifecycle event emitted while a run is in progress */
-export type McpProgressEvent = {
-  phase: "start" | "end" | "error";
-  tool_name: string;
-  tool_run_id?: string;
-  args?: unknown;
-  result?: string | null;
-  error?: string | null;
-};
-
 /** Runtime context window usage for the current answer */
 export type ContextUsage = {
   tokens: number;
@@ -43,7 +33,5 @@ export type MessageReferences = {
   context_usage?: ContextUsage;
   /** Populated when the runtime returns per-call args/results from the agent */
   mcp_tool_invocations?: McpToolInvocation[];
-  /** Streaming MCP tool progress while the run is still in-flight */
-  mcp_progress_events?: McpProgressEvent[];
   error?: string;
 };

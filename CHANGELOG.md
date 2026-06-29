@@ -2,6 +2,7 @@
 
 ## 2026-06-29
 
+- Replaced the frontend MCP progress translation layer with native `@langchain/react` `stream.toolCalls` rendering, preserved assistant `tool_calls` ids during message projection, and rendered per-message AI Elements tool cards directly from live `AssembledToolCall` state.
 - Updated root and scoped `AGENTS.md` guidance to match the active LangGraph Agent Server chat architecture, UI-managed MCP configuration, current Docker/frontend/docs-site commands, and repository testing boundaries.
 - Fixed LangGraph thread-state message serialization to preserve structured assistant content blocks instead of stringifying them into Python-list text, so multi-turn chats keep the latest message parseable by the frontend while history remains server-owned.
 - Added frontend compatibility parsing for older LangGraph thread turns whose assistant content was already persisted as stringified content-block lists, so existing chats render readable text without clearing the thread.

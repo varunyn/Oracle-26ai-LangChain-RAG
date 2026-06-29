@@ -202,6 +202,7 @@ function ChatPageContent({
           <>
             <ChatMessageList
               messages={chat.messages}
+              toolCalls={chat.toolCalls}
               status={chat.status}
               maxCitationsToShow={chat.maxCitationsToShow}
               chatContainerRef={chat.chatContainerRef}

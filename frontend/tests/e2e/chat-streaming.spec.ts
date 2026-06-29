@@ -45,64 +45,6 @@ async function mockLangGraphProtocol(page: Page, events: ProtocolMockEvent[]) {
   })
 }
 
-async function selectCollection(page: Page) {
-  const select = page.getByRole('combobox', { name: 'Collection' })
-  await expect(select).toBeVisible()
-
-  const options = select.locator('option')
-  await expect(options).not.toHaveCount(0)
-
-  const selectedValue = await options.first().getAttribute('value')
-  const selectedLabel = (await options.first().textContent())?.trim()
-
-  expect(selectedValue ?? selectedLabel).toBeTruthy()
-
-  if (selectedValue) {
-    await select.selectOption({ value: selectedValue })
-    return selectedValue
-  }
-
-  await select.selectOption({ label: selectedLabel! })
-  return selectedLabel!
-}
-
-async function selectFlowMode(page: Page, label: string) {
-  const select = page.getByRole('combobox', { name: 'Flow mode' })
-  await expect(select).toBeVisible()
-  await select.selectOption({ label })
-}
-
-async function askQuestion(page: Page, prompt: string) {
-  const input = page.getByRole('textbox', { name: 'Message' })
-  const send = page.getByRole('button', { name: 'Ask' })
-
-  await expect(input).toBeVisible()
-  await expect(send).toHaveAccessibleName('Ask')
-  await input.fill(prompt)
-  await expect(send).toBeEnabled()
-
-  const chatResponsePromise = page.waitForResponse(
-    (response) =>
-      response.url().includes('/langgraph/threads/') &&
-      response.url().includes('/runs/stream') &&
-      response.request().method() === 'POST',
-  )
-
-  await send.click()
-
-  return { input, chatResponsePromise }
-}
-
-async function expectAssistantAnswer(page: Page) {
-  const sourcesLabel = page.getByRole('button', { name: /Used \d+ sources?/ }).last()
-  await expect(sourcesLabel).toBeVisible({ timeout: 15_000 })
-
-  const contentBlock = sourcesLabel.locator('..').locator('..').first()
-  await expect
-    .poll(async () => (await contentBlock.innerText()).trim().length, { timeout: 10_000 })
-    .toBeGreaterThan(0)
-}
-
 test.describe('chat streaming', () => {
   test('shows generic suggestions on first load', async ({ page }) => {
     await page.goto('/')
@@ -466,50 +408,23 @@ test.describe('chat streaming', () => {
     await expect(page.getByText('Use Grafana deployment docs.')).toHaveCount(1)
   })
 
-  test('renders MCP tool progress from stream values metadata', async ({ page }) => {
+  test('renders native tool calls from stream messages and tool events', async ({ page }) => {
     const prompt =
       'Perform a linear regression on these points: (1,2), (2,3.5), (3,5.1), (4,6.5), (5,8.2) using tools'
-    const progressPayload = {
-      messages: [
-        { type: 'human', content: prompt },
-        {
-          type: 'ai',
-          content: '',
-          additional_kwargs: {
-            mcp_progress_events: [
-              {
-                phase: 'start',
-                tool_name: 'Calculator_linear_regression',
-                tool_run_id: 'tool-1',
-                args: { data: [[1, 2], [2, 3.5], [3, 5.1], [4, 6.5], [5, 8.2]] },
-              },
-              {
-                phase: 'end',
-                tool_name: 'Calculator_linear_regression',
-                tool_run_id: 'tool-1',
-                result: '{"slope":1.54,"intercept":0.44}',
-              },
-            ],
-          },
-        },
-      ],
-    }
     const finalPayload = {
       messages: [
         { type: 'human', content: prompt },
         {
           type: 'ai',
           content: 'The best-fit line is y = 1.54x + 0.44.',
+          tool_calls: [
+            {
+              id: 'tool-1',
+              name: 'Calculator_linear_regression',
+              args: { data: [[1, 2], [2, 3.5], [3, 5.1], [4, 6.5], [5, 8.2]] },
+            },
+          ],
           additional_kwargs: {
-            mcp_used: true,
-            mcp_tools_used: ['Calculator_linear_regression'],
-            mcp_tool_invocations: [
-              {
-                tool_name: 'Calculator_linear_regression',
-                args: { data: [[1, 2], [2, 3.5], [3, 5.1], [4, 6.5], [5, 8.2]] },
-                result: '{"slope":1.54,"intercept":0.44}',
-              },
-            ],
             citations: [],
             reranker_docs: [],
           },
@@ -525,7 +440,24 @@ test.describe('chat streaming', () => {
       })
     })
     await mockLangGraphProtocol(page, [
-      { method: 'values', data: progressPayload },
+      {
+        method: 'tools',
+        data: {
+          event: 'on_tool_start',
+          name: 'Calculator_linear_regression',
+          toolCallId: 'tool-1',
+          input: { data: [[1, 2], [2, 3.5], [3, 5.1], [4, 6.5], [5, 8.2]] },
+        },
+      },
+      {
+        method: 'tools',
+        data: {
+          event: 'on_tool_end',
+          name: 'Calculator_linear_regression',
+          toolCallId: 'tool-1',
+          output: '{"slope":1.54,"intercept":0.44}',
+        },
+      },
       { method: 'values', data: finalPayload },
       { method: 'lifecycle', data: { event: 'completed' } },
     ])
@@ -538,12 +470,12 @@ test.describe('chat streaming', () => {
     await expect(page.getByText('Calculator_linear_regression').first()).toBeVisible()
     await expect(
       page.locator(
-        '[data-tool-type="Calculator_linear_regression"][data-tool-state="output-available"]',
+        '[data-tool-type="tool-Calculator_linear_regression"][data-tool-state="output-available"]',
       ),
     ).toBeVisible()
   })
 
-  test('renders live MCP tool progress before the final answer text arrives', async ({ page }) => {
+  test('renders live native tool calls before the final answer text arrives', async ({ page }) => {
     const prompt = 'Find the Northwell payment terms using tools'
     const finalAnswer = 'Northwell Solutions uses net 45 payment terms.'
 
@@ -650,16 +582,13 @@ test.describe('chat streaming', () => {
                     {
                       type: 'ai',
                       content: '',
-                      additional_kwargs: {
-                        mcp_progress_events: [
-                          {
-                            phase: 'start',
-                            tool_name: 'oracle_retrieval',
-                            tool_run_id: 'retrieval-1',
-                            args: { query: promptText },
-                          },
-                        ],
-                      },
+                      tool_calls: [
+                        {
+                          id: 'retrieval-1',
+                          name: 'oracle_retrieval',
+                          args: { query: promptText },
+                        },
+                      ],
                     },
                   ],
                 }),
@@ -680,23 +609,14 @@ test.describe('chat streaming', () => {
                       {
                         type: 'ai',
                         content: answerText,
+                        tool_calls: [
+                          {
+                            id: 'retrieval-1',
+                            name: 'oracle_retrieval',
+                            args: { query: promptText },
+                          },
+                        ],
                         additional_kwargs: {
-                          mcp_used: true,
-                          mcp_tools_used: ['oracle_retrieval'],
-                          mcp_progress_events: [
-                            {
-                              phase: 'start',
-                              tool_name: 'oracle_retrieval',
-                              tool_run_id: 'retrieval-1',
-                              args: { query: promptText },
-                            },
-                            {
-                              phase: 'end',
-                              tool_name: 'oracle_retrieval',
-                              tool_run_id: 'retrieval-1',
-                              result: '{"documents":3}',
-                            },
-                          ],
                           citations: [],
                           reranker_docs: [],
                         },
@@ -729,9 +649,9 @@ test.describe('chat streaming', () => {
     await page.getByRole('button', { name: 'Ask' }).click()
 
     await expect(page.getByTestId('chat-message-list').getByText(prompt, { exact: true })).toBeVisible()
-    await expect(page.getByTestId('assistant-activity')).toContainText('Tool activity')
+    await expect(page.getByTestId('assistant-activity')).toContainText('Oracle Retrieval')
     await expect(
-      page.locator('[data-tool-type="oracle_retrieval"][data-tool-state="input-available"]'),
+      page.locator('[data-tool-type="tool-oracle_retrieval"][data-tool-state="input-available"]'),
     ).toBeVisible()
     await expect(page.getByText(finalAnswer)).toHaveCount(0)
 
@@ -744,7 +664,7 @@ test.describe('chat streaming', () => {
       return ((window as typeof window & { __historyCalls?: number }).__historyCalls ?? 0) > 1
     })
     await expect(
-      page.getByRole('button', { name: /Tool activity 1 complete/ }),
+      page.locator('[data-tool-type="tool-oracle_retrieval"][data-tool-state="output-available"]'),
     ).toBeVisible()
   })
 

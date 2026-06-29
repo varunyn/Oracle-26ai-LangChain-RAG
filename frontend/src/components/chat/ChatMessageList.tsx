@@ -1,9 +1,11 @@
 "use client";
 
+import type { AssembledToolCall } from "@langchain/react";
 import { useEffect } from "react";
 import type { RefObject } from "react";
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import { debugChatStage, summarizeMessages } from "@/hooks/chat/debug";
+import { toolCallsForMessage } from "@/hooks/chat/tool-call-mapping";
 import { getMessageContent, type SupportedContent } from "@/lib/chat/messages";
 import type { MessageReferences } from "@/lib/types/chat";
 import { StreamingIndicator } from "@/components/chat/StreamingIndicator";
@@ -13,11 +15,13 @@ type MessageLike = {
   id?: string;
   role?: string;
   content?: SupportedContent;
+  toolCallIds?: string[];
   references?: MessageReferences | null;
 };
 
 type ChatMessageListProps = {
   messages: MessageLike[];
+  toolCalls: AssembledToolCall[];
   status: string;
   maxCitationsToShow: number;
   chatContainerRef: RefObject<HTMLDivElement | null>;
@@ -29,21 +33,27 @@ type ChatMessageListProps = {
   enableUserFeedback?: boolean;
 };
 
-function hasAssistantProgress(message: MessageLike): boolean {
+function hasAssistantToolCalls(
+  message: MessageLike,
+  toolCalls: readonly AssembledToolCall[],
+): boolean {
   if (message.role !== "assistant") return false;
-  const progressEvents = message.references?.mcp_progress_events;
-  return Array.isArray(progressEvents) && progressEvents.length > 0;
+  return toolCallsForMessage(message.toolCallIds, toolCalls).length > 0;
 }
 
-function hasActiveAssistantOutput(messages: MessageLike[]): boolean {
+function hasActiveAssistantOutput(
+  messages: MessageLike[],
+  toolCalls: readonly AssembledToolCall[],
+): boolean {
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   if (!lastAssistant) return false;
   const text = getMessageContent(lastAssistant).trim();
-  return text.length > 0 || hasAssistantProgress(lastAssistant);
+  return text.length > 0 || hasAssistantToolCalls(lastAssistant, toolCalls);
 }
 
 export function ChatMessageList({
   messages,
+  toolCalls,
   status,
   maxCitationsToShow,
   chatContainerRef,
@@ -55,7 +65,8 @@ export function ChatMessageList({
   enableUserFeedback,
 }: ChatMessageListProps): React.ReactElement {
   const isStreamingTurn = status === "submitted" || status === "streaming";
-  const showStreamingIndicator = isStreamingTurn && !hasActiveAssistantOutput(messages);
+  const showStreamingIndicator =
+    isStreamingTurn && !hasActiveAssistantOutput(messages, toolCalls);
   const showEmptyState = messages.length === 0 && !isStreamingTurn;
 
   useEffect(() => {
@@ -94,15 +105,17 @@ export function ChatMessageList({
           const isLastMessage = index === messages.length - 1;
           const isStreaming =
             isLastMessage && (status === "submitted" || status === "streaming");
-          const toolName = null;
           const displayContent = textContent;
           const messageReferences: MessageReferences | null =
             message.role === "assistant" ? (message.references ?? null) : null;
-          const hasLiveProgress =
-            Array.isArray(messageReferences?.mcp_progress_events) &&
-            messageReferences.mcp_progress_events.length > 0;
+          const matchedToolCalls =
+            message.role === "assistant"
+              ? toolCallsForMessage(message.toolCallIds, toolCalls)
+              : [];
 
-          if (!displayContent && !toolName && !hasLiveProgress) return null;
+          if (!displayContent && matchedToolCalls.length === 0 && !messageReferences?.error) {
+            return null;
+          }
 
           const showActions =
             message.role === "assistant" && !!displayContent && !isStreaming;
@@ -112,7 +125,7 @@ export function ChatMessageList({
               key={message.id ?? `message-${index}`}
               message={message}
               displayContent={displayContent}
-              toolName={toolName}
+              toolCalls={matchedToolCalls}
               isLastMessage={isLastMessage}
               isStreaming={isStreaming}
               showActions={showActions}

@@ -19,7 +19,6 @@ import {
   type BaseMessageWithKwargs,
   isSameContextUsage,
 } from "@/hooks/chat/references";
-import { toolCallsToMcpEvents } from "@/hooks/chat/tool-progress";
 import { useChatActions } from "@/hooks/chat/useChatActions";
 import { useSuggestions } from "@/hooks/useSuggestions";
 import { useChatBodyParams } from "@/hooks/useChatBodyParams";
@@ -64,18 +63,13 @@ export function useChatController({
 
   const streamMessages = stream.messages;
   const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
-  const liveToolProgressEvents = useMemo(
-    () => toolCallsToMcpEvents(streamToolCalls),
-    [streamToolCalls],
-  );
 
   const messages = useMemo(
     () =>
       projectStreamMessages({
         streamMessages: streamMessages as BaseMessageWithKwargs[] | undefined,
-        liveToolProgressEvents,
       }),
-    [liveToolProgressEvents, streamMessages],
+    [streamMessages],
   );
 
   const rawStreamStatus = (stream as { status?: unknown }).status;
@@ -174,6 +168,7 @@ export function useChatController({
     input,
     setInput,
     messages,
+    toolCalls: streamToolCalls,
     status,
     maxCitationsToShow,
     chatContainerRef,

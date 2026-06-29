@@ -12,6 +12,7 @@ export type MessageLike = {
   id?: string;
   role?: string;
   content?: string;
+  toolCallIds?: string[];
   references?: ReferencePayload | null;
 };
 

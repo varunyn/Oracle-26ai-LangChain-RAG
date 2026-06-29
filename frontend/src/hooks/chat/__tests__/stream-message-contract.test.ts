@@ -15,6 +15,13 @@ describe("frontend stream message contract", () => {
         { type: "text", text: "Oracle 26ai is Oracle's latest AI-focused database release." },
         { type: "tool_use", text: "ignored tool payload" },
       ],
+      tool_calls: [
+        {
+          id: "call-1",
+          name: "semantic_search",
+          args: { query: "Oracle 26ai" },
+        },
+      ],
       additional_kwargs: {
         citations: [{ source: "guide.pdf", page: "2" }],
       },
@@ -36,6 +43,7 @@ describe("frontend stream message contract", () => {
         id: "assistant-1",
         role: "assistant",
         content: "Oracle 26ai is Oracle's latest AI-focused database release.",
+        toolCallIds: ["call-1"],
         references: {
           citations: [{ source: "guide.pdf", page: "2" }],
           reranker_docs: [],
@@ -45,7 +53,6 @@ describe("frontend stream message contract", () => {
           mcp_used: false,
           mcp_tools_used: undefined,
           mcp_tool_invocations: undefined,
-          mcp_progress_events: undefined,
           error: undefined,
         },
       },

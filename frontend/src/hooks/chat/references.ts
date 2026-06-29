@@ -6,7 +6,6 @@ import {
 } from "@langchain/core/messages";
 import type {
   ContextUsage,
-  McpProgressEvent,
   McpToolInvocation,
 } from "@/lib/types/chat";
 import type { MessageLike, ReferencePayload } from "@/hooks/chat/controller-types";
@@ -58,7 +57,6 @@ function toReferencePayload(raw: Record<string, unknown>): ReferencePayload | nu
     Array.isArray(raw.reranker_docs) ||
     Array.isArray(raw.mcp_tools_used) ||
     Array.isArray(raw.mcp_tool_invocations) ||
-    Array.isArray(raw.mcp_progress_events) ||
     typeof raw.trace_id === "string" ||
     typeof raw.standalone_question === "string" ||
     typeof raw.error === "string" ||
@@ -81,9 +79,6 @@ function toReferencePayload(raw: Record<string, unknown>): ReferencePayload | nu
       : undefined,
     mcp_tool_invocations: Array.isArray(raw.mcp_tool_invocations)
       ? (raw.mcp_tool_invocations as McpToolInvocation[])
-      : undefined,
-    mcp_progress_events: Array.isArray(raw.mcp_progress_events)
-      ? (raw.mcp_progress_events as McpProgressEvent[])
       : undefined,
     error: typeof raw.error === "string" ? raw.error : undefined,
   };

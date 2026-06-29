@@ -1,5 +1,4 @@
 import { getMessageContent } from "@/lib/chat/messages";
-import type { McpProgressEvent } from "@/lib/types/chat";
 import type {
   ChatStatus,
   MessageLike,
@@ -10,7 +9,18 @@ import {
   toRole,
 } from "@/hooks/chat/references";
 import { debugChatStage, summarizeMessages } from "@/hooks/chat/debug";
-import { withLiveToolProgress } from "@/hooks/chat/tool-progress";
+
+type ToolCallLike = {
+  id?: unknown;
+};
+
+function toToolCallIds(message: BaseMessageWithKwargs): string[] | undefined {
+  const toolCalls = (message as BaseMessageWithKwargs & { tool_calls?: ToolCallLike[] }).tool_calls;
+  const ids = toolCalls
+    ?.map((toolCall) => toolCall.id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  return ids && ids.length > 0 ? ids : undefined;
+}
 
 function dedupeProjectedMessages(messages: MessageLike[]): MessageLike[] {
   const seenIds = new Map<string, number>();
@@ -57,23 +67,24 @@ export function getLastUserMessageText(messages: MessageLike[]): string {
 
 export function projectStreamMessages(args: {
   streamMessages: BaseMessageWithKwargs[] | undefined;
-  liveToolProgressEvents: McpProgressEvent[];
 }): MessageLike[] {
-  const { streamMessages, liveToolProgressEvents } = args;
-  const mapped = (streamMessages ?? []).map((message, index) => ({
-    id: typeof message.id === "string" ? message.id : `message-${index}`,
-    role: toRole(message),
-    content: getMessageContent(message),
-    references: toReferences(message),
-  }));
+  const { streamMessages } = args;
+  const mapped = (streamMessages ?? []).map((message, index) => {
+    const toolCallIds = toToolCallIds(message);
+    return {
+      id: typeof message.id === "string" ? message.id : `message-${index}`,
+      role: toRole(message),
+      content: getMessageContent(message),
+      ...(toolCallIds ? { toolCallIds } : {}),
+      references: toReferences(message),
+    };
+  });
   const deduped = dedupeProjectedMessages(mapped);
-  const projected = withLiveToolProgress(deduped, liveToolProgressEvents);
   debugChatStage("projectStreamMessages", {
     rawCount: streamMessages?.length ?? 0,
     mapped: summarizeMessages(mapped),
     deduped: summarizeMessages(deduped),
-    projected: summarizeMessages(projected),
-    liveToolProgressCount: liveToolProgressEvents.length,
+    projected: summarizeMessages(deduped),
   });
-  return projected;
+  return deduped;
 }

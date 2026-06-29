@@ -101,7 +101,7 @@ describe("projectStreamMessages", () => {
     expect(projected[1]?.references?.mcp_tools_used).toEqual(["oracle_retrieval"]);
   });
 
-  it("attaches live MCP progress to the active assistant turn", () => {
+  it("preserves native tool call ids on the owning assistant message", () => {
     const question = new HumanMessage({
       id: "user-1",
       content: "Run linear regression on these points",
@@ -109,28 +109,40 @@ describe("projectStreamMessages", () => {
     const answer = new AIMessage({
       id: "assistant-1",
       content: [{ type: "text", text: "The best-fit line is y = 1.54x + 0.44." }],
-    });
-
-    const projected = projectStreamMessages({
-      streamMessages: [question, answer],
-      liveToolProgressEvents: [
+      tool_calls: [
         {
-          phase: "start",
-          tool_name: "Calculator_linear_regression",
-          tool_run_id: "tool-1",
-          args: { data: [[1, 2], [2, 3.5]] },
+          id: "call-1",
+          name: "semantic_search",
+          args: { query: "Oracle" },
+        },
+        {
+          id: "call-2",
+          name: "list_documents",
+          args: {},
         },
       ],
     });
 
+    const projected = projectStreamMessages({
+      streamMessages: [question, answer],
+      liveToolProgressEvents: [],
+    });
+
     expect(projected).toHaveLength(2);
-    expect(projected[1]?.references?.mcp_progress_events).toEqual([
-      {
-        phase: "start",
-        tool_name: "Calculator_linear_regression",
-        tool_run_id: "tool-1",
-        args: { data: [[1, 2], [2, 3.5]] },
-      },
-    ]);
+    expect(projected[1]?.toolCallIds).toEqual(["call-1", "call-2"]);
+  });
+
+  it("omits toolCallIds when a message has no valid native tool call ids", () => {
+    const assistant = new AIMessage({
+      id: "assistant-1",
+      content: "No tools here.",
+    });
+
+    const projected = projectStreamMessages({
+      streamMessages: [assistant],
+      liveToolProgressEvents: [],
+    });
+
+    expect(projected[0]).not.toHaveProperty("toolCallIds");
   });
 });

@@ -77,6 +77,16 @@ type ToolProps = React.HTMLAttributes<HTMLDivElement> & {
   type?: string;
 };
 
+function humanizeToolType(type: string | undefined): string {
+  if (!type) return "Tool";
+  const normalized = type.startsWith("tool-") ? type.slice(5) : type;
+  return normalized
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 /** @lintignore */
 export function Tool({
   className,
@@ -103,13 +113,47 @@ export function Tool({
   );
 }
 
+export function ToolHeader({
+  className,
+  state = "output-available",
+  type,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & {
+  state?: ToolState;
+  type?: string;
+}): React.ReactElement {
+  return (
+    <div
+      className={cn("flex items-center justify-between gap-2", className)}
+      {...props}
+    >
+      <span className="min-w-0 truncate text-xs font-medium text-current">
+        {humanizeToolType(type)}
+      </span>
+      <ToolStatusBadge state={state} />
+    </div>
+  );
+}
+
+export function ToolContent({
+  className,
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>): React.ReactElement {
+  return (
+    <div className={cn("space-y-2", className)} {...props}>
+      {children}
+    </div>
+  );
+}
+
 export function ToolOutput({
   className,
   errorText,
   output,
   ...props
 }: React.HTMLAttributes<HTMLElement> & {
-  output: React.ReactNode;
+  output: unknown;
   errorText?: string;
 }): React.ReactElement {
   if (errorText) {
