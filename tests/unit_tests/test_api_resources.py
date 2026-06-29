@@ -1,26 +1,22 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 from api.resources import create_app_resources, shutdown_app_resources
 
 
-def test_create_app_resources_wires_settings_and_chat_runtime_service(monkeypatch) -> None:
+def test_create_app_resources_wires_settings_without_chat_runtime_service(monkeypatch) -> None:
     fake_settings = SimpleNamespace(
         ENABLE_PERSISTENT_MEMORY=False,
         LANGGRAPH_SQLITE_PATH=":memory:",
     )
-    mock_graph = SimpleNamespace()
-    mock_graph_cls = MagicMock(return_value=mock_graph)
 
     monkeypatch.setattr("api.resources.get_settings", lambda: fake_settings)
-    monkeypatch.setattr("api.resources.ChatRuntimeService", mock_graph_cls)
 
     resources = asyncio.run(create_app_resources())
 
     assert resources.settings is fake_settings
-    assert resources.chat_runtime_service is mock_graph
-    mock_graph_cls.assert_called_once_with(thread_state_store=None)
+    assert not hasattr(resources, "chat_runtime_service")
+    assert resources.get_state_conn() is None
 
 
 def test_shutdown_app_resources_calls_langfuse_shutdown_and_adapter_cleanup(monkeypatch) -> None:

@@ -237,20 +237,37 @@ def test_run_rag_node_returns_assistant_error_when_runtime_fails(
 def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    class StubService:
-        async def run_chat(self, **kwargs: object) -> dict[str, object]:
-            captured.update(kwargs)
-            return {
-                "final_answer": "42",
-                "citations": [],
-                "reranker_docs": [],
-                "context_usage": None,
-                "mcp_used": True,
-                "mcp_tools_used": ["calculator"],
-                "mcp_tool_invocations": [{"tool_name": "calculator", "result": "42"}],
-            }
+    class _FakeTrace:
+        trace_context = None
+        trace_id = None
 
-    monkeypatch.setattr(mcp_node_module, "ChatRuntimeService", StubService)
+    class _FakeTraceContextManager:
+        def __enter__(self) -> _FakeTrace:
+            return _FakeTrace()
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            _ = exc_type, exc, tb
+            return False
+
+    class FakeLlm:
+        model_id = "model-c"
+
+    async def fake_run_mcp_agent_turn(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace(
+            answer="42",
+            tools_used=["calculator"],
+            tool_invocations=[{"tool_name": "calculator", "result": "42"}],
+            resolved_model_id="model-c",
+        )
+
+    monkeypatch.setattr(mcp_node_module, "get_llm", lambda model_id=None: FakeLlm())
+    monkeypatch.setattr(mcp_node_module, "run_mcp_agent_turn", fake_run_mcp_agent_turn)
+    monkeypatch.setattr(
+        mcp_node_module,
+        "start_langfuse_chat_trace",
+        lambda **kwargs: _FakeTraceContextManager(),
+    )
 
     result = asyncio.run(
         mcp_node_module.run_mcp_node(
@@ -266,12 +283,15 @@ def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
         )
     )
 
-    assert captured["model_id"] == "model-c"
-    assert captured["thread_id"] == "thread-123"
-    assert captured["session_id"] == "session-mcp"
+    run_config = captured["run_config"]
+    assert isinstance(run_config, dict)
+    assert captured["resolved_model_id"] == "model-c"
+    assert run_config["configurable"]["thread_id"] == "thread-123"
+    assert run_config["configurable"]["session_id"] == "session-mcp"
+    assert run_config["configurable"]["model_id"] == "model-c"
+    assert run_config["configurable"]["mcp_server_keys"] == ["calculator"]
     assert captured["mode"] == "mcp"
     assert captured["mcp_server_keys"] == ["calculator"]
-    assert captured["collection_name"] is None
     assistant = result["messages"][-1]
     assert isinstance(assistant, AIMessage)
     assert assistant.content == "42"
@@ -282,20 +302,82 @@ def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
 def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    class StubService:
-        async def run_chat(self, **kwargs: object) -> dict[str, object]:
-            captured.update(kwargs)
-            return {
-                "final_answer": "Net 45 days; plus 5 is 50.",
-                "citations": [{"source": "summit"}],
-                "reranker_docs": [{"id": "doc-2"}],
-                "context_usage": {"retrieved_docs_count": 1},
-                "mcp_used": True,
-                "mcp_tools_used": ["calculator"],
-                "mcp_tool_invocations": [{"tool_name": "calculator", "result": "50"}],
-            }
+    class _FakeTrace:
+        trace_context = None
+        trace_id = None
 
-    monkeypatch.setattr(mixed_node_module, "ChatRuntimeService", StubService)
+    class _FakeTraceContextManager:
+        def __enter__(self) -> _FakeTrace:
+            return _FakeTrace()
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            _ = exc_type, exc, tb
+            return False
+
+    class FakeLlm:
+        model_id = "model-d"
+
+    class FakeRetrievalTool:
+        _retrieval_state = {
+            "docs": [SimpleNamespace(page_content="Summit terms", metadata={"source": "summit"})]
+        }
+
+    async def fake_run_mcp_agent_turn(**kwargs: object) -> object:
+        captured["mcp_turn_kwargs"] = kwargs
+        return SimpleNamespace(
+            answer="Net 45 days; plus 5 is 50.",
+            tools_used=["oracle_retrieval", "calculator"],
+            tool_invocations=[
+                {"tool_name": "oracle_retrieval", "result": "Net 45"},
+                {"tool_name": "calculator", "result": "50"},
+            ],
+            resolved_model_id="model-d",
+        )
+
+    async def fake_synthesize_rag_answer(**kwargs: object) -> tuple[str, None, str]:
+        captured["synthesize_kwargs"] = kwargs
+        return "Net 45 days; plus 5 is 50.", None, "model-d"
+
+    monkeypatch.setattr(mixed_node_module, "get_llm", lambda model_id=None: FakeLlm())
+    monkeypatch.setattr(mixed_node_module, "run_mcp_agent_turn", fake_run_mcp_agent_turn)
+    monkeypatch.setattr(
+        mixed_node_module,
+        "start_langfuse_chat_trace",
+        lambda **kwargs: _FakeTraceContextManager(),
+    )
+    monkeypatch.setattr(
+        mixed_node_module.rag_runtime,
+        "build_oracle_retrieval_tool",
+        lambda **kwargs: (
+            captured.__setitem__("retrieval_tool_kwargs", kwargs) or FakeRetrievalTool()
+        ),
+    )
+    monkeypatch.setattr(
+        mixed_node_module.rag_runtime,
+        "rerank_retrieved_docs",
+        lambda query, docs, *, enable_reranker: (
+            captured.__setitem__(
+                "rerank_kwargs",
+                {"query": query, "docs": docs, "enable_reranker": enable_reranker},
+            )
+            or docs
+        ),
+    )
+    monkeypatch.setattr(
+        mixed_node_module.rag_runtime,
+        "synthesize_rag_answer",
+        fake_synthesize_rag_answer,
+    )
+    monkeypatch.setattr(
+        mixed_node_module.rag_runtime,
+        "citations_from_docs",
+        lambda docs: [{"source": "summit"}],
+    )
+    monkeypatch.setattr(
+        mixed_node_module.rag_runtime,
+        "serialize_docs",
+        lambda docs: [{"id": "doc-2"}],
+    )
 
     result = asyncio.run(
         mixed_node_module.run_mixed_node(
@@ -314,14 +396,20 @@ def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) ->
         )
     )
 
-    assert captured["model_id"] == "model-d"
-    assert captured["thread_id"] == "thread-123"
-    assert captured["session_id"] == "session-mixed"
-    assert captured["collection_name"] == "ORACLE_WEB_EMBEDDINGS"
-    assert captured["enable_reranker"] is True
-    assert captured["enable_tracing"] is True
-    assert captured["mode"] == "mixed"
-    assert captured["mcp_server_keys"] == ["calculator"]
+    mcp_turn_kwargs = captured["mcp_turn_kwargs"]
+    assert mcp_turn_kwargs["resolved_model_id"] == "model-d"
+    run_config = mcp_turn_kwargs["run_config"]
+    assert isinstance(run_config, dict)
+    assert run_config["configurable"]["thread_id"] == "thread-123"
+    assert run_config["configurable"]["session_id"] == "session-mixed"
+    assert run_config["configurable"]["model_id"] == "model-d"
+    assert run_config["configurable"]["mcp_server_keys"] == ["calculator"]
+    assert run_config["configurable"]["enable_tracing"] is True
+    assert captured["retrieval_tool_kwargs"]["collection_name"] == "ORACLE_WEB_EMBEDDINGS"
+    assert captured["rerank_kwargs"]["enable_reranker"] is True
+    assert mcp_turn_kwargs["mode"] == "mixed"
+    assert mcp_turn_kwargs["mcp_server_keys"] == ["calculator"]
+    assert captured["synthesize_kwargs"]["model_id"] == "model-d"
     assistant = result["messages"][-1]
     assert isinstance(assistant, AIMessage)
     assert assistant.content == "Net 45 days; plus 5 is 50."

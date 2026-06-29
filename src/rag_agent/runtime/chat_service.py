@@ -1,4 +1,4 @@
-"""Shared chat runtime for direct, RAG, MCP, and mixed execution paths."""
+"""Compatibility chat runtime for direct/RAG execution and stream adaptation."""
 
 from __future__ import annotations
 
@@ -7,14 +7,11 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from typing import Any, cast
 
-from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables.config import RunnableConfig
-from langchain_core.tools import StructuredTool
 
-from api.settings import get_settings
+from src.rag_agent.graphs.mcp_policies import NO_ORACLE_CONTEXT_ANSWER
 from src.rag_agent.infrastructure import oci_models as _oci_models
-from src.rag_agent.infrastructure.mcp_settings import get_mcp_servers_config
 from src.rag_agent.utils.langfuse_tracing import (
     LangfuseChatTrace,
     add_langfuse_callbacks,
@@ -23,7 +20,6 @@ from src.rag_agent.utils.langfuse_tracing import (
 
 from . import rag_runtime
 from .llm_invocation import invoke_llm_with_optional_config
-from .mcp_turn import run_mcp_agent_turn, tool_failure_summary
 from .memory import (
     chat_history_before_latest_user,
     contextualize_question,
@@ -38,15 +34,7 @@ from .thread_checkpoints import LangGraphCheckpointThreadStateStore
 
 logger = logging.getLogger(__name__)
 
-_ORACLE_RETRIEVAL_TOOL_NAME = "oracle_retrieval"
-_NO_ORACLE_CONTEXT_ANSWER = "I don't know the answer from the selected Oracle collection."
-_ORACLE_RETRIEVAL_FAILED_ANSWER = (
-    "I couldn't retrieve context from the selected Oracle collection because retrieval failed. "
-    "Please try again after the database is available."
-)
-
-
-# Configuration and request-policy helpers.
+# Configuration helpers.
 def get_llm(model_id: str | None = None) -> Any:
     return _oci_models.get_llm(model_id=model_id)
 
@@ -119,137 +107,7 @@ def _resolve_effective_mode(mode: str | None) -> str:
     explicit = str(mode or "").strip().lower()
     if explicit in {"direct", "rag", "mcp", "mixed"}:
         return explicit
-    settings = get_settings()
-    enable_mcp_tools = bool(getattr(settings, "ENABLE_MCP_TOOLS", True))
-    mcp_config = get_mcp_servers_config()
-    if enable_mcp_tools and bool(mcp_config):
-        return "mixed"
     return "rag"
-
-
-def _to_string_list(raw: object) -> list[str]:
-    if not isinstance(raw, list):
-        return []
-    return [str(item).strip() for item in raw if str(item).strip()]
-
-
-def _workflow_policy_for_request(*, mode: str, question: str) -> dict[str, object] | None:
-    policy_raw = getattr(get_settings(), "MCP_WORKFLOW_POLICY", {})
-    if not isinstance(policy_raw, dict) or not policy_raw:
-        return None
-    enabled = bool(policy_raw.get("enabled", True))
-    if not enabled:
-        return None
-    apply_modes = _to_string_list(policy_raw.get("apply_modes")) or ["mixed"]
-    if mode not in {m.lower() for m in apply_modes}:
-        return None
-    activation_terms = [
-        term.lower() for term in _to_string_list(policy_raw.get("activation_terms"))
-    ]
-    lower_question = question.strip().lower()
-    if activation_terms and not any(term in lower_question for term in activation_terms):
-        return None
-    required_capabilities = _to_string_list(policy_raw.get("required_capabilities"))
-    tool_capability_map_raw = policy_raw.get("tool_capability_map")
-    if not required_capabilities or not isinstance(tool_capability_map_raw, dict):
-        return None
-    tool_capability_map: dict[str, list[str]] = {}
-    for tool_name, capabilities in tool_capability_map_raw.items():
-        normalized_tool_name = str(tool_name).strip().lower()
-        if not normalized_tool_name:
-            continue
-        caps = _to_string_list(capabilities)
-        if caps:
-            tool_capability_map[normalized_tool_name] = [cap.lower() for cap in caps]
-    if not tool_capability_map:
-        return None
-    return {
-        "required_capabilities": [cap.lower() for cap in required_capabilities],
-        "tool_capability_map": tool_capability_map,
-        "failure_message": str(policy_raw.get("failure_message") or "").strip(),
-    }
-
-
-def _require_tool_call_enabled() -> bool:
-    return bool(getattr(get_settings(), "REQUIRE_TOOL_CALL", False))
-
-
-def _repeated_workflow_controller_enabled() -> bool:
-    return bool(getattr(get_settings(), "MCP_REPEATED_WORKFLOW_CONTROLLER", False))
-
-
-def _workflow_checkpoint_path() -> str | None:
-    settings = get_settings()
-    if not bool(getattr(settings, "ENABLE_PERSISTENT_MEMORY", False)):
-        return None
-    raw_path = str(getattr(settings, "LANGGRAPH_SQLITE_PATH", "") or "").strip()
-    return raw_path or None
-
-
-def _enforce_workflow_policy(
-    *,
-    policy: dict[str, object] | None,
-    tools_used: list[str],
-    tool_invocations: list[dict[str, object]],
-) -> tuple[bool, list[str], str | None]:
-    if policy is None:
-        return False, [], None
-    required_capabilities = _to_string_list(policy.get("required_capabilities"))
-    tool_capability_map = cast(dict[str, list[str]], policy.get("tool_capability_map") or {})
-    if not required_capabilities or not tool_capability_map:
-        return False, [], None
-    called_capabilities: set[str] = set()
-    for tool_name in _called_tool_names(
-        tools_used=tools_used,
-        tool_invocations=tool_invocations,
-    ):
-        for capability in tool_capability_map.get(tool_name, []):
-            called_capabilities.add(capability.lower())
-    missing = [cap for cap in required_capabilities if cap.lower() not in called_capabilities]
-    if not missing:
-        return True, [], None
-    default_message = (
-        "Workflow validation failed. Missing required steps: "
-        + ", ".join(missing)
-        + ". Please continue with the required workflow tools."
-    )
-    failure_message = str(policy.get("failure_message") or "").strip() or default_message
-    return True, missing, failure_message
-
-
-def _is_trivial_answer(answer: str) -> bool:
-    stripped = answer.strip()
-    if not stripped:
-        return True
-    return not any(ch.isalnum() for ch in stripped)
-
-
-def _called_tool_names(
-    *,
-    tools_used: list[str],
-    tool_invocations: list[dict[str, object]],
-) -> set[str]:
-    names = {str(name).strip().lower() for name in tools_used if str(name).strip()}
-    names.update(
-        str(invocation.get("tool_name") or "").strip().lower()
-        for invocation in tool_invocations
-        if isinstance(invocation, dict) and str(invocation.get("tool_name") or "").strip()
-    )
-    return names
-
-
-def _tool_was_called(
-    *,
-    tool_name: str,
-    tools_used: list[str],
-    tool_invocations: list[dict[str, object]],
-) -> bool:
-    expected = tool_name.strip().lower()
-    return expected in _called_tool_names(
-        tools_used=tools_used,
-        tool_invocations=tool_invocations,
-    )
-
 
 # Response/reference shaping helpers.
 def _references_from_result(
@@ -303,72 +161,8 @@ def _references_from_result(
         references["error"] = error_value.strip()
 
     return references
-
-
-def _oracle_retrieval_used_without_context(
-    *,
-    retrieval_state: object,
-    retrieval_docs: list[Document],
-    tools_used: list[str],
-    tool_invocations: list[dict[str, object]],
-) -> bool:
-    if retrieval_docs:
-        return False
-    if not isinstance(retrieval_state, dict):
-        return False
-    if str(retrieval_state.get("error") or "").strip():
-        return False
-    return _tool_was_called(
-        tool_name=_ORACLE_RETRIEVAL_TOOL_NAME,
-        tools_used=tools_used,
-        tool_invocations=tool_invocations,
-    )
-
-
-def _oracle_retrieval_error(
-    *,
-    retrieval_state: object,
-    tools_used: list[str],
-    tool_invocations: list[dict[str, object]],
-) -> str | None:
-    if not isinstance(retrieval_state, dict):
-        return None
-    error = str(retrieval_state.get("error") or "").strip()
-    if not error:
-        return None
-    if not _tool_was_called(
-        tool_name=_ORACLE_RETRIEVAL_TOOL_NAME,
-        tools_used=tools_used,
-        tool_invocations=tool_invocations,
-    ):
-        return None
-    return error
-
-
-def _mixed_tool_supplemental_context(
-    tool_invocations: list[dict[str, object]],
-) -> str | None:
-    blocks: list[str] = []
-    for invocation in tool_invocations:
-        if not isinstance(invocation, dict):
-            continue
-        tool_name = str(invocation.get("tool_name") or "").strip()
-        if not tool_name or tool_name == _ORACLE_RETRIEVAL_TOOL_NAME:
-            continue
-        error = str(invocation.get("error") or "").strip()
-        result = str(invocation.get("result") or "").strip()
-        if error:
-            result = f"Error: {error}"
-        if not result:
-            continue
-        args = invocation.get("args")
-        args_text = f"\nArgs: {args}" if args not in (None, {}, []) else ""
-        blocks.append(f"Tool: {tool_name}{args_text}\nResult: {result}")
-    return "\n\n".join(blocks) or None
-
-
 class ChatRuntimeService:
-    """Shared runtime adapter used by FastAPI, LangGraph nodes, and stream events."""
+    """Compatibility runtime adapter for direct/RAG turns and event streaming."""
 
     def __init__(
         self,
@@ -403,21 +197,41 @@ class ChatRuntimeService:
             thread_id=thread_id,
             input_payload={"question": question} if question else None,
         ) as langfuse_trace:
-            result = await self._run_chat_impl(
-                messages=messages,
-                model_id=model_id,
-                thread_id=thread_id,
-                session_id=session_id,
-                collection_name=collection_name,
-                enable_reranker=enable_reranker,
-                enable_tracing=enable_tracing,
-                mode=mode,
-                mcp_server_keys=mcp_server_keys,
-                stream=stream,
-                tool_progress_callback=tool_progress_callback,
-                answer_delta_callback=answer_delta_callback,
-                langfuse_trace=langfuse_trace,
-            )
+            incoming_messages = messages
+            conversation_messages = self._hydrate_thread_messages(thread_id, incoming_messages)
+            if normalized_mode == "rag":
+                result = await self._run_rag_mode(
+                    incoming_messages=incoming_messages,
+                    conversation_messages=conversation_messages,
+                    model_id=model_id,
+                    thread_id=thread_id,
+                    session_id=session_id,
+                    collection_name=collection_name,
+                    enable_reranker=enable_reranker,
+                    enable_tracing=enable_tracing,
+                    normalized_mode=normalized_mode,
+                    mcp_server_keys=mcp_server_keys,
+                    stream=stream,
+                    answer_delta_callback=answer_delta_callback,
+                    langfuse_trace=langfuse_trace,
+                )
+            elif normalized_mode == "direct":
+                result = await self._run_direct_mode(
+                    incoming_messages=incoming_messages,
+                    conversation_messages=conversation_messages,
+                    model_id=model_id,
+                    thread_id=thread_id,
+                    session_id=session_id,
+                    enable_tracing=enable_tracing,
+                    normalized_mode=normalized_mode,
+                    mcp_server_keys=mcp_server_keys,
+                    langfuse_trace=langfuse_trace,
+                )
+            else:
+                raise NotImplementedError(
+                    "LangGraph owns mcp and mixed execution. "
+                    "Use the chat_agent graph for those modes."
+                )
             if langfuse_trace.trace_id:
                 result["trace_id"] = langfuse_trace.trace_id
             langfuse_trace.update_output(
@@ -429,301 +243,27 @@ class ChatRuntimeService:
             )
             return result
 
-    async def _run_chat_impl(
+    async def _run_direct_mode(
         self,
         *,
-        messages: list[dict[str, object]],
+        incoming_messages: list[dict[str, object]],
+        conversation_messages: list[dict[str, object]],
         model_id: str | None,
         thread_id: str | None,
         session_id: str | None,
-        collection_name: str | None,
-        enable_reranker: bool | None,
         enable_tracing: bool | None,
-        mode: str | None,
+        normalized_mode: str,
         mcp_server_keys: list[str] | None,
-        stream: bool,
-        tool_progress_callback: Callable[[dict[str, object]], None] | None = None,
-        answer_delta_callback: Callable[[str], None] | None = None,
         langfuse_trace: LangfuseChatTrace | None = None,
     ) -> dict[str, object]:
-        normalized_mode = _resolve_effective_mode(mode)
-        incoming_messages = messages
-        conversation_messages = self._hydrate_thread_messages(thread_id, incoming_messages)
-
-        if normalized_mode == "mixed":
-            latest_user_message = self._latest_user_message(conversation_messages)
-            chat_history = self._chat_history_before_latest_user(conversation_messages)
-
-            retrieval_tool = self._build_oracle_retrieval_tool(collection_name)
-            resolved_model_id = model_id or get_llm().model_id
-            run_cfg = _prepare_run_config(
-                thread_id=thread_id,
-                mcp_server_keys=mcp_server_keys,
-                mode=normalized_mode,
-                model_id=resolved_model_id,
-                session_id=session_id,
-                enable_tracing=enable_tracing,
-                trace_context=langfuse_trace.trace_context if langfuse_trace else None,
-            )
-            mcp_turn = await run_mcp_agent_turn(
-                question=latest_user_message,
-                chat_history=chat_history,
-                resolved_model_id=resolved_model_id,
-                run_config=run_cfg,
-                mode=normalized_mode,
-                mcp_server_keys=mcp_server_keys,
-                require_tool_call=_require_tool_call_enabled(),
-                repeated_workflow_enabled=_repeated_workflow_controller_enabled(),
-                workflow_checkpoint_path=_workflow_checkpoint_path(),
-                tool_progress_callback=tool_progress_callback,
-                answer_delta_callback=None,
-                stop_after_tool_names=None,
-                extra_tools=[retrieval_tool],
-                require_mcp_tool_call_when_referenced=True,
-            )
-            final_answer = mcp_turn.answer
-            tools_used = mcp_turn.tools_used
-            tool_invocations = mcp_turn.tool_invocations
-            workflow_policy = _workflow_policy_for_request(
-                mode=normalized_mode,
-                question=latest_user_message,
-            )
-            policy_applied, missing_capabilities, policy_failure_message = _enforce_workflow_policy(
-                policy=workflow_policy,
-                tools_used=tools_used,
-                tool_invocations=cast(list[dict[str, object]], tool_invocations),
-            )
-            policy_error = (
-                policy_failure_message if policy_applied and missing_capabilities else None
-            )
-            if policy_error:
-                final_answer = policy_error
-            tool_failure_error = tool_failure_summary(
-                cast(list[dict[str, object]], tool_invocations)
-            )
-            if not policy_error and _is_trivial_answer(final_answer) and tool_failure_error:
-                final_answer = tool_failure_error
-                policy_error = tool_failure_error
-            retrieval_state = getattr(retrieval_tool, "_retrieval_state", None)
-            retrieval_docs = (
-                cast(list[Document], retrieval_state.get("docs", []))
-                if isinstance(retrieval_state, dict)
-                else []
-            )
-            retrieval_error = _oracle_retrieval_error(
-                retrieval_state=retrieval_state,
-                tools_used=tools_used,
-                tool_invocations=cast(list[dict[str, object]], tool_invocations),
-            )
-            if retrieval_docs and latest_user_message:
-                retrieval_docs = rag_runtime.rerank_retrieved_docs(
-                    latest_user_message,
-                    retrieval_docs,
-                    enable_reranker=enable_reranker,
-                )
-            if not policy_error and retrieval_error:
-                final_answer = _ORACLE_RETRIEVAL_FAILED_ANSWER
-                policy_error = _ORACLE_RETRIEVAL_FAILED_ANSWER
-            if not policy_error and _oracle_retrieval_used_without_context(
-                retrieval_state=retrieval_state,
-                retrieval_docs=retrieval_docs,
-                tools_used=tools_used,
-                tool_invocations=cast(list[dict[str, object]], tool_invocations),
-            ):
-                final_answer = _NO_ORACLE_CONTEXT_ANSWER
-            if not policy_error and retrieval_docs:
-                supplemental_context = _mixed_tool_supplemental_context(
-                    cast(list[dict[str, object]], tool_invocations)
-                )
-                if stream and answer_delta_callback is not None:
-                    mixed_answer_parts: list[str] = []
-                    async for text_delta, _chunk, stream_model_id in rag_runtime.stream_rag_answer(
-                        question=latest_user_message,
-                        docs=retrieval_docs,
-                        model_id=model_id,
-                        run_config=run_cfg,
-                        supplemental_context=supplemental_context,
-                    ):
-                        if isinstance(stream_model_id, str) and stream_model_id.strip():
-                            resolved_model_id = stream_model_id
-                        if text_delta:
-                            mixed_answer_parts.append(text_delta)
-                            answer_delta_callback(text_delta)
-                    final_answer = "".join(mixed_answer_parts).strip()
-                else:
-                    final_answer, _rag_usage, resolved_model_id = (
-                        await rag_runtime.synthesize_rag_answer(
-                            question=latest_user_message,
-                            docs=retrieval_docs,
-                            model_id=model_id,
-                            run_config=run_cfg,
-                            supplemental_context=supplemental_context,
-                        )
-                    )
-            mixed_result: dict[str, object] = {
-                "final_answer": final_answer,
-                "error": policy_error,
-                "standalone_question": latest_user_message or None,
-                "citations": rag_runtime.citations_from_docs(retrieval_docs),
-                "reranker_docs": rag_runtime.serialize_docs(retrieval_docs),
-                "context_usage": (
-                    {"retrieved_docs_count": len(retrieval_docs)} if retrieval_docs else None
-                ),
-                "mcp_used": bool(tools_used),
-                "mcp_tools_used": tools_used,
-                "mcp_tool_invocations": tool_invocations,
-            }
-            if isinstance(resolved_model_id, str) and resolved_model_id.strip():
-                mixed_result["model_id"] = resolved_model_id.strip()
-            self._attach_trace_id(mixed_result, langfuse_trace)
-            self._store_thread_state(thread_id, incoming_messages, mixed_result)
-            return mixed_result
-        if normalized_mode != "direct":
-            if normalized_mode == "mcp":
-                question = self._latest_user_message(conversation_messages)
-                chat_history = self._chat_history_before_latest_user(conversation_messages)
-
-                resolved_model_id = model_id or get_llm().model_id
-                run_cfg = _prepare_run_config(
-                    thread_id=thread_id,
-                    mcp_server_keys=mcp_server_keys,
-                    mode=normalized_mode,
-                    model_id=resolved_model_id,
-                    session_id=session_id,
-                    enable_tracing=enable_tracing,
-                    trace_context=langfuse_trace.trace_context if langfuse_trace else None,
-                )
-                mcp_turn = await run_mcp_agent_turn(
-                    question=question,
-                    chat_history=chat_history,
-                    resolved_model_id=resolved_model_id,
-                    run_config=run_cfg,
-                    mode=normalized_mode,
-                    mcp_server_keys=mcp_server_keys,
-                    require_tool_call=_require_tool_call_enabled(),
-                    repeated_workflow_enabled=_repeated_workflow_controller_enabled(),
-                    workflow_checkpoint_path=_workflow_checkpoint_path(),
-                    tool_progress_callback=tool_progress_callback,
-                    answer_delta_callback=answer_delta_callback,
-                )
-                mcp_result: dict[str, object] = {
-                    "final_answer": mcp_turn.answer,
-                    "error": None,
-                    "standalone_question": question or None,
-                    "citations": [],
-                    "reranker_docs": [],
-                    "context_usage": None,
-                    "mcp_used": bool(mcp_turn.tools_used),
-                    "mcp_tools_used": mcp_turn.tools_used,
-                    "mcp_tool_invocations": mcp_turn.tool_invocations,
-                }
-                tool_failure_error = tool_failure_summary(mcp_turn.tool_invocations)
-                if (
-                    _is_trivial_answer(str(mcp_result.get("final_answer") or ""))
-                    and tool_failure_error
-                ):
-                    mcp_result["final_answer"] = tool_failure_error
-                    mcp_result["error"] = tool_failure_error
-                mcp_result["model_id"] = mcp_turn.resolved_model_id
-                self._attach_trace_id(mcp_result, langfuse_trace)
-                self._store_thread_state(thread_id, incoming_messages, mcp_result)
-                return mcp_result
-            if normalized_mode == "rag":
-                question = self._latest_user_message(conversation_messages)
-                chat_history = self._chat_history_before_latest_user(conversation_messages)
-                run_cfg = _prepare_run_config(
-                    thread_id=thread_id,
-                    mcp_server_keys=mcp_server_keys,
-                    mode=normalized_mode,
-                    model_id=model_id,
-                    session_id=session_id,
-                    enable_tracing=enable_tracing,
-                    trace_context=langfuse_trace.trace_context if langfuse_trace else None,
-                )
-                standalone_question = await self._contextualize_question(
-                    question=question,
-                    chat_history=chat_history,
-                    model_id=model_id,
-                    run_config=run_cfg,
-                )
-
-                docs = await asyncio.to_thread(
-                    rag_runtime.retrieve_oracle_docs,
-                    query=standalone_question,
-                    collection_name=collection_name,
-                    k=5,
-                )
-                docs = await asyncio.to_thread(
-                    rag_runtime.rerank_retrieved_docs,
-                    standalone_question,
-                    docs,
-                    enable_reranker=enable_reranker,
-                )
-                if docs and stream and answer_delta_callback is not None:
-                    answer_parts: list[str] = []
-                    last_chunk: object | None = None
-                    resolved_model_id = model_id or "unknown"
-                    async for text_delta, chunk, stream_model_id in rag_runtime.stream_rag_answer(
-                        question=standalone_question,
-                        docs=docs,
-                        model_id=model_id,
-                        run_config=run_cfg,
-                    ):
-                        resolved_model_id = stream_model_id
-                        last_chunk = chunk
-                        if text_delta:
-                            answer_parts.append(text_delta)
-                            answer_delta_callback(text_delta)
-                    rag_answer = "".join(answer_parts).strip()
-                    rag_usage = extract_usage(last_chunk) if last_chunk is not None else None
-                elif docs:
-                    rag_answer, rag_usage, resolved_model_id = (
-                        await rag_runtime.synthesize_rag_answer(
-                            question=standalone_question,
-                            docs=docs,
-                            model_id=model_id,
-                            run_config=run_cfg,
-                        )
-                    )
-                else:
-                    rag_answer = _NO_ORACLE_CONTEXT_ANSWER
-                    rag_usage = None
-                    resolved_model_id = model_id or "unknown"
-                emitted_usage, cost_usd = emit_usage_observability(
-                    mode=normalized_mode,
-                    model_id=resolved_model_id,
-                    session_id=session_id,
-                    thread_id=thread_id,
-                    usage=rag_usage,
-                )
-                rag_result: dict[str, object] = {
-                    "final_answer": rag_answer,
-                    "error": None,
-                    "standalone_question": standalone_question or None,
-                    "citations": rag_runtime.citations_from_docs(docs),
-                    "reranker_docs": rag_runtime.serialize_docs(docs),
-                    "context_usage": None,
-                    "mcp_used": False,
-                    "mcp_tools_used": [],
-                    "model_id": resolved_model_id,
-                    "usage": emitted_usage,
-                    "cost_usd": cost_usd,
-                }
-                self._attach_trace_id(rag_result, langfuse_trace)
-                self._store_thread_state(thread_id, incoming_messages, rag_result)
-                return rag_result
-            raise NotImplementedError(
-                "run_chat currently only handles direct, mcp, rag, and mixed modes"
-            )
-
         history: list[Any] = []
-        latest_user_message = ""
+        latest_question = ""
         for item in conversation_messages:
             role = str(item.get("role") or "").strip().lower()
             content = str(item.get("content") or "")
             if role == "user":
                 history.append(HumanMessage(content=content))
-                latest_user_message = content.strip() or latest_user_message
+                latest_question = content.strip() or latest_question
             elif role == "assistant":
                 history.append(AIMessage(content=content))
 
@@ -751,7 +291,7 @@ class ChatRuntimeService:
         direct_result: dict[str, object] = {
             "final_answer": final_answer,
             "error": None,
-            "standalone_question": latest_user_message or None,
+            "standalone_question": latest_question or None,
             "citations": [],
             "reranker_docs": [],
             "context_usage": None,
@@ -761,9 +301,110 @@ class ChatRuntimeService:
             "usage": emitted_usage,
             "cost_usd": cost_usd,
         }
-        self._attach_trace_id(direct_result, langfuse_trace)
+        if langfuse_trace is not None and langfuse_trace.trace_id:
+            direct_result["trace_id"] = langfuse_trace.trace_id
         self._store_thread_state(thread_id, incoming_messages, direct_result)
         return direct_result
+
+    async def _run_rag_mode(
+        self,
+        *,
+        incoming_messages: list[dict[str, object]],
+        conversation_messages: list[dict[str, object]],
+        model_id: str | None,
+        thread_id: str | None,
+        session_id: str | None,
+        collection_name: str | None,
+        enable_reranker: bool | None,
+        enable_tracing: bool | None,
+        normalized_mode: str,
+        mcp_server_keys: list[str] | None,
+        stream: bool,
+        answer_delta_callback: Callable[[str], None] | None = None,
+        langfuse_trace: LangfuseChatTrace | None = None,
+    ) -> dict[str, object]:
+        question = latest_user_message(conversation_messages)
+        chat_history = chat_history_before_latest_user(conversation_messages)
+        run_cfg = _prepare_run_config(
+            thread_id=thread_id,
+            mcp_server_keys=mcp_server_keys,
+            mode=normalized_mode,
+            model_id=model_id,
+            session_id=session_id,
+            enable_tracing=enable_tracing,
+            trace_context=langfuse_trace.trace_context if langfuse_trace else None,
+        )
+        standalone_question = await contextualize_question(
+            question=question,
+            chat_history=chat_history,
+            model_id=model_id,
+            run_config=run_cfg,
+        )
+
+        docs = await asyncio.to_thread(
+            rag_runtime.retrieve_oracle_docs,
+            query=standalone_question,
+            collection_name=collection_name,
+            k=5,
+        )
+        docs = await asyncio.to_thread(
+            rag_runtime.rerank_retrieved_docs,
+            standalone_question,
+            docs,
+            enable_reranker=enable_reranker,
+        )
+        if docs and stream and answer_delta_callback is not None:
+            answer_parts: list[str] = []
+            last_chunk: object | None = None
+            resolved_model_id = model_id or "unknown"
+            async for text_delta, chunk, stream_model_id in rag_runtime.stream_rag_answer(
+                question=standalone_question,
+                docs=docs,
+                model_id=model_id,
+                run_config=run_cfg,
+            ):
+                resolved_model_id = stream_model_id
+                last_chunk = chunk
+                if text_delta:
+                    answer_parts.append(text_delta)
+                    answer_delta_callback(text_delta)
+            rag_answer = "".join(answer_parts).strip()
+            rag_usage = extract_usage(last_chunk) if last_chunk is not None else None
+        elif docs:
+            rag_answer, rag_usage, resolved_model_id = await rag_runtime.synthesize_rag_answer(
+                question=standalone_question,
+                docs=docs,
+                model_id=model_id,
+                run_config=run_cfg,
+            )
+        else:
+            rag_answer = NO_ORACLE_CONTEXT_ANSWER
+            rag_usage = None
+            resolved_model_id = model_id or "unknown"
+        emitted_usage, cost_usd = emit_usage_observability(
+            mode=normalized_mode,
+            model_id=resolved_model_id,
+            session_id=session_id,
+            thread_id=thread_id,
+            usage=rag_usage,
+        )
+        rag_result: dict[str, object] = {
+            "final_answer": rag_answer,
+            "error": None,
+            "standalone_question": standalone_question or None,
+            "citations": rag_runtime.citations_from_docs(docs),
+            "reranker_docs": rag_runtime.serialize_docs(docs),
+            "context_usage": None,
+            "mcp_used": False,
+            "mcp_tools_used": [],
+            "model_id": resolved_model_id,
+            "usage": emitted_usage,
+            "cost_usd": cost_usd,
+        }
+        if langfuse_trace is not None and langfuse_trace.trace_id:
+            rag_result["trace_id"] = langfuse_trace.trace_id
+        self._store_thread_state(thread_id, incoming_messages, rag_result)
+        return rag_result
 
     async def astream_events(
         self,
@@ -869,21 +510,6 @@ class ChatRuntimeService:
             },
         )
 
-    # Internal execution/state helpers.
-    def _build_oracle_retrieval_tool(self, collection_name: str | None) -> StructuredTool:
-        return rag_runtime.build_oracle_retrieval_tool(
-            collection_name=collection_name,
-            filter_docs=rag_runtime.filter_retrieved_docs,
-        )
-
-    def _attach_trace_id(
-        self,
-        result: dict[str, object],
-        langfuse_trace: LangfuseChatTrace | None,
-    ) -> None:
-        if langfuse_trace is not None and langfuse_trace.trace_id:
-            result["trace_id"] = langfuse_trace.trace_id
-
     def _hydrate_thread_messages(
         self,
         thread_id: str | None,
@@ -892,34 +518,6 @@ class ChatRuntimeService:
         if not thread_id:
             return list(incoming_messages)
         return hydrate_thread_messages(self._get_thread_state(thread_id), incoming_messages)
-
-    def _latest_user_message(self, messages: list[dict[str, object]]) -> str:
-        return latest_user_message(messages)
-
-    def _chat_history_before_latest_user(self, messages: list[dict[str, object]]) -> list[Any]:
-        return chat_history_before_latest_user(messages)
-
-    async def _contextualize_question(
-        self,
-        *,
-        question: str,
-        chat_history: list[Any],
-        model_id: str | None,
-        run_config: RunnableConfig | None,
-    ) -> str:
-        return await contextualize_question(
-            question=question,
-            chat_history=chat_history,
-            model_id=model_id,
-            run_config=run_config,
-        )
-
-    def _new_incoming_messages(
-        self,
-        prior_messages: list[object],
-        incoming_messages: list[object],
-    ) -> list[Any]:
-        return new_incoming_messages(prior_messages, incoming_messages)
 
     async def get_state(self, run_config: dict[str, Any]) -> Any:
         thread_id = self._thread_id_from_run_config(run_config)
@@ -953,8 +551,8 @@ class ChatRuntimeService:
             return
 
         prior_messages = list((self._get_thread_state(thread_id) or {}).get("messages") or [])
-        incoming_messages = self._to_langchain_messages(messages)
-        updated_messages = prior_messages + self._new_incoming_messages(
+        incoming_messages = to_langchain_messages(messages)
+        updated_messages = prior_messages + new_incoming_messages(
             prior_messages,
             incoming_messages,
         )
@@ -979,9 +577,6 @@ class ChatRuntimeService:
         self._thread_state[thread_id] = state
         if self._thread_state_store is not None:
             self._thread_state_store.put(thread_id, state)
-
-    def _to_langchain_messages(self, messages: list[dict[str, object]]) -> list[Any]:
-        return to_langchain_messages(messages)
 
     def _get_thread_state(self, thread_id: str | None) -> dict[str, Any]:
         if not thread_id:

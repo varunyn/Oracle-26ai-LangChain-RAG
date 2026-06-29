@@ -13,17 +13,17 @@ import urllib.request
 from urllib.parse import urlparse, urlunparse
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 
-from api.schemas import ChatMessage
+from src.rag_agent.graphs.chat_agent import chat_agent
 from src.rag_agent.infrastructure.mcp_settings import get_mcp_servers_config
-from src.rag_agent.runtime.chat_service import ChatRuntimeService
 
 VERIFICATION_COLLECTION = "RAG_KNOWLEDGE_BASE_TEST"
 
-BASE_CASES: list[tuple[str, bool]] = [
-    ("Solve the following equation: x^2 - 5x + 6 = 0", True),
-    ("How do I integrate my visual application with a Git repository?", False),
-    ("Calculate the integral of x^2 * e^x.", True),
+BASE_CASES: list[tuple[str, str, bool]] = [
+    ("mixed", "Solve the following equation: x^2 - 5x + 6 = 0", True),
+    ("rag", "How do I integrate my visual application with a Git repository?", False),
+    ("mixed", "Calculate the integral of x^2 * e^x.", True),
 ]
 
 MODE_CASES: list[tuple[str, str, bool]] = [
@@ -38,11 +38,6 @@ MODE_CASES: list[tuple[str, str, bool]] = [
 def integration_enabled() -> None:
     if os.getenv("RUN_INTEGRATION_TESTS") != "1":
         pytest.skip("Set RUN_INTEGRATION_TESTS=1 to run integration tests")
-
-
-@pytest.fixture(scope="module")
-def graph_service() -> ChatRuntimeService:
-    return ChatRuntimeService()
 
 
 def _check_mcp_available() -> bool:
@@ -71,42 +66,42 @@ def _check_mcp_available() -> bool:
 
 
 async def _run_case(
-    graph_service: ChatRuntimeService,
     question: str,
     *,
-    mode: str | None = None,
+    mode: str,
 ) -> tuple[str, str | None, bool, list[str]]:
-    result = await graph_service.run_chat(
-        messages=[ChatMessage(role="user", content=question).model_dump()],
-        model_id=None,
-        thread_id=None,
-        session_id=None,
-        collection_name=VERIFICATION_COLLECTION,
-        enable_reranker=None,
-        enable_tracing=None,
-        mode=mode,
-        mcp_server_keys=None,
-        stream=False,
+    result = await chat_agent.ainvoke(
+        {"messages": [HumanMessage(content=question)]},
+        {
+            "configurable": {
+                "thread_id": f"verification-{mode}",
+                "mode": mode,
+                "collection_name": VERIFICATION_COLLECTION,
+            }
+        },
     )
-    answer = str(result.get("final_answer") or "").strip()
-    err = result.get("error")
-    mcp_used = bool(result.get("mcp_used"))
-    mcp_tools_used = [str(t) for t in (result.get("mcp_tools_used") or [])]
+    assistant = result["messages"][-1]
+    assert isinstance(assistant, AIMessage)
+    references = getattr(assistant, "additional_kwargs", {}) or {}
+    answer = str(getattr(assistant, "content", "") or "").strip()
+    err = references.get("error")
+    mcp_used = bool(references.get("mcp_used"))
+    mcp_tools_used = [str(t) for t in (references.get("mcp_tools_used") or [])]
     return answer, (str(err) if err is not None else None), mcp_used, mcp_tools_used
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("question,expect_mcp", BASE_CASES)
+@pytest.mark.parametrize("mode,question,expect_mcp", BASE_CASES)
 def test_verification_queries_cover_rag_and_mcp_paths(
     integration_enabled: None,
-    graph_service: ChatRuntimeService,
+    mode: str,
     question: str,
     expect_mcp: bool,
 ) -> None:
     if expect_mcp and not _check_mcp_available():
         pytest.skip("MCP servers not reachable for MCP-required verification case")
 
-    answer, err, mcp_used, mcp_tools = asyncio.run(_run_case(graph_service, question))
+    answer, err, mcp_used, mcp_tools = asyncio.run(_run_case(question, mode=mode))
 
     assert err is None, err
     assert answer, "Expected non-empty answer"
@@ -120,7 +115,6 @@ def test_verification_queries_cover_rag_and_mcp_paths(
 @pytest.mark.parametrize("mode,question,expect_mcp", MODE_CASES)
 def test_mode_specific_verification_queries(
     integration_enabled: None,
-    graph_service: ChatRuntimeService,
     mode: str,
     question: str,
     expect_mcp: bool,
@@ -128,7 +122,7 @@ def test_mode_specific_verification_queries(
     if expect_mcp and not _check_mcp_available():
         pytest.skip("MCP servers not reachable for MCP mode verification case")
 
-    answer, err, mcp_used, mcp_tools = asyncio.run(_run_case(graph_service, question, mode=mode))
+    answer, err, mcp_used, mcp_tools = asyncio.run(_run_case(question, mode=mode))
 
     assert err is None, err
     assert answer, "Expected non-empty answer"

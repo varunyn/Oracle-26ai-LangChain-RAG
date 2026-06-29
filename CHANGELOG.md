@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-06-29
+
+- Moved LangGraph MCP/mixed workflow-policy and retrieval-decision helpers into a graph-owned `mcp_policies` module, updated graph nodes to import from it directly, and removed that LangGraph-only policy code from `ChatRuntimeService`.
+- Reduced `ChatRuntimeService` to a direct/RAG compatibility adapter, made it reject LangGraph-owned `mcp` and `mixed` modes, and migrated the remaining unit/integration assertions for those modes onto the graph and MCP-turn surfaces.
+- Removed unused FastAPI ownership of `ChatRuntimeService`; app/request resources now keep only product-API settings and optional durable state while LangGraph remains the chat runtime surface.
+- Moved LangGraph `mcp` and `mixed` chat execution into graph-owned nodes, added node-level tests for MCP/retrieval orchestration, and updated workflow coverage so the Agent Server path no longer depends on `ChatRuntimeService` for those modes.
+- Split `ChatRuntimeService.run_chat()` into explicit private direct, RAG, MCP, and mixed-mode helpers, then removed the extra wrapper-helper layer and private-structure tests so the cleanup reduces code instead of adding new indirection.
+
 ## 2026-06-27
 
 - Removed the unused `graph` constructor argument from `ChatRuntimeService` and updated the remaining unit tests that were still passing it as dead compatibility baggage.

@@ -1,7 +1,7 @@
 """
 App-level resources created at startup and cleaned up at shutdown.
 
-- Centralizes construction of long-lived services (e.g., ChatRuntimeService)
+- Centralizes construction of long-lived FastAPI product-API resources
 - Keeps request-time dependencies (FastAPI Depends) separate from resource wiring
 
 This module has no import-time side effects.
@@ -16,7 +16,6 @@ from typing import cast
 
 from api.settings import Settings, get_settings
 from src.rag_agent.infrastructure.mcp_adapter_runtime import clear_adapter_runtime_cache
-from src.rag_agent.runtime.chat_service import ChatRuntimeService
 from src.rag_agent.runtime.thread_checkpoints import LangGraphCheckpointThreadStateStore
 from src.rag_agent.utils.langfuse_tracing import safe_shutdown as langfuse_safe_shutdown
 
@@ -26,7 +25,6 @@ class AppResources:
     """Container for application-scoped resources."""
 
     settings: Settings
-    chat_runtime_service: ChatRuntimeService
     _state_conn: object | None = None  # Reserved for optional durable-state backends.
 
     def get_state_conn(self) -> object | None:
@@ -44,10 +42,8 @@ async def create_app_resources() -> AppResources:
         if settings.ENABLE_PERSISTENT_MEMORY
         else None
     )
-    chat_runtime_service = ChatRuntimeService(thread_state_store=state_conn)
     return AppResources(
         settings=settings,
-        chat_runtime_service=chat_runtime_service,
         _state_conn=state_conn,
     )
 

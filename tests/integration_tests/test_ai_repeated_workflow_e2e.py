@@ -12,11 +12,11 @@ import os
 from collections.abc import Sequence
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 
-from api.schemas import ChatMessage
 from api.settings import get_settings
-from src.rag_agent.runtime.chat_service import ChatRuntimeService
+from src.rag_agent.graphs.chat_agent import chat_agent
 
 
 def _ai_workflow_e2e_enabled() -> bool:
@@ -80,30 +80,38 @@ def test_ai_repeated_workflow_controller_processes_every_local_tool_item(monkeyp
         fake_load_adapter_tools,
     )
 
-    service = ChatRuntimeService()
-    result = asyncio.run(
-        service.run_chat(
-            messages=[
-                ChatMessage(
-                    role="user",
-                    content=(
-                        "Use the available tools to list all work items. For each listed item, "
-                        "mark the item done by its id. Continue until all listed items are handled, "
-                        "then send one final summary."
-                    ),
-                ).model_dump()
-            ],
-            model_id=_ai_workflow_e2e_model_id(),
-            thread_id="ai-workflow-e2e",
-            session_id=None,
-            collection_name=None,
-            enable_reranker=None,
-            enable_tracing=None,
-            mode="mcp",
-            mcp_server_keys=["local-test"],
-            stream=False,
+    async def run() -> dict[str, object]:
+        state = await chat_agent.ainvoke(
+            {
+                "messages": [
+                    HumanMessage(
+                        content=(
+                            "Use the available tools to list all work items. For each listed item, "
+                            "mark the item done by its id. Continue until all listed items are handled, "
+                            "then send one final summary."
+                        )
+                    )
+                ]
+            },
+            {
+                "configurable": {
+                    "thread_id": "ai-workflow-e2e",
+                    "mode": "mcp",
+                    "model_id": _ai_workflow_e2e_model_id(),
+                    "mcp_server_keys": ["local-test"],
+                }
+            },
         )
-    )
+        assistant = state["messages"][-1]
+        assert isinstance(assistant, AIMessage)
+        references = getattr(assistant, "additional_kwargs", {}) or {}
+        return {
+            "final_answer": getattr(assistant, "content", ""),
+            "error": references.get("error"),
+            "mcp_tools_used": references.get("mcp_tools_used") or [],
+        }
+
+    result = asyncio.run(run())
 
     try:
         diagnostic = json.dumps(
@@ -210,32 +218,40 @@ def test_ai_repeated_workflow_reuses_shared_context_for_same_vendor(monkeypatch)
         fake_load_adapter_tools,
     )
 
-    service = ChatRuntimeService()
-    result = asyncio.run(
-        service.run_chat(
-            messages=[
-                ChatMessage(
-                    role="user",
-                    content=(
-                        "Use tools to list all vendor work items. For each item, create one "
-                        "vendor transaction. Before creating transactions, look up vendor policy "
-                        "exactly once per unique vendor and reuse that policy for every item from "
-                        "the same vendor. Continue until every listed item is handled, then send "
-                        "one final summary."
-                    ),
-                ).model_dump()
-            ],
-            model_id=_ai_workflow_e2e_model_id(),
-            thread_id="ai-workflow-shared-context-e2e",
-            session_id=None,
-            collection_name=None,
-            enable_reranker=None,
-            enable_tracing=None,
-            mode="mcp",
-            mcp_server_keys=["local-test"],
-            stream=False,
+    async def run() -> dict[str, object]:
+        state = await chat_agent.ainvoke(
+            {
+                "messages": [
+                    HumanMessage(
+                        content=(
+                            "Use tools to list all vendor work items. For each item, create one "
+                            "vendor transaction. Before creating transactions, look up vendor policy "
+                            "exactly once per unique vendor and reuse that policy for every item from "
+                            "the same vendor. Continue until every listed item is handled, then send "
+                            "one final summary."
+                        )
+                    )
+                ]
+            },
+            {
+                "configurable": {
+                    "thread_id": "ai-workflow-shared-context-e2e",
+                    "mode": "mcp",
+                    "model_id": _ai_workflow_e2e_model_id(),
+                    "mcp_server_keys": ["local-test"],
+                }
+            },
         )
-    )
+        assistant = state["messages"][-1]
+        assert isinstance(assistant, AIMessage)
+        references = getattr(assistant, "additional_kwargs", {}) or {}
+        return {
+            "final_answer": getattr(assistant, "content", ""),
+            "error": references.get("error"),
+            "mcp_tools_used": references.get("mcp_tools_used") or [],
+        }
+
+    result = asyncio.run(run())
 
     try:
         diagnostic = json.dumps(

@@ -1,7 +1,4 @@
-"""Request-scoped dependency providers.
-
-Keep all FastAPI Depends providers that read from app.state here.
-"""
+"""Request-scoped dependency providers for FastAPI product APIs."""
 
 from __future__ import annotations
 
@@ -12,7 +9,6 @@ from fastapi import Request
 from api.resources import AppResources
 from api.settings import Settings
 from api.settings import get_settings as get_settings_global
-from src.rag_agent.runtime.chat_service import ChatRuntimeService
 
 
 def _ensure_app_resources(request: Request) -> AppResources:
@@ -25,17 +21,10 @@ def _ensure_app_resources(request: Request) -> AppResources:
     # Test/non-lifespan fallback: build minimal resources once and cache on app.state.
     resources = AppResources(
         settings=get_settings_global(),
-        chat_runtime_service=ChatRuntimeService(),
         _state_conn=None,
     )
     request.app.state.resources = resources
     return resources
-
-
-def get_graph_service(request: Request) -> ChatRuntimeService:
-    """Provide ChatRuntimeService from app.state.resources."""
-    resources = _ensure_app_resources(request)
-    return resources.chat_runtime_service
 
 
 def get_settings(request: Request) -> Settings:

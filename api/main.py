@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI):
     _warm_thread = threading.Thread(target=_warm_pool_sync, daemon=True)
     _warm_thread.start()
 
-    # Initialize app-scoped resources (chat runtime + settings)
+    # Initialize app-scoped resources for FastAPI product APIs.
     try:
         app.state.resources = await create_app_resources()
     except Exception as e:  # noqa: BLE001
