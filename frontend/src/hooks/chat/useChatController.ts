@@ -23,7 +23,6 @@ import {
 import { useChatActions } from "@/hooks/chat/useChatActions";
 import { useSuggestions } from "@/hooks/useSuggestions";
 import { useChatBodyParams } from "@/hooks/useChatBodyParams";
-import { useScrollToBottom } from "@/hooks/useScrollToBottom";
 import { useLangGraphStream } from "@/providers/langgraph-stream-provider";
 import type { ContextUsage } from "@/lib/types/chat";
 
@@ -188,8 +187,6 @@ export function useChatController({
     setFeedbackSubmitted,
   });
 
-  const chatContainerRef = useScrollToBottom(status, messages);
-
   const canStopStream = status === "submitted" || status === "streaming";
   const canResumeTurn = status === "error" && getLastUserMessageText(messages).length > 0;
 
@@ -200,7 +197,6 @@ export function useChatController({
     toolCalls: streamToolCalls,
     status,
     maxCitationsToShow,
-    chatContainerRef,
     handleSubmit,
     canStopStream,
     canResumeTurn,

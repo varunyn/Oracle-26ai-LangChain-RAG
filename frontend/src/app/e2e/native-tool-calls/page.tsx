@@ -2,7 +2,7 @@
 
 import type { AssembledToolCall } from "@langchain/react";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
-import { useRef, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { ChatMessageList } from "@/components/chat/ChatMessageList";
 import { projectStreamMessages } from "@/hooks/chat/message-projection";
 
@@ -11,7 +11,17 @@ type Phase = "running" | "final";
 const STORAGE_KEY = "native-tool-calls-e2e-phase";
 const PHASE_EVENT = "native-tool-calls-e2e-phase-change";
 
+const PRIOR_USER_MESSAGES = Array.from({ length: 4 }, (_, index) =>
+  new HumanMessage({
+    id: `history-user-${index + 1}`,
+    content: `Historical user context ${index + 1}: Summarize the invoice review notes for batch ${
+      index + 1
+    } and keep the unresolved exceptions visible for finance follow-up.`,
+  }),
+);
+
 const RUNNING_STREAM_MESSAGES = [
+  ...PRIOR_USER_MESSAGES,
   new HumanMessage({
     id: "user-1",
     content: "Audit invoice exceptions with multiple native tool calls",
@@ -37,6 +47,7 @@ const RUNNING_STREAM_MESSAGES = [
 ];
 
 const FINAL_STREAM_MESSAGES = [
+  ...PRIOR_USER_MESSAGES,
   new HumanMessage({
     id: "user-1",
     content: "Audit invoice exceptions with multiple native tool calls",
@@ -185,8 +196,6 @@ function useStoredPhase(): Phase {
 
 export default function NativeToolCallsE2EPage(): React.ReactElement {
   const phase = useStoredPhase();
-  const chatContainerRef = useRef<HTMLDivElement | null>(null);
-
   const fixture = phaseFixture(phase);
 
   return (
@@ -222,13 +231,12 @@ export default function NativeToolCallsE2EPage(): React.ReactElement {
           </button>
         </div>
 
-        <div className="rounded-xl border bg-card">
+        <div className="flex h-[260px] min-h-0 rounded-xl border bg-card">
           <ChatMessageList
             messages={fixture.messages}
             toolCalls={fixture.toolCalls}
             status={fixture.status}
             maxCitationsToShow={10}
-            chatContainerRef={chatContainerRef}
             onRetry={() => {}}
             onRecoverDirect={() => {}}
             onRecoverRagOnly={() => {}}

@@ -205,7 +205,6 @@ function ChatPageContent({
               toolCalls={chat.toolCalls}
               status={chat.status}
               maxCitationsToShow={chat.maxCitationsToShow}
-              chatContainerRef={chat.chatContainerRef}
               onRetry={chat.handleRetry}
               onRecoverDirect={chat.handleRecoverDirect}
               onRecoverRagOnly={chat.handleRecoverRagOnly}

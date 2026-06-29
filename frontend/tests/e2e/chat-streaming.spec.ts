@@ -779,6 +779,79 @@ test.describe('chat streaming', () => {
     ).toHaveCount(1)
   })
 
+  test('auto-scrolls native tool-call output to the latest assistant content', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 560 })
+    await page.goto('/e2e/native-tool-calls')
+    await page.getByRole('button', { name: 'Reset Running' }).click()
+
+    const messageList = page.getByTestId('chat-message-list')
+    await messageList.evaluate((node) => {
+      node.scrollTop = node.scrollHeight
+      node.dispatchEvent(new Event('scroll'))
+    })
+    await page.getByRole('button', { name: 'Advance Final' }).click()
+
+    await expect(page.getByText('The vendor lookup failed, so I used the fallback summary instead.')).toBeVisible()
+    await expect
+      .poll(async () => {
+        const metrics = await messageList.evaluate((node) => ({
+          clientHeight: node.clientHeight,
+          scrollHeight: node.scrollHeight,
+          scrollTop: node.scrollTop,
+        }))
+
+        if (metrics.scrollHeight <= metrics.clientHeight) {
+          return false
+        }
+
+        return metrics.scrollTop + metrics.clientHeight >= metrics.scrollHeight - 8
+      })
+      .toBe(true)
+  })
+
+  test('shows a return-to-latest control when the native tool-call conversation is scrolled up', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 560 })
+    await page.goto('/e2e/native-tool-calls')
+    await page.getByRole('button', { name: 'Advance Final' }).click()
+
+    const messageList = page.getByTestId('chat-message-list')
+    const scrollButton = page.getByTestId('chat-scroll-to-bottom')
+
+    await expect
+      .poll(async () => {
+        const metrics = await messageList.evaluate((node) => ({
+          clientHeight: node.clientHeight,
+          scrollHeight: node.scrollHeight,
+        }))
+        return metrics.scrollHeight > metrics.clientHeight
+      })
+      .toBe(true)
+
+    await messageList.evaluate((node) => {
+      node.scrollTop = 0
+      node.dispatchEvent(new Event('scroll'))
+    })
+
+    await expect(scrollButton).toBeVisible()
+    await scrollButton.click()
+
+    await expect
+      .poll(async () => {
+        const metrics = await messageList.evaluate((node) => ({
+          clientHeight: node.clientHeight,
+          scrollHeight: node.scrollHeight,
+          scrollTop: node.scrollTop,
+        }))
+        return metrics.scrollTop + metrics.clientHeight >= metrics.scrollHeight - 8
+      })
+      .toBe(true)
+    await expect(scrollButton).toBeHidden()
+  })
+
   test('removes the cleared chat from local history', async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem('rag_agent_thread_id', '00000000-0000-4000-8000-000000000006')

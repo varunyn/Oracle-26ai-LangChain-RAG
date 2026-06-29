@@ -2,6 +2,8 @@
 
 ## 2026-06-29
 
+- Replaced the custom chat scroll hook with a local AI Elements `Conversation` source component, moved `ChatMessageList` into the Conversation-managed viewport, and added browser coverage for auto-scroll plus return-to-latest behavior without changing message, tool-call, or citation rendering.
+- Added a repo-local `langgraph-chat-contract-debugging` skill that codifies how to separate backend truth, frontend projection bugs, and stale Playwright expectations when chat streaming, citations, tool calls, or mode-specific e2e failures disagree.
 - Removed the misleading frontend `DOCUMENT_CHUNKS_VS` collection fallback, derived collection selection from the real `/api/config` payload, and showed an unavailable state instead when app config is missing.
 - Replaced the frontend MCP progress translation layer with native `@langchain/react` `stream.toolCalls` rendering, preserved assistant `tool_calls` ids during message projection, and rendered per-message AI Elements tool cards directly from live `AssembledToolCall` state.
 - Updated root and scoped `AGENTS.md` guidance to match the active LangGraph Agent Server chat architecture, UI-managed MCP configuration, current Docker/frontend/docs-site commands, and repository testing boundaries.
