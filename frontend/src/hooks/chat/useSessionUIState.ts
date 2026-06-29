@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useEffect,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -22,10 +21,25 @@ function getInitialFlowMode(): FlowMode {
   return isValidFlowMode(defaultFlowEnv) ? defaultFlowEnv : "mixed";
 }
 
+export function deriveCollectionState(
+  appConfig: AppConfig | null,
+  currentCollectionName: string,
+) {
+  const collectionList = appConfig?.collection_list ?? [];
+  const collectionName = collectionList.includes(currentCollectionName)
+    ? currentCollectionName
+    : (collectionList[0] ?? "");
+
+  return {
+    collectionList,
+    collectionName,
+  };
+}
+
 export function useSessionUIState(appConfig: AppConfig | null) {
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
-  const [collectionName, setCollectionName] = useState(
+  const [requestedCollectionName, setCollectionName] = useState(
     () => appConfig?.collection_list?.[0] ?? "",
   );
   const [enableReranker, setEnableReranker] = useState(false);
@@ -52,7 +66,10 @@ export function useSessionUIState(appConfig: AppConfig | null) {
     [appConfig],
   );
 
-  const collectionList = appConfig?.collection_list ?? ["DOCUMENT_CHUNKS_VS"];
+  const { collectionList, collectionName: resolvedCollectionName } = useMemo(
+    () => deriveCollectionState(appConfig, requestedCollectionName),
+    [appConfig, requestedCollectionName],
+  );
 
   const persistedSelectedModel = useMemo(() => {
     if (!hydrated || typeof window === "undefined") return "";
@@ -101,7 +118,7 @@ export function useSessionUIState(appConfig: AppConfig | null) {
   return {
     modelSelectorOpen,
     setModelSelectorOpen,
-    collectionName,
+    collectionName: resolvedCollectionName,
     setCollectionName,
     enableReranker,
     setEnableReranker,
