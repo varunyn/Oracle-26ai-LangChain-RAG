@@ -668,6 +668,81 @@ test.describe('chat streaming', () => {
     ).toBeVisible()
   })
 
+  test('keeps native tool cards matched to the correct assistant message across lifecycle updates and replay', async ({
+    page,
+  }) => {
+    const prompt = 'Audit invoice exceptions with multiple native tool calls'
+    const firstAnswer = 'I checked the invoice totals and requested the vendor lookup.'
+    const secondAnswer = 'The vendor lookup failed, so I used the fallback summary instead.'
+
+    await page.goto('/e2e/native-tool-calls')
+    await page.getByRole('button', { name: 'Reset Running' }).click()
+    await expect(page.getByTestId('chat-message-list').getByText(prompt, { exact: true })).toHaveCount(1)
+    await expect(page.getByTestId('assistant-activity')).toContainText('Calculate Invoice Total')
+    await expect(page.getByTestId('assistant-activity')).toContainText('Lookup Vendor Profile')
+    await expect(
+      page.locator('[data-tool-type="tool-calculate_invoice_total"][data-tool-state="input-available"]'),
+    ).toBeVisible()
+    await expect(
+      page.locator('[data-tool-type="tool-lookup_vendor_profile"][data-tool-state="input-available"]'),
+    ).toBeVisible()
+
+    await page.getByRole('button', { name: 'Advance Final' }).click()
+
+    const assistantMessages = page.locator(
+      '[data-testid="chat-message-item"][data-message-role="assistant"]',
+    )
+    const firstAssistant = assistantMessages.nth(0)
+    const secondAssistant = assistantMessages.nth(1)
+
+    await expect(firstAssistant).toContainText(firstAnswer)
+    await expect(secondAssistant).toContainText(secondAnswer)
+
+    await expect(
+      firstAssistant.locator('[data-tool-type="tool-calculate_invoice_total"]'),
+    ).toHaveCount(1)
+    await expect(
+      firstAssistant.locator('[data-tool-type="tool-lookup_vendor_profile"]'),
+    ).toHaveCount(1)
+    await expect(
+      secondAssistant.locator('[data-tool-type="tool-summarize_invoice_risk"]'),
+    ).toHaveCount(1)
+
+    await expect(
+      firstAssistant.locator('[data-tool-type="tool-calculate_invoice_total"][data-tool-state="output-available"]'),
+    ).toBeVisible()
+    await expect(
+      firstAssistant.locator('[data-tool-type="tool-lookup_vendor_profile"][data-tool-state="output-error"]'),
+    ).toBeVisible()
+    await expect(
+      secondAssistant.locator('[data-tool-type="tool-summarize_invoice_risk"][data-tool-state="output-available"]'),
+    ).toBeVisible()
+
+    await expect(firstAssistant).toContainText('"invoiceId": "INV-42"')
+    await expect(firstAssistant).toContainText('"total": 375.5')
+    await expect(firstAssistant).toContainText('Vendor service timeout')
+    await expect(secondAssistant).toContainText('"confidence": 0.82')
+    await expect(secondAssistant).toContainText('"risk": "medium"')
+
+    await page.getByRole('button', { name: 'Replay Final Snapshot' }).click()
+    await expect(page.getByText(firstAnswer, { exact: true })).toHaveCount(1)
+    await expect(page.getByText(secondAnswer, { exact: true })).toHaveCount(1)
+
+    await page.reload()
+    await expect(page.getByTestId('chat-message-list').getByText(prompt, { exact: true })).toHaveCount(1)
+    await expect(page.getByText(firstAnswer, { exact: true })).toHaveCount(1)
+    await expect(page.getByText(secondAnswer, { exact: true })).toHaveCount(1)
+    await expect(
+      page.locator('[data-tool-type="tool-calculate_invoice_total"]'),
+    ).toHaveCount(1)
+    await expect(
+      page.locator('[data-tool-type="tool-lookup_vendor_profile"]'),
+    ).toHaveCount(1)
+    await expect(
+      page.locator('[data-tool-type="tool-summarize_invoice_risk"]'),
+    ).toHaveCount(1)
+  })
+
   test('removes the cleared chat from local history', async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem('rag_agent_thread_id', '00000000-0000-4000-8000-000000000006')

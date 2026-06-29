@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
-const PROMPT = 'how can I deploy grafana?'
-const DUPLICATE_PROMPT = 'Tell me about the payment terms for summit technologies.'
+const PROMPT = 'Give me info about payment terms for the northway solutions'
+const DUPLICATE_PROMPT = 'Tell me about policy for Summit technologies'
 const LIVE_COLLECTION = 'ORACLE_WEB_EMBEDDINGS'
 
 async function selectCollection(page: Page, collectionName: string) {
