@@ -43,19 +43,43 @@ def test_route_mode_rejects_unimplemented_modes() -> None:
 def test_run_direct_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    class StubService:
-        async def run_chat(self, **kwargs: object) -> dict[str, object]:
-            captured.update(kwargs)
-            return {
-                "final_answer": [{"type": "text", "text": "READY"}],
-                "citations": [],
-                "reranker_docs": [],
-                "context_usage": None,
-                "mcp_used": False,
-                "mcp_tools_used": [],
-            }
+    class FakeLlm:
+        model_id = "model-a"
 
-    monkeypatch.setattr(direct_node_module, "ChatRuntimeService", StubService)
+    class _FakeTrace:
+        trace_context = None
+        trace_id = None
+
+    class _FakeTraceContextManager:
+        def __enter__(self) -> _FakeTrace:
+            return _FakeTrace()
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            _ = exc_type, exc, tb
+            return False
+
+    def fake_get_llm(*, model_id: str | None = None) -> FakeLlm:
+        captured["model_id"] = model_id
+        return FakeLlm()
+
+    def fake_invoke(llm: object, history: object, run_config: object) -> AIMessage:
+        captured["llm"] = llm
+        captured["history"] = history
+        captured["run_config"] = run_config
+        return AIMessage(content=[{"type": "text", "text": "READY"}])
+
+    monkeypatch.setattr(direct_node_module, "get_llm", fake_get_llm)
+    monkeypatch.setattr(direct_node_module, "invoke_llm_with_optional_config", fake_invoke)
+    monkeypatch.setattr(
+        direct_node_module,
+        "emit_usage_observability",
+        lambda **kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        direct_node_module,
+        "start_langfuse_chat_trace",
+        lambda **kwargs: _FakeTraceContextManager(),
+    )
 
     result = asyncio.run(
         direct_node_module.run_direct_node(
@@ -71,11 +95,13 @@ def test_run_direct_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -
         )
     )
 
+    run_config = captured["run_config"]
+    assert isinstance(run_config, dict)
     assert captured["model_id"] == "model-a"
-    assert captured["thread_id"] == "thread-123"
-    assert captured["session_id"] == "session-direct"
-    assert captured["mode"] == "direct"
-    assert captured["enable_tracing"] is True
+    assert run_config["configurable"]["thread_id"] == "thread-123"
+    assert run_config["configurable"]["session_id"] == "session-direct"
+    assert run_config["configurable"]["mode"] == "direct"
+    assert run_config["configurable"]["enable_tracing"] is True
     assistant = result["messages"][-1]
     assert isinstance(assistant, AIMessage)
     assert assistant.content == [{"type": "text", "text": "READY"}]
@@ -85,19 +111,59 @@ def test_run_direct_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -
 def test_run_rag_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    class StubService:
-        async def run_chat(self, **kwargs: object) -> dict[str, object]:
-            captured.update(kwargs)
-            return {
-                "final_answer": "RAG READY",
-                "citations": [{"source": "doc"}],
-                "reranker_docs": [{"id": "doc-1"}],
-                "context_usage": {"retrieved_docs_count": 1},
-                "mcp_used": False,
-                "mcp_tools_used": [],
-            }
+    class _FakeTrace:
+        trace_context = None
+        trace_id = None
 
-    monkeypatch.setattr(rag_node_module, "ChatRuntimeService", StubService)
+    class _FakeTraceContextManager:
+        def __enter__(self) -> _FakeTrace:
+            return _FakeTrace()
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            _ = exc_type, exc, tb
+            return False
+
+    async def fake_contextualize_question(**kwargs: object) -> str:
+        captured["contextualize_kwargs"] = kwargs
+        return "standalone retrieve"
+
+    async def fake_synthesize_rag_answer(**kwargs: object) -> tuple[str, None, str]:
+        captured["synthesize_kwargs"] = kwargs
+        return "RAG READY", None, "model-b"
+
+    monkeypatch.setattr(rag_node_module, "contextualize_question", fake_contextualize_question)
+    monkeypatch.setattr(
+        rag_node_module.rag_runtime,
+        "retrieve_oracle_docs",
+        lambda **kwargs: (
+            captured.__setitem__("retrieve_kwargs", kwargs)
+            or [SimpleNamespace(page_content="doc", metadata={"source": "doc"})]
+        ),
+    )
+    monkeypatch.setattr(
+        rag_node_module.rag_runtime,
+        "rerank_retrieved_docs",
+        lambda query, docs, *, enable_reranker: (
+            captured.__setitem__(
+                "rerank_kwargs",
+                {"query": query, "docs": docs, "enable_reranker": enable_reranker},
+            )
+            or docs
+        ),
+    )
+    monkeypatch.setattr(rag_node_module.rag_runtime, "synthesize_rag_answer", fake_synthesize_rag_answer)
+    monkeypatch.setattr(rag_node_module.rag_runtime, "citations_from_docs", lambda docs: [{"source": "doc"}])
+    monkeypatch.setattr(rag_node_module.rag_runtime, "serialize_docs", lambda docs: [{"id": "doc-1"}])
+    monkeypatch.setattr(
+        rag_node_module,
+        "emit_usage_observability",
+        lambda **kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        rag_node_module,
+        "start_langfuse_chat_trace",
+        lambda **kwargs: _FakeTraceContextManager(),
+    )
 
     result = asyncio.run(
         rag_node_module.run_rag_node(
@@ -115,12 +181,12 @@ def test_run_rag_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
         )
     )
 
-    assert captured["model_id"] == "model-b"
-    assert captured["thread_id"] == "thread-123"
-    assert captured["session_id"] == "session-rag"
-    assert captured["collection_name"] == "default"
-    assert captured["enable_reranker"] is True
-    assert captured["mode"] == "rag"
+    contextualize_kwargs = captured["contextualize_kwargs"]
+    assert contextualize_kwargs["model_id"] == "model-b"
+    assert captured["retrieve_kwargs"]["collection_name"] == "default"
+    assert captured["retrieve_kwargs"]["query"] == "standalone retrieve"
+    assert captured["rerank_kwargs"]["enable_reranker"] is True
+    assert captured["synthesize_kwargs"]["model_id"] == "model-b"
     assistant = result["messages"][-1]
     assert isinstance(assistant, AIMessage)
     assert assistant.content == "RAG READY"
@@ -130,12 +196,28 @@ def test_run_rag_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
 def test_run_rag_node_returns_assistant_error_when_runtime_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class StubService:
-        async def run_chat(self, **kwargs: object) -> dict[str, object]:
-            _ = kwargs
-            raise RuntimeError("DPY-6005: cannot connect to database")
+    class _FakeTrace:
+        trace_context = None
+        trace_id = None
 
-    monkeypatch.setattr(rag_node_module, "ChatRuntimeService", StubService)
+    class _FakeTraceContextManager:
+        def __enter__(self) -> _FakeTrace:
+            return _FakeTrace()
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            _ = exc_type, exc, tb
+            return False
+
+    async def fake_contextualize_question(**kwargs: object) -> str:
+        _ = kwargs
+        raise RuntimeError("DPY-6005: cannot connect to database")
+
+    monkeypatch.setattr(rag_node_module, "contextualize_question", fake_contextualize_question)
+    monkeypatch.setattr(
+        rag_node_module,
+        "start_langfuse_chat_trace",
+        lambda **kwargs: _FakeTraceContextManager(),
+    )
 
     result = asyncio.run(
         rag_node_module.run_rag_node(
@@ -248,24 +330,42 @@ def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_build_chat_agent_preserves_messages_across_same_thread(tmp_path, monkeypatch) -> None:
-    call_messages: list[list[dict[str, object]]] = []
+    call_messages: list[list[object]] = []
 
-    class StubService:
-        async def run_chat(self, **kwargs: object) -> dict[str, object]:
-            messages = kwargs["messages"]
-            assert isinstance(messages, list)
-            call_messages.append(messages)
-            final_answer = f"reply-{len(call_messages)}"
-            return {
-                "final_answer": final_answer,
-                "citations": [],
-                "reranker_docs": [],
-                "context_usage": None,
-                "mcp_used": False,
-                "mcp_tools_used": [],
-            }
+    class FakeLlm:
+        model_id = "model-a"
 
-    monkeypatch.setattr(direct_node_module, "ChatRuntimeService", StubService)
+    class _FakeTrace:
+        trace_context = None
+        trace_id = None
+
+    class _FakeTraceContextManager:
+        def __enter__(self) -> _FakeTrace:
+            return _FakeTrace()
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            _ = exc_type, exc, tb
+            return False
+
+    monkeypatch.setattr(direct_node_module, "get_llm", lambda **kwargs: FakeLlm())
+    monkeypatch.setattr(
+        direct_node_module,
+        "emit_usage_observability",
+        lambda **kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        direct_node_module,
+        "start_langfuse_chat_trace",
+        lambda **kwargs: _FakeTraceContextManager(),
+    )
+
+    def fake_invoke(llm: object, history: object, run_config: object) -> AIMessage:
+        _ = llm, run_config
+        assert isinstance(history, list)
+        call_messages.append(history)
+        return AIMessage(content=f"reply-{len(call_messages)}")
+
+    monkeypatch.setattr(direct_node_module, "invoke_llm_with_optional_config", fake_invoke)
 
     async def run() -> tuple[dict[str, object], dict[str, object]]:
         db_path = tmp_path / "chat-agent.sqlite"
@@ -297,24 +397,42 @@ def test_build_chat_agent_preserves_messages_across_same_thread(tmp_path, monkey
 
 
 def test_build_chat_agent_dedupes_same_thread_full_transcript_replay(tmp_path, monkeypatch) -> None:
-    call_messages: list[list[dict[str, object]]] = []
+    call_messages: list[list[object]] = []
 
-    class StubService:
-        async def run_chat(self, **kwargs: object) -> dict[str, object]:
-            messages = kwargs["messages"]
-            assert isinstance(messages, list)
-            call_messages.append(messages)
-            final_answer = f"reply-{len(call_messages)}"
-            return {
-                "final_answer": final_answer,
-                "citations": [],
-                "reranker_docs": [],
-                "context_usage": None,
-                "mcp_used": False,
-                "mcp_tools_used": [],
-            }
+    class FakeLlm:
+        model_id = "model-a"
 
-    monkeypatch.setattr(direct_node_module, "ChatRuntimeService", StubService)
+    class _FakeTrace:
+        trace_context = None
+        trace_id = None
+
+    class _FakeTraceContextManager:
+        def __enter__(self) -> _FakeTrace:
+            return _FakeTrace()
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            _ = exc_type, exc, tb
+            return False
+
+    monkeypatch.setattr(direct_node_module, "get_llm", lambda **kwargs: FakeLlm())
+    monkeypatch.setattr(
+        direct_node_module,
+        "emit_usage_observability",
+        lambda **kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        direct_node_module,
+        "start_langfuse_chat_trace",
+        lambda **kwargs: _FakeTraceContextManager(),
+    )
+
+    def fake_invoke(llm: object, history: object, run_config: object) -> AIMessage:
+        _ = llm, run_config
+        assert isinstance(history, list)
+        call_messages.append(history)
+        return AIMessage(content=f"reply-{len(call_messages)}")
+
+    monkeypatch.setattr(direct_node_module, "invoke_llm_with_optional_config", fake_invoke)
 
     async def run() -> None:
         db_path = tmp_path / "chat-agent-replay.sqlite"

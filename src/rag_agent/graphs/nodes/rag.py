@@ -1,43 +1,106 @@
 from __future__ import annotations
 
+import asyncio
+from typing import cast
+
 from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.nodes.references import (
     assistant_message_from_exception,
     assistant_message_from_result,
 )
+from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, get_thread_id
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
-from src.rag_agent.runtime.chat_service import ChatRuntimeService
-from src.rag_agent.runtime.memory import langchain_messages_to_dicts
+from src.rag_agent.runtime import rag_runtime
+from src.rag_agent.runtime.memory import (
+    chat_history_before_latest_user,
+    contextualize_question,
+    langchain_messages_to_dicts,
+    latest_user_message,
+)
+from src.rag_agent.runtime.observability import emit_usage_observability
+from src.rag_agent.utils.langfuse_tracing import start_langfuse_chat_trace
 
-
-def _runtime_context(runtime: Runtime[ChatGraphContext]) -> ChatGraphContext:
-    context = runtime.context
-    if isinstance(context, dict):
-        return context
-    return {}
+_NO_ORACLE_CONTEXT_ANSWER = "I don't know the answer from the selected Oracle collection."
 
 
 async def run_rag_node(
     state: ChatGraphState, runtime: Runtime[ChatGraphContext]
 ) -> ChatGraphState:
-    context = _runtime_context(runtime)
-    thread_id = getattr(runtime.execution_info, "thread_id", None)
+    context = get_runtime_context(runtime)
+    thread_id = get_thread_id(runtime)
     messages = langchain_messages_to_dicts(state["messages"])
-    service = ChatRuntimeService()
     try:
-        result = await service.run_chat(
-            messages=messages,
-            model_id=context.get("model_id"),
-            thread_id=thread_id,
-            session_id=context.get("session_id"),
-            collection_name=context.get("collection_name"),
-            enable_reranker=context.get("enable_reranker"),
-            enable_tracing=context.get("enable_tracing"),
+        with start_langfuse_chat_trace(
+            enabled=cast(bool | None, context.get("enable_tracing")),
             mode="rag",
-            mcp_server_keys=context.get("mcp_server_keys"),
-            stream=False,
-        )
+            model_id=cast(str | None, context.get("model_id")),
+            session_id=cast(str | None, context.get("session_id")),
+            thread_id=thread_id,
+            input_payload={"question": latest_user_message(messages)} if messages else None,
+        ) as langfuse_trace:
+            question = latest_user_message(messages)
+            chat_history = chat_history_before_latest_user(messages)
+            run_cfg = build_run_config(
+                thread_id=thread_id,
+                mode="rag",
+                model_id=cast(str | None, context.get("model_id")),
+                session_id=cast(str | None, context.get("session_id")),
+                enable_tracing=cast(bool | None, context.get("enable_tracing")),
+                mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
+                trace_context=langfuse_trace.trace_context if langfuse_trace else None,
+            )
+            standalone_question = await contextualize_question(
+                question=question,
+                chat_history=chat_history,
+                model_id=cast(str | None, context.get("model_id")),
+                run_config=run_cfg,
+            )
+            docs = await asyncio.to_thread(
+                rag_runtime.retrieve_oracle_docs,
+                query=standalone_question,
+                collection_name=cast(str | None, context.get("collection_name")),
+                k=5,
+            )
+            docs = await asyncio.to_thread(
+                rag_runtime.rerank_retrieved_docs,
+                standalone_question,
+                docs,
+                enable_reranker=cast(bool | None, context.get("enable_reranker")),
+            )
+            if docs:
+                rag_answer, rag_usage, resolved_model_id = await rag_runtime.synthesize_rag_answer(
+                    question=standalone_question,
+                    docs=docs,
+                    model_id=cast(str | None, context.get("model_id")),
+                    run_config=run_cfg,
+                )
+            else:
+                rag_answer = _NO_ORACLE_CONTEXT_ANSWER
+                rag_usage = None
+                resolved_model_id = cast(str | None, context.get("model_id")) or "unknown"
+            emitted_usage, cost_usd = emit_usage_observability(
+                mode="rag",
+                model_id=resolved_model_id,
+                session_id=cast(str | None, context.get("session_id")),
+                thread_id=thread_id,
+                usage=rag_usage,
+            )
+            result: dict[str, object] = {
+                "final_answer": rag_answer,
+                "error": None,
+                "standalone_question": standalone_question or None,
+                "citations": rag_runtime.citations_from_docs(docs),
+                "reranker_docs": rag_runtime.serialize_docs(docs),
+                "context_usage": None,
+                "mcp_used": False,
+                "mcp_tools_used": [],
+                "model_id": resolved_model_id,
+                "usage": emitted_usage,
+                "cost_usd": cost_usd,
+            }
+            if langfuse_trace is not None and langfuse_trace.trace_id:
+                result["trace_id"] = langfuse_trace.trace_id
         assistant_message = assistant_message_from_result("rag", result)
     except Exception as exc:
         assistant_message = assistant_message_from_exception("rag", exc)
