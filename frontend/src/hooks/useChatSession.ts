@@ -64,9 +64,9 @@ function readStoredThreadId(): string | null {
   }
 }
 
-function parseTimestamp(value: string, fallback: number): number {
+function parseTimestamp(value: string, defaultValue: number): number {
   const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
 function deriveThreadTitle(thread: ThreadSearchResult): string {

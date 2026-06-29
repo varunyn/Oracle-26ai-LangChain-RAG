@@ -2,6 +2,16 @@
 
 ## 2026-06-29
 
+- Updated root and scoped `AGENTS.md` guidance to match the active LangGraph Agent Server chat architecture, UI-managed MCP configuration, current Docker/frontend/docs-site commands, and repository testing boundaries.
+- Fixed LangGraph thread-state message serialization to preserve structured assistant content blocks instead of stringifying them into Python-list text, so multi-turn chats keep the latest message parseable by the frontend while history remains server-owned.
+- Added frontend compatibility parsing for older LangGraph thread turns whose assistant content was already persisted as stringified content-block lists, so existing chats render readable text without clearing the thread.
+- Deduplicated replayed LangGraph stream messages by stable message id in the frontend projection layer so second-turn runs do not render already-persisted assistant messages a second time.
+- Added development-only frontend chat debug logging around submit, projection, and render stages so duplicated message replays can be traced with message ids and compact previews instead of inferred from screenshots.
+- Recovered automatically from stale persisted LangGraph thread ids by clearing missing-thread hydration state instead of leaving the frontend chat stuck on a 404 thread error.
+- Rebased frontend chat rendering on authoritative LangGraph `values.messages` and collapsed adjacent duplicate assistant variants, so a single LangGraph run no longer renders the same final answer twice when streamed and persisted message ids differ.
+- Fixed the LangGraph chat message reducer to merge streamed turns by stable message id instead of `(role, content)`, preventing one assistant response from being appended repeatedly as its streamed content grows during a single run.
+- Tagged internal LangGraph Python LLM calls with `nostream` so per-call model streams no longer surface as duplicate visible chat messages while final assistant turns continue to come from graph state.
+- Simplified the frontend chat transcript path so `stream.messages` is now the only visible-message source, removed raw-state/legacy content parsing fallbacks, and kept citations, durable threads, retries, replay deduplication, and MCP tool progress covered by focused frontend tests.
 - Moved LangGraph MCP/mixed workflow-policy and retrieval-decision helpers into a graph-owned `mcp_policies` module, updated graph nodes to import from it directly, and removed that LangGraph-only policy code from `ChatRuntimeService`.
 - Reduced `ChatRuntimeService` to a direct/RAG compatibility adapter, made it reject LangGraph-owned `mcp` and `mixed` modes, and migrated the remaining unit/integration assertions for those modes onto the graph and MCP-turn surfaces.
 - Removed unused FastAPI ownership of `ChatRuntimeService`; app/request resources now keep only product-API settings and optional durable state while LangGraph remains the chat runtime surface.

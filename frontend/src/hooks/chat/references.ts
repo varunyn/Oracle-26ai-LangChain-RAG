@@ -45,25 +45,10 @@ export function isSameContextUsage(a: ContextUsage | null, b: ContextUsage): boo
   );
 }
 
-export function readText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((part) => {
-      if (!part || typeof part !== "object") return "";
-      const text = (part as { text?: unknown }).text;
-      return typeof text === "string" ? text : "";
-    })
-    .join("");
-}
-
 export function toRole(message: BaseMessage): "user" | "assistant" | "system" {
   if (HumanMessage.isInstance(message)) return "user";
   if (AIMessage.isInstance(message)) return "assistant";
   if (SystemMessage.isInstance(message)) return "system";
-  const msgType = (message as { type?: unknown }).type;
-  if (msgType === "human") return "user";
-  if (msgType === "ai") return "assistant";
   return "system";
 }
 
@@ -109,23 +94,6 @@ export function toReferences(message: BaseMessageWithKwargs): ReferencePayload |
     message.additional_kwargs,
     message.additional_kwargs?.references,
     message.response_metadata,
-  ];
-  for (const candidate of candidates) {
-    if (!candidate || typeof candidate !== "object") continue;
-    const references = toReferencePayload(candidate as Record<string, unknown>);
-    if (references) return references;
-  }
-  return null;
-}
-
-export function toReferencesFromRawMessage(rawMessage: unknown): ReferencePayload | null {
-  if (!rawMessage || typeof rawMessage !== "object") return null;
-  const data = rawMessage as Record<string, unknown>;
-  const candidates: unknown[] = [
-    data.additional_kwargs,
-    (data.additional_kwargs as Record<string, unknown> | undefined)?.references,
-    data.response_metadata,
-    data,
   ];
   for (const candidate of candidates) {
     if (!candidate || typeof candidate !== "object") continue;

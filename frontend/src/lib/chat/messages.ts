@@ -3,55 +3,28 @@
  * Extracted from page.tsx for testability and reuse
  */
 
-/** Optional legacy text-part shape from older persisted UI messages */
-interface MessagePart {
+export interface TextContentPart {
   type?: string;
   text?: string;
 }
 
-/** Message shape accepted by frontend chat helpers */
-interface ChatMessageContent {
-  content?: unknown;
-  parts?: MessagePart[];
+export type SupportedContent = string | readonly TextContentPart[];
+
+export interface ChatMessageContent {
+  content?: SupportedContent;
 }
 
 /**
- * Safely extract text content from LangChain content or legacy text parts.
+ * Extract text content from the supported LangChain content shapes used in the app.
  */
 export function getMessageContent(message: ChatMessageContent | null | undefined): string {
-  try {
-    if (typeof message?.content === "string") return message.content;
-    if (Array.isArray(message?.content)) {
-      const asText = message.content
-        .map((part: unknown) => {
-          if (!part || typeof part !== "object") return "";
-          const text = (part as { text?: unknown }).text;
-          return typeof text === "string" ? text : "";
-        })
-        .join("");
-      if (asText) return asText;
-    }
-    if (!message?.parts) return "";
-    if (!Array.isArray(message.parts)) return "";
-    return message.parts
-      .map((part: MessagePart) => {
-        if (!part || typeof part !== "object") return "";
-        if (part.type === "text") return part.text ?? "";
-        return "";
-      })
-      .join("");
-  } catch (e) {
-    console.error("Error parsing message content", e);
-    return "";
-  }
-}
-
-/**
- * Generate a unique thread ID for chat sessions.
- * Uses crypto.randomUUID when available, fallback for older environments.
- */
-export function generateThreadId(): string {
-  return typeof crypto !== "undefined" && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `thread-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  if (typeof message?.content === "string") return message.content;
+  if (!Array.isArray(message?.content)) return "";
+  return message.content
+    .filter(
+      (part): part is { type: string; text: string } =>
+        part?.type === "text" && typeof part.text === "string",
+    )
+    .map((part) => part.text)
+    .join("");
 }

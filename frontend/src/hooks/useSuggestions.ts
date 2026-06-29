@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { getMessageContent } from "@/lib/chat/messages";
+import { getMessageContent, type SupportedContent } from "@/lib/chat/messages";
 import { toApiUrl } from "@/lib/api-base";
 
 type MessageLike = {
   id?: string;
   role?: string;
-  content?: unknown;
+  content?: SupportedContent;
 };
 
 function fetchSuggestions(
@@ -62,7 +62,7 @@ export function useSuggestions({
     if (!pendingSuggestion || messages.length === 0) return;
     const hasMatchingUserMessage = messages.some((message) => {
       if (message?.role !== "user") return false;
-      const text = getMessageContent(message as Parameters<typeof getMessageContent>[0]);
+      const text = getMessageContent(message);
       return text.trim() === pendingSuggestion.trim();
     });
     if (hasMatchingUserMessage) {
@@ -80,7 +80,7 @@ export function useSuggestions({
     if (status !== "ready" || messages.length === 0 || !selectedModel) return;
     const last = messages[messages.length - 1];
     if (last?.role !== "assistant") return;
-    const text = getMessageContent(last as Parameters<typeof getMessageContent>[0]);
+    const text = getMessageContent(last);
     if (!text?.trim()) return;
     const messageKey = last.id ?? `${messages.length}:${text}`;
     if (lastSuggestionsMessageIdRef.current === messageKey) return;
@@ -90,7 +90,7 @@ export function useSuggestions({
       .reverse()
       .find((msg) => msg.role === "user");
     const previousUserText = previousUser
-      ? getMessageContent(previousUser as Parameters<typeof getMessageContent>[0]).trim()
+      ? getMessageContent(previousUser).trim()
       : "";
     fetchSuggestions(text, previousUserText || null, selectedModel, setDynamicSuggestions, () =>
       setSuggestionsLoading(false),

@@ -113,6 +113,9 @@ test.describe('chat live backend', () => {
     await expect(input).toBeEnabled({ timeout: 120_000 })
     await expectAssistantAnswer(page)
     await expectSubmittedQuestionBeforeAssistant(page, DUPLICATE_PROMPT)
+
+    await page.reload()
+    await expect(page.getByTestId('chat-message-list').getByText(DUPLICATE_PROMPT, { exact: true })).toHaveCount(1)
   })
 
   test('clear chat resets the visible conversation in RAG mode', async ({ page }) => {

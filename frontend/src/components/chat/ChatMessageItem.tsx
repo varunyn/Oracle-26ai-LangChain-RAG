@@ -316,7 +316,7 @@ function ToolActivityTimeline({
       state: hasError ? "output-error" : "output-available",
     };
   });
-  const fallbackRuns: ToolRunDisplay[] = toolTimeline.map((tool, index) => ({
+  const timelineRuns: ToolRunDisplay[] = toolTimeline.map((tool, index) => ({
     key: `${tool}-${index}`,
     toolName: tool,
     state: "output-available",
@@ -326,7 +326,7 @@ function ToolActivityTimeline({
       ? invocationRuns
       : progressToolRuns.length > 0
         ? progressToolRuns
-        : fallbackRuns;
+        : timelineRuns;
 
   if (runs.length === 0) return null;
 

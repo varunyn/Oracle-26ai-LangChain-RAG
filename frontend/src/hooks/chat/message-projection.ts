@@ -6,11 +6,31 @@ import type {
 } from "@/hooks/chat/controller-types";
 import {
   type BaseMessageWithKwargs,
-  readText,
   toReferences,
   toRole,
 } from "@/hooks/chat/references";
+import { debugChatStage, summarizeMessages } from "@/hooks/chat/debug";
 import { withLiveToolProgress } from "@/hooks/chat/tool-progress";
+
+function dedupeProjectedMessages(messages: MessageLike[]): MessageLike[] {
+  const seenIds = new Map<string, number>();
+  const deduped: MessageLike[] = [];
+
+  for (const message of messages) {
+    const id = typeof message.id === "string" ? message.id.trim() : "";
+    if (id) {
+      const existingIndex = seenIds.get(id);
+      if (existingIndex != null) {
+        deduped[existingIndex] = message;
+        continue;
+      }
+      seenIds.set(id, deduped.length);
+    }
+    deduped.push(message);
+  }
+
+  return deduped;
+}
 
 export function normalizeStatus(
   rawStatus: unknown,
@@ -43,9 +63,17 @@ export function projectStreamMessages(args: {
   const mapped = (streamMessages ?? []).map((message, index) => ({
     id: typeof message.id === "string" ? message.id : `message-${index}`,
     role: toRole(message),
-    content: readText(message.content),
+    content: getMessageContent(message),
     references: toReferences(message),
   }));
-
-  return withLiveToolProgress(mapped, liveToolProgressEvents);
+  const deduped = dedupeProjectedMessages(mapped);
+  const projected = withLiveToolProgress(deduped, liveToolProgressEvents);
+  debugChatStage("projectStreamMessages", {
+    rawCount: streamMessages?.length ?? 0,
+    mapped: summarizeMessages(mapped),
+    deduped: summarizeMessages(deduped),
+    projected: summarizeMessages(projected),
+    liveToolProgressCount: liveToolProgressEvents.length,
+  });
+  return projected;
 }

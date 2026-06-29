@@ -14,6 +14,7 @@ import {
   normalizeStatus,
   projectStreamMessages,
 } from "@/hooks/chat/message-projection";
+import { isMissingThreadError } from "@/hooks/chat/thread-errors";
 import {
   type BaseMessageWithKwargs,
   isSameContextUsage,
@@ -47,6 +48,7 @@ export function useChatController({
   >(() => new Set());
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const lastErrorToastKeyRef = useRef<string | null>(null);
+  const lastRecoveredMissingThreadKeyRef = useRef<string | null>(null);
 
   const bodyParams = useChatBodyParams({
     selectedModel,
@@ -88,11 +90,21 @@ export function useChatController({
     console.error("Chat error:", stream.error);
     const message =
       stream.error instanceof Error ? stream.error.message : String(stream.error);
+    if (isMissingThreadError(stream.error, threadId)) {
+      const recoveryKey = `missing-thread:${threadId}:${message}`;
+      if (lastRecoveredMissingThreadKeyRef.current === recoveryKey) return;
+      lastRecoveredMissingThreadKeyRef.current = recoveryKey;
+      clearSessionChat({
+        setFeedbackSubmitted,
+        setContextUsage,
+      });
+      return;
+    }
     const errorToastKey = `stream:${threadId}:${message}`;
     if (lastErrorToastKeyRef.current === errorToastKey) return;
     lastErrorToastKeyRef.current = errorToastKey;
     toast.error(message);
-  }, [stream.error, threadId, toast]);
+  }, [clearSessionChat, setContextUsage, setFeedbackSubmitted, stream.error, threadId, toast]);
 
   useEffect(() => {
     const lastAssistant = [...messages]

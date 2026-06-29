@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import type { RefObject } from "react";
 import { Message, MessageContent } from "@/components/ai-elements/message";
-import { getMessageContent } from "@/lib/chat/messages";
+import { debugChatStage, summarizeMessages } from "@/hooks/chat/debug";
+import { getMessageContent, type SupportedContent } from "@/lib/chat/messages";
 import type { MessageReferences } from "@/lib/types/chat";
 import { StreamingIndicator } from "@/components/chat/StreamingIndicator";
 import { ChatMessageItem } from "@/components/chat/ChatMessageItem";
@@ -10,7 +12,7 @@ import { ChatMessageItem } from "@/components/chat/ChatMessageItem";
 type MessageLike = {
   id?: string;
   role?: string;
-  content?: string;
+  content?: SupportedContent;
   references?: MessageReferences | null;
 };
 
@@ -36,7 +38,7 @@ function hasAssistantProgress(message: MessageLike): boolean {
 function hasActiveAssistantOutput(messages: MessageLike[]): boolean {
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   if (!lastAssistant) return false;
-  const text = getMessageContent(lastAssistant as Parameters<typeof getMessageContent>[0]).trim();
+  const text = getMessageContent(lastAssistant).trim();
   return text.length > 0 || hasAssistantProgress(lastAssistant);
 }
 
@@ -55,6 +57,15 @@ export function ChatMessageList({
   const isStreamingTurn = status === "submitted" || status === "streaming";
   const showStreamingIndicator = isStreamingTurn && !hasActiveAssistantOutput(messages);
   const showEmptyState = messages.length === 0 && !isStreamingTurn;
+
+  useEffect(() => {
+    debugChatStage("ChatMessageList.render", {
+      status,
+      showStreamingIndicator,
+      showEmptyState,
+      messages: summarizeMessages(messages),
+    });
+  }, [messages, showEmptyState, showStreamingIndicator, status]);
 
   return (
     <div
@@ -79,9 +90,7 @@ export function ChatMessageList({
 
       <div className="space-y-6">
         {messages.map((message, index) => {
-          const textContent = getMessageContent(
-            message as Parameters<typeof getMessageContent>[0],
-          );
+          const textContent = getMessageContent(message);
           const isLastMessage = index === messages.length - 1;
           const isStreaming =
             isLastMessage && (status === "submitted" || status === "streaming");

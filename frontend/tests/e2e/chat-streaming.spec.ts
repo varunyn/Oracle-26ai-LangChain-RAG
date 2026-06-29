@@ -1,6 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
 
 const PROMPT = 'how can I deploy grafana?'
+const HISTORY_THREAD_ID = '00000000-0000-4000-8000-000000000001'
+const SIDEBAR_THREAD_ID_2 = '00000000-0000-4000-8000-000000000003'
+const BROWSER_MOCK_THREAD_ID = '00000000-0000-4000-8000-000000000005'
+const CLEAR_ACTIVE_THREAD_ID = '00000000-0000-4000-8000-000000000006'
+const KEEP_THREAD_ID = '00000000-0000-4000-8000-000000000007'
 
 type ProtocolMockEvent = {
   method: 'values' | 'tools' | 'lifecycle'
@@ -171,7 +176,7 @@ test.describe('chat streaming', () => {
         contentType: 'application/json',
         body: JSON.stringify([
           {
-            thread_id: 'thread-message-history',
+            thread_id: HISTORY_THREAD_ID,
             created_at: '2026-06-26T09:00:00Z',
             updated_at: '2026-06-26T09:00:00Z',
             values: { messages: [{ type: 'human', content: previousQuestion }, { type: 'ai', content: previousAnswer }] },
@@ -239,18 +244,18 @@ test.describe('chat streaming', () => {
 
   test('shows locally known chat history and switches active threads', async ({ page }) => {
     await page.addInitScript(() => {
-      window.localStorage.setItem('rag_agent_thread_id', 'thread-history-1')
+      window.localStorage.setItem('rag_agent_thread_id', '00000000-0000-4000-8000-000000000002')
       window.localStorage.setItem(
         'rag_agent_chat_threads',
         JSON.stringify([
           {
-            id: 'thread-history-1',
+            id: '00000000-0000-4000-8000-000000000002',
             title: 'Latest invoice workflow',
             createdAt: 2,
             updatedAt: 2,
           },
           {
-            id: 'thread-history-2',
+            id: '00000000-0000-4000-8000-000000000003',
             title: 'Vendor payment terms',
             createdAt: 1,
             updatedAt: 1,
@@ -275,7 +280,7 @@ test.describe('chat streaming', () => {
     )
     await history.getByRole('button', { name: 'Vendor payment terms' }).click()
 
-    await expect(page.getByTestId('chat-root')).toHaveAttribute('data-thread-id', 'thread-history-2')
+    await expect(page.getByTestId('chat-root')).toHaveAttribute('data-thread-id', SIDEBAR_THREAD_ID_2)
     await expect(history.getByRole('button', { name: 'Vendor payment terms' })).toHaveAttribute(
       'aria-current',
       'page',
@@ -286,7 +291,7 @@ test.describe('chat streaming', () => {
     const threads = Array.from({ length: 30 }, (_, index) => {
       const number = index + 1
       return {
-        id: `thread-long-${number}`,
+        id: `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`,
         title: `Long history chat ${number}`,
         createdAt: number,
         updatedAt: number,
@@ -295,7 +300,7 @@ test.describe('chat streaming', () => {
 
     await page.setViewportSize({ width: 1280, height: 720 })
     await page.addInitScript((seedThreads) => {
-      window.localStorage.setItem('rag_agent_thread_id', 'thread-long-30')
+      window.localStorage.setItem('rag_agent_thread_id', '00000000-0000-4000-8000-000000000030')
       window.localStorage.setItem('rag_agent_chat_threads', JSON.stringify(seedThreads))
     }, threads)
     await page.route('**/langgraph/threads/search', (route) => {
@@ -359,12 +364,12 @@ test.describe('chat streaming', () => {
       pageErrors.push(error.message)
     })
     await page.addInitScript(() => {
-      window.localStorage.setItem('rag_agent_thread_id', 'thread-title-loop')
+      window.localStorage.setItem('rag_agent_thread_id', '00000000-0000-4000-8000-000000000004')
       window.localStorage.setItem(
         'rag_agent_chat_threads',
         JSON.stringify([
           {
-            id: 'thread-title-loop',
+            id: '00000000-0000-4000-8000-000000000004',
             title: 'Existing title',
             createdAt: 1,
             updatedAt: 1,
@@ -450,11 +455,15 @@ test.describe('chat streaming', () => {
     await page.getByRole('button', { name: 'Ask' }).click()
 
     await expect(page.getByTestId('chat-message-list').getByText(PROMPT)).toBeVisible()
+    await expect(
+      page.getByTestId('chat-message-list').getByText(PROMPT, { exact: true }),
+    ).toHaveCount(1)
     await expect(page.getByTestId('chat-streaming-indicator')).toBeVisible()
     await expect(page.getByText('Ask a question about your documents')).toHaveCount(0)
 
     releaseStream?.()
     await expect(page.getByText('Use Grafana deployment docs.')).toBeVisible()
+    await expect(page.getByText('Use Grafana deployment docs.')).toHaveCount(1)
   })
 
   test('renders MCP tool progress from stream values metadata', async ({ page }) => {
@@ -572,7 +581,7 @@ test.describe('chat streaming', () => {
             historyCalls > 1
               ? JSON.stringify([
                   {
-                    thread_id: 'browser-mock-thread',
+                    thread_id: BROWSER_MOCK_THREAD_ID,
                     created_at: '2026-06-26T10:00:00Z',
                     updated_at: '2026-06-26T10:00:00Z',
                     values: {
@@ -741,18 +750,18 @@ test.describe('chat streaming', () => {
 
   test('removes the cleared chat from local history', async ({ page }) => {
     await page.addInitScript(() => {
-      window.localStorage.setItem('rag_agent_thread_id', 'thread-clear-active')
+      window.localStorage.setItem('rag_agent_thread_id', '00000000-0000-4000-8000-000000000006')
       window.localStorage.setItem(
         'rag_agent_chat_threads',
         JSON.stringify([
           {
-            id: 'thread-clear-active',
+            id: '00000000-0000-4000-8000-000000000006',
             title: 'Active chat to clear',
             createdAt: 2,
             updatedAt: 2,
           },
           {
-            id: 'thread-keep',
+            id: '00000000-0000-4000-8000-000000000007',
             title: 'Keep this chat',
             createdAt: 1,
             updatedAt: 1,
@@ -766,13 +775,13 @@ test.describe('chat streaming', () => {
         contentType: 'application/json',
         body: JSON.stringify([
           {
-            thread_id: 'thread-clear-active',
+            thread_id: CLEAR_ACTIVE_THREAD_ID,
             created_at: '2026-06-26T10:00:00Z',
             updated_at: '2026-06-26T10:00:00Z',
             values: {},
           },
           {
-            thread_id: 'thread-keep',
+            thread_id: KEEP_THREAD_ID,
             created_at: '2026-06-26T09:00:00Z',
             updated_at: '2026-06-26T09:00:00Z',
             values: {},
@@ -780,7 +789,7 @@ test.describe('chat streaming', () => {
         ]),
       })
     })
-    await page.route('**/langgraph/threads/thread-clear-active', (route) => {
+    await page.route(`**/langgraph/threads/${CLEAR_ACTIVE_THREAD_ID}`, (route) => {
       route.fulfill({ status: 204 })
     })
 
