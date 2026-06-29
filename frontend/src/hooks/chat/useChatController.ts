@@ -11,9 +11,9 @@ import {
 } from "@/hooks/chat/controller-types";
 import {
   getLastUserMessageText,
-  mergeProjectedMessages,
   normalizeStatus,
   projectStreamMessages,
+  selectMessagesForStatus,
 } from "@/hooks/chat/message-projection";
 import { isMissingThreadError } from "@/hooks/chat/thread-errors";
 import {
@@ -60,26 +60,26 @@ export function useChatController({
     flowMode,
   });
 
-  const { serverThreadMessages, stream, transportError } = useLangGraphStream();
+  const {
+    authoritativeThreadMessages,
+    serverThreadMessages,
+    stream,
+    transportError,
+  } = useLangGraphStream();
 
   const streamMessages = stream.messages;
   const stateMessages = useMemo(() => {
     const messages =
-      serverThreadMessages ??
-      (stream.values as { messages?: BaseMessageWithKwargs[] } | undefined)?.messages;
+      authoritativeThreadMessages ??
+      (stream.values as { messages?: BaseMessageWithKwargs[] } | undefined)?.messages ??
+      serverThreadMessages;
     return Array.isArray(messages) ? messages : undefined;
-  }, [serverThreadMessages, stream.values]);
+  }, [authoritativeThreadMessages, serverThreadMessages, stream.values]);
   const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
-
-  const messages = useMemo(() => {
-    const liveMessages = projectStreamMessages({
-      streamMessages: streamMessages as BaseMessageWithKwargs[] | undefined,
-    });
-    const finalizedMessages = projectStreamMessages({
-      streamMessages: stateMessages,
-    });
-    return mergeProjectedMessages(liveMessages, finalizedMessages);
-  }, [stateMessages, streamMessages]);
+  const progress =
+    typeof (stream.values as { progress?: unknown } | undefined)?.progress === "string"
+      ? (stream.values as { progress: string }).progress
+      : undefined;
 
   const rawStreamStatus = (stream as { status?: unknown }).status;
   const status = normalizeStatus(
@@ -87,6 +87,17 @@ export function useChatController({
     stream.isLoading,
     stream.error != null || submitError != null || transportError != null,
   );
+
+  const messages = useMemo(() => {
+    const liveMessages = projectStreamMessages({
+      streamMessages: streamMessages as BaseMessageWithKwargs[] | undefined,
+    });
+    const finalizedMessages =
+      stateMessages === undefined
+        ? undefined
+        : projectStreamMessages({ streamMessages: stateMessages });
+    return selectMessagesForStatus(liveMessages, finalizedMessages, status);
+  }, [stateMessages, status, streamMessages]);
 
   useEffect(() => {
     if (stream.error == null) return;
@@ -194,6 +205,7 @@ export function useChatController({
     input,
     setInput,
     messages,
+    progress,
     toolCalls: streamToolCalls,
     status,
     maxCitationsToShow,

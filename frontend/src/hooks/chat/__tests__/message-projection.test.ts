@@ -1,7 +1,11 @@
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
 
-import { mergeProjectedMessages, projectStreamMessages } from "../message-projection";
+import {
+  mergeProjectedMessages,
+  projectStreamMessages,
+  selectMessagesForStatus,
+} from "../message-projection";
 
 describe("projectStreamMessages", () => {
   it("drops replayed messages with the same stable id", () => {
@@ -194,5 +198,43 @@ describe("mergeProjectedMessages", () => {
         },
       },
     ]);
+  });
+});
+
+describe("selectMessagesForStatus", () => {
+  it("uses finalized state at completion so citations from state replace live copies", () => {
+    const liveMessages = projectStreamMessages({
+      streamMessages: [
+        new HumanMessage({ id: "user-1", content: "What are the terms?" }),
+        new AIMessage({ id: "live-answer", content: "Answer without references" }),
+      ],
+    });
+    const finalizedMessages = projectStreamMessages({
+      streamMessages: [
+        new HumanMessage({ id: "user-1", content: "What are the terms?" }),
+        new AIMessage({
+          id: "final-answer",
+          content: "Answer with references",
+          additional_kwargs: {
+            citations: [{ source: "terms.pdf", page: "2" }],
+          },
+        }),
+      ],
+    });
+
+    expect(selectMessagesForStatus(liveMessages, finalizedMessages, "ready")).toEqual(
+      finalizedMessages,
+    );
+  });
+
+  it("keeps the live projection while the run is streaming", () => {
+    const liveMessages = [{ id: "live-answer", role: "assistant", content: "Partial" }];
+    const finalizedMessages = [
+      { id: "final-answer", role: "assistant", content: "Complete" },
+    ];
+
+    expect(selectMessagesForStatus(liveMessages, finalizedMessages, "streaming")).toEqual(
+      liveMessages,
+    );
   });
 });

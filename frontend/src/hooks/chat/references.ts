@@ -48,6 +48,20 @@ export function toRole(message: BaseMessage): "user" | "assistant" | "system" {
   if (HumanMessage.isInstance(message)) return "user";
   if (AIMessage.isInstance(message)) return "assistant";
   if (SystemMessage.isInstance(message)) return "system";
+
+  const serialized = message as BaseMessage & {
+    role?: unknown;
+    type?: unknown;
+  };
+  const role = typeof serialized.role === "string" ? serialized.role.toLowerCase() : "";
+  if (role === "user" || role === "human") return "user";
+  if (role === "assistant" || role === "ai") return "assistant";
+  if (role === "system") return "system";
+
+  const type = typeof serialized.type === "string" ? serialized.type.toLowerCase() : "";
+  if (type === "human") return "user";
+  if (type === "ai") return "assistant";
+  if (type === "system") return "system";
   return "system";
 }
 

@@ -150,3 +150,17 @@ export function mergeProjectedMessages(
 
   return merged;
 }
+
+export function selectMessagesForStatus(
+  liveMessages: MessageLike[],
+  finalizedMessages: MessageLike[] | undefined,
+  status: ChatStatus,
+): MessageLike[] {
+  if (status === "submitted" || status === "streaming") {
+    return liveMessages;
+  }
+  if (status === "ready" && finalizedMessages !== undefined) {
+    return finalizedMessages;
+  }
+  return mergeProjectedMessages(liveMessages, finalizedMessages ?? []);
+}

@@ -3,6 +3,7 @@
 import {
   createContext,
   useContext,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -17,6 +18,10 @@ import { resolveLanggraphApiUrl } from "@/hooks/chat/stream-config";
 import type { BaseMessageWithKwargs } from "@/hooks/chat/references";
 
 type StreamValue = ReturnType<typeof useStream>;
+type RunCompletedInfo = {
+  runId?: string;
+  reason: "success" | "error" | "interrupt" | "stopped";
+};
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -49,6 +54,7 @@ type LangGraphStreamContextValue = {
   threadId: string | null;
   setThreadId: Dispatch<SetStateAction<string | null>> | ((threadId: string | null) => void);
   serverThreadMessages: BaseMessageWithKwargs[] | undefined;
+  authoritativeThreadMessages: BaseMessageWithKwargs[] | undefined;
   stream: StreamValue;
   transportError: Error | null;
 };
@@ -79,6 +85,13 @@ export function LangGraphStreamProvider({
     messages: undefined,
     threadId,
   });
+  const [authoritativeThreadMessagesState, setAuthoritativeThreadMessagesState] = useState<{
+    messages: BaseMessageWithKwargs[] | undefined;
+    threadId: string | null;
+  }>({
+    messages: undefined,
+    threadId,
+  });
   const threadIdRef = useRef<string | null>(threadId);
   const mountedRef = useRef(false);
 
@@ -95,6 +108,10 @@ export function LangGraphStreamProvider({
   const serverThreadMessages =
     serverThreadMessagesState.threadId === threadId
       ? serverThreadMessagesState.messages
+      : undefined;
+  const authoritativeThreadMessages =
+    authoritativeThreadMessagesState.threadId === threadId
+      ? authoritativeThreadMessagesState.messages
       : undefined;
 
   const instrumentedFetch = useMemo(() => {
@@ -145,13 +162,55 @@ export function LangGraphStreamProvider({
     };
   }, []);
 
+  const hydrateAuthoritativeThread = useCallback(
+    async (completedThreadId: string) => {
+      const response = await instrumentedFetch(
+        `${langgraphApiUrl}/threads/${completedThreadId}/state`,
+      );
+      const payload = await response.clone().json().catch(() => null);
+      const messages = threadMessagesFromStatePayload(payload);
+      if (messages && mountedRef.current) {
+        setAuthoritativeThreadMessagesState({
+          messages,
+          threadId: completedThreadId,
+        });
+        debugChatStage("LangGraphStreamProvider.authoritativeState", {
+          threadId: completedThreadId,
+          messageCount: messages.length,
+        });
+      }
+    },
+    [instrumentedFetch, langgraphApiUrl],
+  );
+
+  const handleCompleted = useCallback(
+    (info: RunCompletedInfo) => {
+      const completedThreadId = threadIdRef.current;
+      debugChatStage("LangGraphStreamProvider.onCompleted", {
+        threadId: completedThreadId,
+        reason: info.reason,
+        runId: info.runId,
+      });
+      if (info.reason !== "success" || !completedThreadId) return;
+      void hydrateAuthoritativeThread(completedThreadId).catch((error) => {
+        debugChatStage("LangGraphStreamProvider.authoritativeStateError", {
+          threadId: completedThreadId,
+          error: String(error),
+        });
+      });
+    },
+    [hydrateAuthoritativeThread],
+  );
+
   const stream = useStream({
     apiUrl: langgraphApiUrl,
     assistantId: "chat_agent",
     fetch: instrumentedFetch,
     threadId,
+    onCompleted: handleCompleted,
     onThreadId: (id) => {
       if (id) {
+        threadIdRef.current = id;
         debugChatStage("LangGraphStreamProvider.onThreadId", {
           previousThreadId: threadId,
           nextThreadId: id,
@@ -174,7 +233,14 @@ export function LangGraphStreamProvider({
 
   return (
     <LangGraphStreamContext.Provider
-      value={{ threadId, setThreadId, serverThreadMessages, stream, transportError }}
+      value={{
+        threadId,
+        setThreadId,
+        serverThreadMessages,
+        authoritativeThreadMessages,
+        stream,
+        transportError,
+      }}
     >
       {children}
     </LangGraphStreamContext.Provider>

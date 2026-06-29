@@ -2,6 +2,12 @@
 
 ## 2026-06-29
 
+- Added a mixed-mode progress state update so the SSE stream communicates retrieval/tool work before emitting one final citation-bearing assistant message.
+- Added the matching RAG-mode progress state update so retrieval runs expose explicit progress before the single citation-bearing answer.
+- Fixed live-to-final chat projection so the completed LangGraph state, including citation metadata, replaces the token-stream snapshot before rendering the finished answer.
+- Fixed citation hydration precedence so the current run’s finalized `stream.values.messages` is used before an earlier thread-state snapshot, preventing sources from appearing only after refresh.
+- Fixed citation rendering for serialized LangGraph state messages by recognizing `type: "ai"` and `type: "human"` alongside LangChain message instances.
+- Hydrated the authoritative LangGraph thread state when a stream completes, so citation metadata is available immediately instead of only after a page refresh.
 - Replaced the custom chat scroll hook with a local AI Elements `Conversation` source component, moved `ChatMessageList` into the Conversation-managed viewport, and added browser coverage for auto-scroll plus return-to-latest behavior without changing message, tool-call, or citation rendering.
 - Added a repo-local `langgraph-chat-contract-debugging` skill that codifies how to separate backend truth, frontend projection bugs, and stale Playwright expectations when chat streaming, citations, tool calls, or mode-specific e2e failures disagree.
 - Removed the misleading frontend `DOCUMENT_CHUNKS_VS` collection fallback, derived collection selection from the real `/api/config` payload, and showed an unavailable state instead when app config is missing.

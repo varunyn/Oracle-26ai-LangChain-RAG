@@ -83,4 +83,33 @@ describe("frontend stream message contract", () => {
       "Oracle 26ai is Oracle's latest AI-focused database release.",
     );
   });
+
+  it("renders citations from serialized LangGraph state messages", () => {
+    const projected = projectStreamMessages({
+      streamMessages: [
+        {
+          type: "human",
+          id: "user-1",
+          content: "What are the payment terms?",
+        } as never,
+        {
+          type: "ai",
+          id: "assistant-1",
+          content: "Net 30 days.",
+          additional_kwargs: {
+            citations: [{ source: "terms.pdf", page: null }],
+          },
+        } as never,
+      ],
+    });
+
+    expect(projected).toMatchObject([
+      { id: "user-1", role: "user" },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        references: { citations: [{ source: "terms.pdf", page: null }] },
+      },
+    ]);
+  });
 });
