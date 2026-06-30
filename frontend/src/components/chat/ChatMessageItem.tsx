@@ -105,6 +105,9 @@ function ChatMessageItemInner({
     !isStreaming &&
     messageReferences?.citations &&
     messageReferences.citations.length > 0;
+  const hasAssistantAnswerSurface =
+    message.role === "assistant" &&
+    (Boolean(displayContent) || Boolean(messageReferences?.error) || hasRefs);
 
   const renderContent = () => {
     if (!displayContent) {
@@ -160,13 +163,14 @@ function ChatMessageItemInner({
       >
         <MessageContent
           className={
-            message.role === "assistant"
+            hasAssistantAnswerSurface
               ? "max-w-full overflow-visible rounded-lg border border-border bg-card px-4 py-3 shadow-sm"
               : undefined
           }
         >
           {showToolCards ? (
             <div
+              aria-label="Tool activity"
               className="mb-3 space-y-2"
               data-testid={isStreaming ? "assistant-activity" : undefined}
             >
@@ -174,7 +178,7 @@ function ChatMessageItemInner({
                 const state = toolCallStateForStatus(toolCall.status);
                 return (
                   <Tool
-                    defaultOpen
+                    defaultOpen={toolCall.status !== "running"}
                     key={toolCall.callId}
                     state={state}
                     type={`tool-${toolCall.name}`}

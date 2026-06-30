@@ -1,7 +1,20 @@
 "use client";
 
 import * as React from "react";
+import {
+  AlertCircle,
+  Check,
+  ChevronDown,
+  CircleDashed,
+  Wrench,
+} from "lucide-react";
+import { useControllableState } from "@radix-ui/react-use-controllable-state";
 
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
 /** Pretty-print JSON strings and objects for tool I/O blocks */
@@ -34,7 +47,7 @@ export function formatToolPayload(value: unknown): string {
 }
 
 const toolPreClasses =
-  "max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/70 bg-background/80 px-2 py-1.5 text-[10px] leading-relaxed text-foreground/90 [scrollbar-width:thin]";
+  "max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/70 bg-background/80 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-foreground/90 [scrollbar-width:thin]";
 
 export type ToolState =
   | "input-streaming"
@@ -43,35 +56,32 @@ export type ToolState =
   | "output-error";
 
 const TOOL_STATE_LABEL: Record<ToolState, string> = {
-  "input-streaming": "Thinking",
+  "input-streaming": "Pending",
   "input-available": "Running",
-  "output-available": "Done",
+  "output-available": "Completed",
   "output-error": "Error",
 };
 
 /** Outer tool call container */
 const TOOL_STATE_CLASS: Record<ToolState, string> = {
   "input-streaming":
-    "border-border bg-muted/20 text-foreground shadow-none dark:bg-muted/15",
-  "input-available":
-    "border-sky-500/35 bg-sky-500/10 text-sky-950 dark:text-sky-100",
-  "output-available":
-    "border-border bg-muted/35 text-foreground shadow-none dark:bg-muted/25",
-  "output-error": "border-destructive/30 bg-destructive/10 text-destructive",
+    "border-border/80 bg-muted/25 text-foreground shadow-none dark:bg-muted/15",
+  "input-available": "border-sky-500/35 bg-sky-500/5 text-foreground",
+  "output-available": "border-border/80 bg-card text-foreground shadow-none",
+  "output-error": "border-destructive/30 bg-destructive/5 text-destructive",
 };
 
 /** Compact status pill (keeps success visible without coloring the whole card) */
 const TOOL_BADGE_CLASS: Record<ToolState, string> = {
   "input-streaming": "border-border bg-background/80 text-muted-foreground",
   "input-available":
-    "border-sky-500/40 bg-sky-500/12 text-sky-950 dark:text-sky-100",
+    "border-sky-500/40 bg-sky-500/10 text-sky-950 dark:text-sky-100",
   "output-available":
-    "border-emerald-600/35 bg-emerald-500/12 text-emerald-900 dark:text-emerald-100",
-  "output-error": "border-destructive/40 bg-destructive/15 text-destructive",
+    "border-emerald-600/35 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100",
+  "output-error": "border-destructive/40 bg-destructive/10 text-destructive",
 };
 
-type ToolProps = React.HTMLAttributes<HTMLDivElement> & {
-  defaultOpen?: boolean;
+type ToolProps = React.ComponentProps<typeof Collapsible> & {
   state?: ToolState;
   type?: string;
 };
@@ -88,51 +98,87 @@ function humanizeToolType(type: string | undefined): string {
     .join(" ");
 }
 
-/** @lintignore */
 export function Tool({
   className,
   defaultOpen,
+  onOpenChange,
+  open: controlledOpen,
   state = "output-available",
   type,
   children,
   ...props
 }: ToolProps): React.ReactElement {
+  const [open, setOpen] = useControllableState({
+    defaultProp: defaultOpen ?? false,
+    onChange: onOpenChange,
+    prop: controlledOpen,
+  });
+
+  React.useEffect(() => {
+    if (state === "output-available" || state === "output-error") {
+      setOpen(true);
+    }
+  }, [setOpen, state]);
+
   return (
-    <div
+    <Collapsible
       className={cn(
-        "flex flex-col gap-1.5 rounded-lg border px-2.5 py-2",
+        "w-full rounded-xl border px-3 py-2.5",
         TOOL_STATE_CLASS[state],
         className
       )}
+      onOpenChange={setOpen}
+      open={open}
       data-tool-open={defaultOpen ? "true" : "false"}
       data-tool-state={state}
       data-tool-type={type ?? ""}
       {...props}
     >
       {children}
-    </div>
+    </Collapsible>
   );
 }
 
 export function ToolHeader({
   className,
   state = "output-available",
+  title,
+  toolName,
   type,
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & {
+}: Omit<React.ComponentProps<typeof CollapsibleTrigger>, "type"> & {
   state?: ToolState;
+  title?: string;
+  toolName?: string;
   type?: string;
 }): React.ReactElement {
   return (
-    <div
-      className={cn("flex items-center justify-between gap-2", className)}
+    <CollapsibleTrigger
+      className={cn(
+        "group flex min-h-6 w-full items-center justify-between gap-3 text-left",
+        className
+      )}
       {...props}
     >
-      <span className="min-w-0 truncate font-medium text-current text-xs">
-        {humanizeToolType(type)}
-      </span>
-      <ToolStatusBadge state={state} />
-    </div>
+      <div className="flex min-w-0 items-center gap-2">
+        <span
+          aria-hidden="true"
+          className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+        >
+          <Wrench className="size-3" strokeWidth={1.8} />
+        </span>
+        <span className="min-w-0 truncate font-medium text-current text-xs">
+          {title ?? toolName ?? humanizeToolType(type)}
+        </span>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <ToolStatusBadge state={state} />
+        <ChevronDown
+          aria-hidden="true"
+          className="size-3.5 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
+        />
+      </div>
+    </CollapsibleTrigger>
   );
 }
 
@@ -140,11 +186,18 @@ export function ToolContent({
   className,
   children,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>): React.ReactElement {
+}: React.ComponentProps<typeof CollapsibleContent>): React.ReactElement {
   return (
-    <div className={cn("space-y-2", className)} {...props}>
+    <CollapsibleContent
+      className={cn(
+        "space-y-2.5 overflow-hidden pt-2.5",
+        "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1",
+        className
+      )}
+      {...props}
+    >
       {children}
-    </div>
+    </CollapsibleContent>
   );
 }
 
@@ -161,9 +214,10 @@ export function ToolOutput({
     return (
       <div
         className={cn(
-          "rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[11px] text-destructive leading-5",
+          "rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-2 text-[11px] text-destructive leading-5",
           className
         )}
+        data-tool-payload="error"
         {...props}
       >
         {errorText}
@@ -182,12 +236,14 @@ export function ToolOutput({
   const text = formatToolPayload(output);
 
   return (
-    <pre
-      className={cn(toolPreClasses, className)}
-      {...(props as React.HTMLAttributes<HTMLPreElement>)}
-    >
-      {text}
-    </pre>
+    <div className={cn("space-y-1", className)} {...props}>
+      <div className="px-0.5 font-medium text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+        Result
+      </div>
+      <pre className={toolPreClasses} data-tool-payload="output">
+        {text}
+      </pre>
+    </div>
   );
 }
 
@@ -199,9 +255,14 @@ export function ToolInput({
   input: unknown;
 }): React.ReactElement {
   return (
-    <pre className={cn(toolPreClasses, className)} {...props}>
-      {formatToolPayload(input)}
-    </pre>
+    <div className={cn("space-y-1", className)}>
+      <div className="px-0.5 font-medium text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+        Parameters
+      </div>
+      <pre className={toolPreClasses} data-tool-payload="input" {...props}>
+        {formatToolPayload(input)}
+      </pre>
+    </div>
   );
 }
 
@@ -215,12 +276,22 @@ export function ToolStatusBadge({
 }): React.ReactElement {
   return (
     <span
+      aria-label={`Tool status: ${TOOL_STATE_LABEL[state]}`}
       className={cn(
-        "inline-flex h-4 shrink-0 items-center rounded border px-1 font-semibold text-[9px] uppercase tracking-wide",
+        "inline-flex h-5 shrink-0 items-center gap-1 rounded-md border px-1.5 font-semibold text-[9px] uppercase tracking-[0.08em]",
         TOOL_BADGE_CLASS[state],
         className
       )}
     >
+      {state === "input-available" ? (
+        <CircleDashed aria-hidden="true" className="size-3" />
+      ) : state === "output-error" ? (
+        <AlertCircle aria-hidden="true" className="size-3" />
+      ) : state === "output-available" ? (
+        <Check aria-hidden="true" className="size-3" />
+      ) : (
+        <CircleDashed aria-hidden="true" className="size-3 animate-spin" />
+      )}
       {TOOL_STATE_LABEL[state]}
     </span>
   );

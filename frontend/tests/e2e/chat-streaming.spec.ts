@@ -709,6 +709,8 @@ test.describe("chat streaming", () => {
         '[data-tool-type="tool-Calculator_linear_regression"][data-tool-state="output-available"]'
       )
     ).toBeVisible();
+    await expect(page.getByText("Parameters", { exact: true })).toBeVisible();
+    await expect(page.getByText("Result", { exact: true })).toBeVisible();
   });
 
   test("renders native tool calls once the final assistant payload arrives", async ({
@@ -965,11 +967,13 @@ test.describe("chat streaming", () => {
     await expect(page.getByTestId("assistant-activity")).toContainText(
       "Lookup Vendor Profile"
     );
+    const runningTool = page.locator(
+      '[data-tool-type="tool-calculate_invoice_total"][data-tool-state="input-available"]'
+    );
+    await expect(runningTool).toBeVisible();
     await expect(
-      page.locator(
-        '[data-tool-type="tool-calculate_invoice_total"][data-tool-state="input-available"]'
-      )
-    ).toBeVisible();
+      runningTool.locator('[data-slot="collapsible-content"]')
+    ).toBeHidden();
     await expect(
       page.locator(
         '[data-tool-type="tool-lookup_vendor_profile"][data-tool-state="input-available"]'
@@ -997,10 +1001,20 @@ test.describe("chat streaming", () => {
       secondAssistant.locator('[data-tool-type="tool-summarize_invoice_risk"]')
     ).toHaveCount(1);
 
+    const completedTool = firstAssistant.locator(
+      '[data-tool-type="tool-calculate_invoice_total"][data-tool-state="output-available"]'
+    );
+    await expect(completedTool).toBeVisible();
     await expect(
-      firstAssistant.locator(
-        '[data-tool-type="tool-calculate_invoice_total"][data-tool-state="output-available"]'
-      )
+      completedTool.locator('[data-slot="collapsible-content"]')
+    ).toBeVisible();
+    await completedTool.getByRole("button").click();
+    await expect(
+      completedTool.locator('[data-slot="collapsible-content"]')
+    ).toBeHidden();
+    await completedTool.getByRole("button").click();
+    await expect(
+      completedTool.locator('[data-slot="collapsible-content"]')
     ).toBeVisible();
     await expect(
       firstAssistant.locator(
