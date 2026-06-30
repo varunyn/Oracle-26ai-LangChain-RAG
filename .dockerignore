@@ -28,3 +28,16 @@ images
 *.jpg
 .cursor
 run_api.sh
+
+# Local worktrees, tooling state, documentation-site dependencies, and runtime
+# data are not copied by docker/Dockerfile and should not be sent as context.
+.worktrees
+.codegraph
+.sisyphus
+.agents
+.codex
+docs-site
+local-config
+local-data
+uploaded_files
+observability

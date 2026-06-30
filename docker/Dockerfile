@@ -12,7 +12,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
 COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv sync --locked --group dev --no-install-project
 
 COPY langgraph.json ./langgraph.json
@@ -20,9 +20,6 @@ COPY api ./api
 COPY src ./src
 COPY scripts ./scripts
 COPY mcp_servers ./mcp_servers
-
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --group dev
 
 FROM python:3.11-slim-bookworm AS base-runner
 
@@ -46,7 +43,7 @@ ENV PYTHONUNBUFFERED=1 \
 # -----------------------------------------------------------------------------
 FROM base-runner AS langgraph-runner
 
-COPY --from=langgraph-builder --chown=appuser:appgroup /app/.venv /app/.venv
+COPY --from=langgraph-builder /app/.venv /app/.venv
 COPY --from=langgraph-builder --chown=appuser:appgroup /app/langgraph.json /app/langgraph.json
 COPY --from=langgraph-builder --chown=appuser:appgroup /app/api /app/api
 COPY --from=langgraph-builder --chown=appuser:appgroup /app/src /app/src
