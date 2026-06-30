@@ -2,6 +2,8 @@
 
 ## 2026-06-30
 
+- Reduced local Langfuse ClickHouse CPU and disk churn by cleaning accumulated system logs and disabling remaining system-log tables.
+
 - Reduced backend Docker build overhead by excluding local/tooling artifacts from the build context, sharing the uv cache across concurrent builds, avoiding recursive ownership conversion for the read-only virtualenv, and removing the redundant post-source dependency sync.
 - Cleaned post-migration leftovers by wiring the standalone RAG MCP server to the canonical `chat_agent` graph, deleting the unreferenced checkpoint state type, correcting current startup/observability documentation, and ignoring local frontend/tooling artifacts.
 - Restored native tool-call cards when rehydrating persisted threads by reconstructing calls from stored assistant/tool messages and preferring live lifecycle data when available.
