@@ -25,7 +25,7 @@ Chat execution is handled by the LangGraph Agent Server `chat_agent` graph with 
 | Directory        | Purpose                                                                                       |
 | ---------------- | --------------------------------------------------------------------------------------------- |
 | `src/rag_agent/` | Runtime and infrastructure modules (OCI models, MCP adapter/executor, prompts, tracing utilities) |
-| `api/`           | FastAPI app, chat/config/documents/feedback/health routers, runtime invocation                 |
+| `api/`           | FastAPI product APIs for config, documents, feedback, suggestions, and health, mounted into the Agent Server |
 | `frontend/`      | Next.js app; `src/app` (pages/layout), `src/components`, `src/lib` (chat, config, types) |
 | `mcp_servers/`   | MCP servers (RAG, semantic search, minimal)                                                   |
 | `scripts/`       | Document population and table create/drop/truncate utilities                                  |

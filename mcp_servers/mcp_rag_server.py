@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import sys
 import uuid
@@ -19,15 +18,14 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from api.settings import Settings, get_settings
+from src.rag_agent.graphs.chat_agent import chat_agent
 from src.rag_agent.infrastructure.mcp_settings import normalize_mcp_transport
-from src.rag_agent.runtime.chat_service import ChatRuntimeService
 
 logger = logging.getLogger(__name__)
 mcp = FastMCP(
     "RAG as MCP server (LangChain workflow)",
     transforms=[CodeMode()],
 )
-_GRAPH_SERVICE = ChatRuntimeService()
 
 
 def _get_settings() -> Settings:
@@ -37,20 +35,17 @@ def _get_settings() -> Settings:
 def _build_rag_config(
     collection_name: str | None = None,
     enable_reranker: bool | None = None,
-    model_id: str | None = None,
 ) -> dict[str, object]:
-    """Build the configurable payload used for RAG-only workflow execution."""
+    """Build the context used for RAG-only graph execution."""
     settings = _get_settings()
     return {
-        "model_id": model_id or settings.LLM_MODEL_ID,
-        "embed_model_type": settings.EMBED_MODEL_TYPE,
+        "model_id": settings.LLM_MODEL_ID,
         "enable_reranker": (
             enable_reranker if enable_reranker is not None else settings.ENABLE_RERANKER
         ),
         "collection_name": collection_name or settings.DEFAULT_COLLECTION,
         "thread_id": str(uuid.uuid4()),
         "mode": "rag",
-        "max_rounds": getattr(settings, "MCP_MAX_ROUNDS", 2),
     }
 
 
@@ -95,19 +90,15 @@ def rag_ask(
     )
 
     try:
-        final_state = asyncio.run(
-            _GRAPH_SERVICE.run_chat(
-                messages=[{"role": "user", "content": question_text}],
-                model_id=cast(str | None, run_config.get("model_id")),
-                thread_id=cast(str | None, run_config.get("thread_id")),
-                session_id=None,
-                collection_name=cast(str | None, run_config.get("collection_name")),
-                enable_reranker=cast(bool | None, run_config.get("enable_reranker")),
-                enable_tracing=None,
-                mode="rag",
-                mcp_server_keys=None,
-                stream=False,
-            )
+        final_state = chat_agent.invoke(
+            {"messages": [{"role": "user", "content": question_text}]},
+            config={"configurable": {"thread_id": run_config["thread_id"]}},
+            context={
+                "model_id": run_config["model_id"],
+                "collection_name": run_config["collection_name"],
+                "enable_reranker": run_config["enable_reranker"],
+                "mode": "rag",
+            },
         )
     except Exception as exc:
         logger.exception("RAG invoke error in MCP")

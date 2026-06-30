@@ -6,7 +6,7 @@ OVERVIEW
 KEY SCRIPTS
 - regression_guard.sh — runs lint/type/tests + streaming smoke for quick gate
 - release_checklist.sh — verifies release docs, generated API docs, and repository checks
-- streaming_smoke_test.sh — legacy FastAPI/LangGraph compatibility smoke; the active browser chat smoke surface is the Agent Server on port 2024 and this script should be updated before relying on it for current chat coverage
+- streaming_smoke_test.sh — Agent Server SSE smoke test against the `chat_agent` graph on port 2024
 - export_openapi.py — exports current OpenAPI for comparison/diff
 - manage_stacks.py — orchestrates docker compose profiles (observability/langfuse)
 - ingest_documents.py (primary CLI wrapper over `src/rag_agent/ingestion.py`) / create_rag_table.py / truncate_table.py / drop_table.py — DB utilities

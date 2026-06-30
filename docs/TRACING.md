@@ -68,7 +68,7 @@ Tracing is done **via the LangChain callback stack** (no API-level manual trace)
    uv run python scripts/setup_langfuse_project.py
    ```
    The script is idempotent. It creates custom model pricing for the OCI/xAI model IDs used by the app and the `user-rating` score config for frontend feedback. It reads `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY` from `.env`; use `--dry-run` to print the managed config without calling Langfuse.
-4. Restart `./run_api.sh`. The chat route injects a Langfuse `CallbackHandler` into run config when Langfuse is enabled. Every invoke/stream sends a **single trace** with nested spans for LLM and tool execution, plus token usage where available.
+4. Restart the app with `make core-up`. The `chat_agent` graph injects a Langfuse `CallbackHandler` into run config when Langfuse is enabled. Every invoke/stream sends a **single trace** with nested spans for LLM and tool execution, plus token usage where available.
 5. Inspect the trace in Langfuse (Sessions → latest trace). The SDK runs fail-open—if Langfuse is offline, requests continue without blocking.
 6. **Session vs thread**: The frontend sends a **session_id** (new per tab load/refresh, not persisted) and a **thread_id** (conversation continuity, with only the active ID persisted locally as a reopen pointer). The backend passes `session_id` into the run config metadata (`langfuse_session_id`) so Langfuse groups traces into Sessions (one “browser visit”).
 7. Chat responses include `trace_id` in response/reference metadata when Langfuse tracing is active. The feedback endpoint uses that id to record 1-5 star feedback as the Langfuse score `user-rating` while still preserving the existing local feedback insert.

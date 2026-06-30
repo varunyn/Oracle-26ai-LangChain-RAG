@@ -5,7 +5,7 @@ This project supports MCP in two ways:
 | Role                       | Description                                                                                                                                                                                                                     |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Exposing an MCP server** | This repo runs MCP servers (e.g. `mcp_servers/mcp_semantic_search.py`) that expose tools (semantic search, list collections). Other clients—Next.js UI or external apps—call these servers.                                     |
-| **Consuming MCP**          | The FastAPI backend (called by the Next.js UI) acts as an **MCP client**: it connects to one or more configured MCP server URLs, loads tools from those servers, and lets the LLM use them during chat. |
+| **Consuming MCP**          | The LangGraph `chat_agent` graph acts as an **MCP client**: it connects to one or more configured MCP server URLs, loads tools from those servers, and lets the LLM use them during chat. |
 
 The sections below are split by **exposing** vs **consuming**.
 
@@ -40,7 +40,7 @@ You can run MCP servers from this repo so that the RAG app (or any MCP client) c
 
    Server listens on `http://localhost:9000` by default (or `PORT` from config). This is the standalone MCP server runtime. The backend's MCP client configuration is separate and is normally managed from the frontend Settings page.
 
-2. **Start the FastAPI backend** (which consumes MCP servers on behalf of the UI) via `./run_api.sh`, then use the Next.js frontend to chat with MCP tools (see below).
+2. **Start the LangGraph Agent Server and frontend** with `make core-up`, then use the Next.js frontend to chat with MCP tools (see below).
 
 ### Testing the MCP server (call it directly)
 

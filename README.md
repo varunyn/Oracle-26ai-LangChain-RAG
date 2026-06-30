@@ -70,10 +70,10 @@ The graph id is `chat_agent`, and `langgraph.json` keeps FastAPI mounted through
 
 | Directory                       | Purpose                                                                                        |
 | ------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `src/rag_agent/runtime/`        | Chat runtime, streaming adapters, memory, retrieval helpers, and thread state persistence      |
+| `src/rag_agent/runtime/`        | Graph node runtime helpers, memory, retrieval services, observability, and Agent Server checkpointer integration |
 | `src/rag_agent/workflows/`      | Repeated MCP workflow helpers and work-unit extraction                                         |
 | `src/rag_agent/infrastructure/` | OCI, Oracle vector search, MCP adapter, and model/tool integrations                            |
-| `api/`                          | FastAPI app, chat/config/documents/feedback/health routers, and LangGraph-compatible endpoints |
+| `api/`                          | FastAPI product APIs for config, documents, feedback, suggestions, and health, mounted into the LangGraph Agent Server |
 | `frontend/`                     | Next.js app; `src/app`, `src/components`, and `src/lib` chat/config/types                      |
 | `mcp_servers/`                  | MCP servers for RAG, semantic search, and minimal local tools                                  |
 | `scripts/`                      | Document population, database/table utilities, stack management, and API doc sync              |
@@ -393,7 +393,7 @@ The **RAG MCP server** (`mcp_rag_server.py`) exposes **`rag_ask`** for full RAG 
 This repo supports MCP in two distinct ways:
 
 1. **Expose standalone MCP servers** from `mcp_servers/` such as `mcp_semantic_search.py` and `mcp_rag_server.py`.
-2. **Consume MCP servers inside the app** through the LangGraph-compatible chat routes with `mode="mcp"` or `mode="mixed"`.
+2. **Consume MCP servers inside the app** through the LangGraph `chat_agent` graph with `mode="mcp"` or `mode="mixed"` in run context.
 
 See [`docs/MCP-USAGE.md`](docs/MCP-USAGE.md) for the detailed usage guide.
 

@@ -57,5 +57,5 @@ When adding or changing code: prefer primitive or memoized dependencies in `useC
 
 - **Next.js 16** (App Router), **React 19**, **TypeScript**
 - **Tailwind CSS**, **shadcn-style** UI primitives
-- **@langchain/react** for LangGraph-compatible chat streaming
+- **@langchain/react** for direct LangGraph Agent Server chat streaming
 - **streamdown** / **katex** for message rendering; **shiki** for code blocks

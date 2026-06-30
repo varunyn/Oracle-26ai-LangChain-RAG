@@ -54,7 +54,7 @@ AUTH = "SECURITY_TOKEN"
 OCI_PROFILE = "CHICAGO"  # profile defined in ~/.oci/config
 ```
 
-Restart the FastAPI service (`./run_api.sh`). Logs will show the active auth mode, e.g., `auth=SECURITY_TOKEN`.
+Restart the app (`make core-up`). Logs will show the active auth mode, e.g., `auth=SECURITY_TOKEN`.
 
 ## 4. Refresh or validate tokens
 

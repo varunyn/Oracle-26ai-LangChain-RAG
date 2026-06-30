@@ -52,6 +52,11 @@ docs-site/node_modules/
 docs-site/.astro/
 docs-site/docs/
 
+# Local frontend/tooling artifacts
+node_modules/
+.pnpm-store/
+.playwright-mcp/
+
 # Log files (created at runtime)
 logs/
 .local-data/

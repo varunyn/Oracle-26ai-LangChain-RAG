@@ -10,11 +10,11 @@ Run Loki, Tempo, the OTLP collector, and Grafana locally to inspect logs/traces 
 ## 2. Enable via config
 
 ```python
-ENABLE_OBSERVABILITY_STACK = True  # run_api.sh starts the stack before the API
+ENABLE_OBSERVABILITY_STACK = True  # enable local observability settings
 ENABLE_OTEL_TRACING = True         # send traces to the collector
 ```
 
-Restart with `./run_api.sh`. When Docker isn’t available, set `ENABLE_OBSERVABILITY_STACK = False` and run the API only.
+Start or restart the app with `make core-up`. When Docker isn’t available, set `ENABLE_OBSERVABILITY_STACK = False` and run `uv run langgraph dev` locally.
 
 ## 3. Manual control
 

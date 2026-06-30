@@ -16,7 +16,7 @@ The main confusion point: **`OTEL_TRACES_ENDPOINT` is a single endpoint**. If yo
 
 **A) Stack runtime (Docker)**
 
-- `ENABLE_OBSERVABILITY_STACK=True` controls whether `run_api.sh` starts the local containers:
+- `ENABLE_OBSERVABILITY_STACK=True` enables the local observability configuration; start its containers with `make observability-up`:
   - Loki, Tempo, OTEL Collector, Grafana
 - This is about **starting services**, not about where the app exports.
 
@@ -51,7 +51,7 @@ The main confusion point: **`OTEL_TRACES_ENDPOINT` is a single endpoint**. If yo
 ### Local stack
 
 - `ENABLE_OBSERVABILITY_STACK: bool`
-  - **True** → `run_api.sh` attempts `docker compose --profile observability up -d ...`
+  - **True** → the observability stack can be started with `make observability-up`
   - **False** → does not start docker stack
 
 ### OCI Logging Analytics (non-OTLP log shipper)
@@ -111,7 +111,8 @@ ENABLE_OCI_LOGGING_ANALYTICS=false
 Start:
 
 ```bash
-./run_api.sh
+make observability-up
+make core-up
 ```
 
 Verify:
@@ -210,7 +211,7 @@ This yields:
 
 2. **“`ENABLE_OBSERVABILITY_STACK=True` but nothing starts”**
    - Docker not running/installed.
-   - Fix: start Docker Desktop; rerun `./run_api.sh`.
+   - Fix: start Docker Desktop; rerun `make core-up`.
 
 3. **“Collector is up but `/ready` returns 503”**
    - Loki/Tempo can take a moment to become ready after first boot.

@@ -14,7 +14,7 @@ LOGGING_ANALYTICS_META_PROPERTIES=
 LOGGING_ANALYTICS_MODE=auto  # or all
 ```
 
-Restart the API (`./run_api.sh`) after changing config.
+Restart the app (`make core-up`) after changing config.
 
 ## 2. Required OCI settings
 

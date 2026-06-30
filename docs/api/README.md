@@ -1,6 +1,6 @@
 # API Docs
 
-This directory contains human-friendly API documentation plus Bruno request artifacts for the FastAPI backend.
+This directory contains human-friendly product API documentation plus Bruno request artifacts for the FastAPI routes mounted into the LangGraph Agent Server.
 
 ## Source of truth
 
