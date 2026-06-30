@@ -2,6 +2,9 @@
 
 ## 2026-06-30
 
+- Added per-thread delete actions in the chat sidebar, reusing the LangGraph Agent Server thread delete path for both non-active thread removal and active-thread clear/delete behavior.
+- Stabilized sidebar thread titles so selecting an existing thread no longer rewrites fallback labels from a random thread suffix to the first user question during replay.
+- Fixed frontend sidebar thread-history reordering on old-thread selection by keeping existing thread title updates metadata-only instead of rewriting local recency timestamps, so backend `updated_at` ordering from LangGraph/SQLite remains authoritative.
 - Fixed local Docker chat persistence after browser refresh/container recreation by bind-mounting the LangGraph dev runtime `.langgraph_api` thread/run registry alongside the SQLite checkpoint directory.
 - Fixed OCI Gemini mixed/MCP tool calls by stripping Gemini-rejected JSON Schema bounds (`exclusiveMinimum` / `exclusiveMaximum`) from provider-bound function declarations while keeping the standard `langchain_oci` `ChatOCIGenAI` path.
 - Added a LangGraph Agent Server custom SQLite checkpointer backed by `LANGGRAPH_SQLITE_PATH` with a local checkpoint TTL, and removed the obsolete FastAPI-side checkpoint resource wrapper so chat thread persistence has one owner.

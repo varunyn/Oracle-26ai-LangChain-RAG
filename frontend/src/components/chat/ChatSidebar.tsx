@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, Plus, Upload } from "lucide-react";
+import { MessageSquare, Plus, Trash2, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import type { ChatThreadSummary } from "@/hooks/useChatSession";
 
@@ -33,6 +33,7 @@ type ChatSidebarProps = {
   threadHistory: ChatThreadSummary[];
   activeThreadId: string | null;
   onSelectThread: (threadId: string) => void;
+  onDeleteThread: (threadId: string) => void | Promise<void>;
   onNewChat: () => void;
 };
 
@@ -57,6 +58,7 @@ export function ChatSidebar({
   threadHistory,
   activeThreadId,
   onSelectThread,
+  onDeleteThread,
   onNewChat,
 }: ChatSidebarProps): React.ReactElement {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -132,23 +134,41 @@ export function ChatSidebar({
             {threadHistory.map((thread) => {
               const active = thread.id === activeThreadId;
               return (
-                <button
-                  aria-current={active ? "page" : undefined}
-                  className={`flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
-                    active
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                <div
+                  className={`flex min-w-0 items-center gap-1 rounded-md ${
+                    active ? "bg-primary text-primary-foreground" : ""
                   }`}
                   data-testid="chat-history-thread"
                   key={thread.id}
-                  onClick={() => onSelectThread(thread.id)}
-                  type="button"
                 >
-                  <MessageSquare aria-hidden className="size-4 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">
-                    {thread.title}
-                  </span>
-                </button>
+                  <button
+                    aria-current={active ? "page" : undefined}
+                    className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
+                      active
+                        ? "text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                    }`}
+                    onClick={() => onSelectThread(thread.id)}
+                    type="button"
+                  >
+                    <MessageSquare aria-hidden className="size-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {thread.title}
+                    </span>
+                  </button>
+                  <button
+                    aria-label={`Delete ${thread.title}`}
+                    className={`inline-flex size-8 shrink-0 items-center justify-center rounded-md transition-colors ${
+                      active
+                        ? "text-primary-foreground/80 hover:bg-primary-foreground/15 hover:text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                    }`}
+                    onClick={() => void onDeleteThread(thread.id)}
+                    type="button"
+                  >
+                    <Trash2 aria-hidden className="size-3.5" />
+                  </button>
+                </div>
               );
             })}
           </div>

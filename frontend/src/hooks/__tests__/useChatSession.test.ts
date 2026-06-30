@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { THREAD_ID_STORAGE_KEY } from "@/constants/chat";
-import { createInitialState, loadThreadHistory } from "../useChatSession";
+import {
+  createInitialState,
+  loadThreadHistory,
+  updateThreadHistoryTitle,
+} from "../useChatSession";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -54,6 +58,42 @@ describe("loadThreadHistory", () => {
         title: "Chat read-1",
         createdAt: Date.parse("2026-06-24T10:00:00Z"),
         updatedAt: Date.parse("2026-06-24T11:00:00Z"),
+      },
+    ]);
+  });
+});
+
+describe("updateThreadHistoryTitle", () => {
+  it("keeps an existing thread's recency stable when only the title changes", () => {
+    const originalHistory = [
+      {
+        id: "thread-2",
+        title: "Newest thread",
+        createdAt: 200,
+        updatedAt: 250,
+      },
+      {
+        id: "thread-1",
+        title: "Old thread",
+        createdAt: 100,
+        updatedAt: 150,
+      },
+    ];
+
+    expect(
+      updateThreadHistoryTitle(originalHistory, "thread-1", "Renamed old thread")
+    ).toEqual([
+      {
+        id: "thread-2",
+        title: "Newest thread",
+        createdAt: 200,
+        updatedAt: 250,
+      },
+      {
+        id: "thread-1",
+        title: "Renamed old thread",
+        createdAt: 100,
+        updatedAt: 150,
       },
     ]);
   });

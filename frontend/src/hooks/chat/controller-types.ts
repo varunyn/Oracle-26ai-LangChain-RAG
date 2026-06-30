@@ -36,6 +36,8 @@ export type ClearSessionChat = (helpers: {
   ) => void;
 }) => void;
 
+export type RemoveThreadHistoryEntry = (threadId: string) => void;
+
 export type UseChatControllerArgs = {
   selectedModel: string;
   threadId: string | null;
@@ -46,4 +48,5 @@ export type UseChatControllerArgs = {
   flowMode: FlowMode;
   toast: ToastApi;
   clearSessionChat: ClearSessionChat;
+  removeThreadHistoryEntry: RemoveThreadHistoryEntry;
 };

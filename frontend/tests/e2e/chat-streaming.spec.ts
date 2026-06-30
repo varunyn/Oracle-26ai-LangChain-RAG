@@ -277,17 +277,141 @@ test.describe("chat streaming", () => {
 
     const history = page.getByLabel("Chat history");
     await expect(
-      history.getByRole("button", { name: "Latest invoice workflow" })
+      history.getByRole("button", { name: "Latest invoice workflow", exact: true })
     ).toHaveAttribute("aria-current", "page");
-    await history.getByRole("button", { name: "Vendor payment terms" }).click();
+    await history
+      .getByRole("button", { name: "Vendor payment terms", exact: true })
+      .click();
 
     await expect(page.getByTestId("chat-root")).toHaveAttribute(
       "data-thread-id",
       SIDEBAR_THREAD_ID_2
     );
     await expect(
-      history.getByRole("button", { name: "Vendor payment terms" })
+      history.getByRole("button", { name: "Vendor payment terms", exact: true })
     ).toHaveAttribute("aria-current", "page");
+  });
+
+  test("deletes a non-active sidebar thread without changing the active thread", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        "rag_agent_thread_id",
+        "00000000-0000-4000-8000-000000000002"
+      );
+    });
+    await page.route("**/threads/search**", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            thread_id: "00000000-0000-4000-8000-000000000002",
+            created_at: "2026-06-26T10:00:00Z",
+            updated_at: "2026-06-26T10:00:00Z",
+            values: {
+              messages: [{ type: "human", content: "Latest invoice workflow" }],
+            },
+          },
+          {
+            thread_id: SIDEBAR_THREAD_ID_2,
+            created_at: "2026-06-26T09:00:00Z",
+            updated_at: "2026-06-26T09:00:00Z",
+            values: {
+              messages: [{ type: "human", content: "Vendor payment terms" }],
+            },
+          },
+        ]),
+      });
+    });
+    await page.route(`**/threads/${SIDEBAR_THREAD_ID_2}`, (route) => {
+      route.fulfill({ status: 204 });
+    });
+
+    await page.goto("/");
+
+    const history = page.getByLabel("Chat history");
+    await history
+      .getByRole("button", { name: "Delete Vendor payment terms" })
+      .click();
+
+    await expect(
+      history.getByRole("button", { name: "Vendor payment terms" })
+    ).toHaveCount(0);
+    await expect(page.getByTestId("chat-root")).toHaveAttribute(
+      "data-thread-id",
+      "00000000-0000-4000-8000-000000000002"
+    );
+    await expect(
+      history.getByRole("button", { name: "Latest invoice workflow", exact: true })
+    ).toHaveAttribute("aria-current", "page");
+  });
+
+  test("keeps an existing fallback thread title stable after selecting the thread", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        "rag_agent_thread_id",
+        "00000000-0000-4000-8000-000000000002"
+      );
+    });
+    await page.route("**/threads/search**", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            thread_id: "00000000-0000-4000-8000-000000000002",
+            created_at: "2026-06-26T10:00:00Z",
+            updated_at: "2026-06-26T10:00:00Z",
+            values: {
+              messages: [{ type: "human", content: "Latest invoice workflow" }],
+            },
+          },
+          {
+            thread_id: SIDEBAR_THREAD_ID_2,
+            created_at: "2026-06-26T09:00:00Z",
+            updated_at: "2026-06-26T09:00:00Z",
+            values: {},
+          },
+        ]),
+      });
+    });
+    await page.route(`**/threads/${SIDEBAR_THREAD_ID_2}/state`, (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          values: {
+            messages: [{ type: "human", content: "Vendor payment terms" }],
+          },
+        }),
+      });
+    });
+
+    await page.goto("/");
+
+    const history = page.getByLabel("Chat history");
+    await expect(
+      history.getByRole("button", { name: "Chat 000003", exact: true })
+    ).toBeVisible();
+
+    await history
+      .getByRole("button", { name: "Chat 000003", exact: true })
+      .click();
+
+    await expect(page.getByTestId("chat-root")).toHaveAttribute(
+      "data-thread-id",
+      SIDEBAR_THREAD_ID_2
+    );
+    await expect(
+      history.getByRole("button", { name: "Chat 000003", exact: true })
+    ).toBeVisible();
+    await expect(
+      history.getByRole("button", { name: "Vendor payment terms", exact: true })
+    ).toHaveCount(0);
   });
 
   test("keeps long chat history scrollable in the sidebar", async ({
@@ -1074,6 +1198,77 @@ test.describe("chat streaming", () => {
     const closeBox = await toastClose.boundingBox();
     expect(closeBox?.width).toBeGreaterThanOrEqual(40);
     expect(closeBox?.height).toBeGreaterThanOrEqual(40);
+  });
+
+  test("deletes the active sidebar thread and clears the current chat", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("rag_agent_thread_id", CLEAR_ACTIVE_THREAD_ID);
+    });
+    let searchCount = 0;
+    await page.route("**/threads/search**", (route) => {
+      searchCount += 1;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          searchCount <= 2
+            ? [
+                {
+                  thread_id: CLEAR_ACTIVE_THREAD_ID,
+                  created_at: "2026-06-26T10:00:00Z",
+                  updated_at: "2026-06-26T10:00:00Z",
+                  values: {
+                    messages: [{ type: "human", content: "Active chat to delete" }],
+                  },
+                },
+                {
+                  thread_id: KEEP_THREAD_ID,
+                  created_at: "2026-06-26T09:00:00Z",
+                  updated_at: "2026-06-26T09:00:00Z",
+                  values: {
+                    messages: [{ type: "human", content: "Keep this chat" }],
+                  },
+                },
+              ]
+            : [
+                {
+                  thread_id: KEEP_THREAD_ID,
+                  created_at: "2026-06-26T09:00:00Z",
+                  updated_at: "2026-06-26T09:00:00Z",
+                  values: {
+                    messages: [{ type: "human", content: "Keep this chat" }],
+                  },
+                },
+              ]
+        ),
+      });
+    });
+    await page.route(`**/threads/${CLEAR_ACTIVE_THREAD_ID}`, (route) => {
+      route.fulfill({ status: 204 });
+    });
+
+    await page.goto("/");
+
+    const history = page.getByLabel("Chat history");
+    await history
+      .getByRole("button", { name: "Delete Active chat to delete" })
+      .click();
+
+    await expect(
+      page.getByText("Ask a question about your documents")
+    ).toBeVisible();
+    await expect(page.getByTestId("chat-root")).not.toHaveAttribute(
+      "data-thread-id",
+      CLEAR_ACTIVE_THREAD_ID
+    );
+    await expect(
+      history.getByRole("button", { name: "Active chat to delete" })
+    ).toHaveCount(0);
+    await expect(
+      history.getByRole("button", { name: "Keep this chat", exact: true })
+    ).toBeVisible();
   });
 
   test("expands the chat input for long multi-line prompts", async ({

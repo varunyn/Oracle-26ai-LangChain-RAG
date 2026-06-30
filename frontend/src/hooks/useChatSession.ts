@@ -107,7 +107,7 @@ function sortAndLimit(history: ChatThreadSummary[]): ChatThreadSummary[] {
     .slice(0, MAX_STORED_THREADS);
 }
 
-function updateThreadHistoryTitle(
+export function updateThreadHistoryTitle(
   history: ChatThreadSummary[],
   threadId: string,
   title: string
@@ -123,10 +123,8 @@ function updateThreadHistoryTitle(
   if (existing.title === title) {
     return history;
   }
-  return sortAndLimit(
-    history.map((thread) =>
-      thread.id === threadId ? { ...thread, title, updatedAt: now } : thread
-    )
+  return history.map((thread) =>
+    thread.id === threadId ? { ...thread, title } : thread
   );
 }
 
@@ -304,6 +302,23 @@ export function useChatSession() {
     []
   );
 
+  const removeThreadHistoryEntry = useCallback(
+    (threadId: string) => {
+      const nextThreadId = threadId.trim();
+      if (!nextThreadId) {
+        return;
+      }
+      const threadHistory = state.threadHistory.filter(
+        (thread) => thread.id !== nextThreadId
+      );
+      if (threadHistory.length === state.threadHistory.length) {
+        return;
+      }
+      writeSessionState({ ...state, threadHistory, hydrated: true });
+    },
+    [state]
+  );
+
   function clearChat<TMessage, TContext>(helpers: {
     threadId?: string | null;
     setMessages?: (
@@ -343,6 +358,7 @@ export function useChatSession() {
     startNewChat,
     updateThreadTitle,
     refreshThreadHistory,
+    removeThreadHistoryEntry,
     isReady: state.hydrated,
   };
 }

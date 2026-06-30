@@ -44,6 +44,7 @@ export default function Chat() {
     startNewChat,
     updateThreadTitle,
     refreshThreadHistory,
+    removeThreadHistoryEntry,
     isReady,
   } = chatSession;
   if (!isReady) {
@@ -56,6 +57,7 @@ export default function Chat() {
         clearChat={clearChat}
         onNewChat={startNewChat}
         onRefreshThreadHistory={refreshThreadHistory}
+        onRemoveThreadHistoryEntry={removeThreadHistoryEntry}
         onSelectThread={setThreadId}
         onUpdateThreadTitle={updateThreadTitle}
         sessionId={sessionId}
@@ -74,6 +76,9 @@ type ChatPageContentProps = {
   threadHistory: ReturnType<typeof useChatSession>["threadHistory"];
   onSelectThread: ReturnType<typeof useChatSession>["setThreadId"];
   onNewChat: ReturnType<typeof useChatSession>["startNewChat"];
+  onRemoveThreadHistoryEntry: ReturnType<
+    typeof useChatSession
+  >["removeThreadHistoryEntry"];
   onUpdateThreadTitle: ReturnType<typeof useChatSession>["updateThreadTitle"];
   onRefreshThreadHistory: ReturnType<
     typeof useChatSession
@@ -103,6 +108,7 @@ function ChatPageContent({
   threadHistory,
   onSelectThread,
   onNewChat,
+  onRemoveThreadHistoryEntry,
   onUpdateThreadTitle,
   onRefreshThreadHistory,
 }: ChatPageContentProps) {
@@ -120,15 +126,19 @@ function ChatPageContent({
     flowMode: sessionUI.flowMode,
     toast,
     clearSessionChat: clearChat,
+    removeThreadHistoryEntry: onRemoveThreadHistoryEntry,
   });
   const mutations = useChatMutations(sessionUI.collectionName);
 
   useEffect(() => {
     const title = deriveThreadTitle(chat.messages as ChatMessageLike[]);
-    if (threadId && title) {
+    const threadAlreadyTracked = threadHistory.some(
+      (thread) => thread.id === threadId
+    );
+    if (threadId && title && !threadAlreadyTracked) {
       onUpdateThreadTitle(threadId, title);
     }
-  }, [chat.messages, onUpdateThreadTitle, threadId]);
+  }, [chat.messages, onUpdateThreadTitle, threadHistory, threadId]);
 
   useEffect(() => {
     if (chat.status !== "ready") {
@@ -155,6 +165,7 @@ function ChatPageContent({
         flowMode={sessionUI.flowMode}
         isUploading={mutations.isUploading}
         onClearChat={chat.handleClearChat}
+        onDeleteThread={chat.handleDeleteThread}
         onNewChat={onNewChat}
         onSelectThread={onSelectThread}
         onUpload={mutations.handleUpload}

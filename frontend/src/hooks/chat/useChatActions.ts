@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import type {
   ClearSessionChat,
   MessageLike,
+  RemoveThreadHistoryEntry,
   SendOverrides,
   ToastApi,
 } from "@/hooks/chat/controller-types";
@@ -26,6 +27,7 @@ export function useChatActions(args: {
   clearSessionChat: ClearSessionChat;
   input: string;
   messages: MessageLike[];
+  removeThreadHistoryEntry: RemoveThreadHistoryEntry;
   setContextUsage: Dispatch<SetStateAction<ContextUsage | null>>;
   setFeedbackSubmitted: Dispatch<SetStateAction<boolean>>;
   setFeedbackSubmittedMessageIndexes: Dispatch<SetStateAction<Set<number>>>;
@@ -45,12 +47,14 @@ export function useChatActions(args: {
   handleStopStream: () => void;
   handleFeedback: (stars: number, messageIndex: number) => Promise<void>;
   handleClearChat: () => Promise<void>;
+  handleDeleteThread: (threadId: string) => Promise<void>;
 } {
   const {
     bodyParams,
     clearSessionChat,
     input,
     messages,
+    removeThreadHistoryEntry,
     setContextUsage,
     setFeedbackSubmitted,
     setFeedbackSubmittedMessageIndexes,
@@ -237,6 +241,51 @@ export function useChatActions(args: {
     toast,
   ]);
 
+  const handleDeleteThread = useCallback(
+    async (targetThreadId: string) => {
+      const normalizedThreadId = targetThreadId.trim();
+      if (!normalizedThreadId) {
+        return;
+      }
+      debugChatStage("deleteThread.start", {
+        activeThreadId: threadId,
+        targetThreadId: normalizedThreadId,
+      });
+      if (normalizedThreadId === threadId) {
+        await handleClearChat();
+        return;
+      }
+      try {
+        await stream.client.threads.delete(normalizedThreadId);
+      } catch (error) {
+        console.error("Thread delete failed:", error);
+        debugChatStage("deleteThread.failed", {
+          activeThreadId: threadId,
+          targetThreadId: normalizedThreadId,
+          error: String(error),
+        });
+        toast.error("Could not delete chat");
+        return;
+      }
+
+      removeThreadHistoryEntry(normalizedThreadId);
+
+      debugChatStage("deleteThread.succeeded", {
+        activeThreadId: threadId,
+        targetThreadId: normalizedThreadId,
+      });
+      toast.success("Chat deleted");
+    },
+    [
+      clearSessionChat,
+      removeThreadHistoryEntry,
+      handleClearChat,
+      stream,
+      threadId,
+      toast,
+    ]
+  );
+
   return {
     sendUserMessage,
     handleSubmit,
@@ -247,5 +296,6 @@ export function useChatActions(args: {
     handleStopStream,
     handleFeedback,
     handleClearChat,
+    handleDeleteThread,
   };
 }

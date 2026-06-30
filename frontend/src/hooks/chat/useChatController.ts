@@ -29,6 +29,7 @@ export function useChatController({
   flowMode,
   toast,
   clearSessionChat,
+  removeThreadHistoryEntry,
 }: UseChatControllerArgs) {
   const [input, setInput] = useState("");
   const [maxCitationsToShow, setMaxCitationsToShow] = useState(10);
@@ -187,6 +188,7 @@ export function useChatController({
 
   const {
     handleClearChat,
+    handleDeleteThread,
     handleFeedback,
     handleRecoverDirect,
     handleRecoverRagOnly,
@@ -200,6 +202,7 @@ export function useChatController({
     clearSessionChat,
     input,
     messages,
+    removeThreadHistoryEntry,
     setContextUsage,
     setFeedbackSubmitted,
     setFeedbackSubmittedMessageIndexes,
@@ -245,6 +248,7 @@ export function useChatController({
     handleRetry,
     handleFeedback,
     handleClearChat,
+    handleDeleteThread,
     feedbackSubmittedMessageIndexes,
     contextUsage,
     dynamicSuggestions,
