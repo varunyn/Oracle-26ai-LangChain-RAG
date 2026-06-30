@@ -13,7 +13,7 @@ This application provides an intelligent question-answering system that:
 
 ## Architecture
 
-Chat execution is handled by `ChatRuntimeService` (`src/rag_agent/runtime/chat_service.py`) with explicit mode dispatch:
+Chat execution is handled by the LangGraph Agent Server `chat_agent` graph with explicit mode dispatch:
 
 - `rag`: Oracle vector similarity search + answer prompt
 - `mcp`: MCP tools only through `langchain_mcp_adapters` + LangChain agent loop
@@ -92,7 +92,7 @@ graph TD;
 - `create_agent(...)` loop in `src/rag_agent/infrastructure/mcp_agent_executor.py`
 - Built-in middleware for retries/tool-call bounds
 - Shared MCP prompts and middleware-backed tool execution
-- Mixed mode gives the agent the full retrieval + MCP toolbox. When `oracle_retrieval` returns documents, the final response uses the RAG answer prompt for streaming synthesis and includes non-retrieval MCP tool results as supplemental context.
+- Mixed mode gives the agent the full retrieval + MCP toolbox. When `oracle_retrieval` returns documents, the final response uses the RAG answer path and includes non-retrieval MCP tool results as supplemental context.
 
 ### 4. **Citation Normalization**
 
@@ -206,7 +206,7 @@ uv run python scripts/ingest_documents.py --dir ./documents
 
 | Service            | URL                   | Notes                                    |
 | ------------------ | --------------------- | ---------------------------------------- |
-| Backend (FastAPI)  | http://localhost:3002 | Default API port                         |
+| LangGraph + APIs   | http://localhost:2024 | Agent Server plus custom FastAPI routes  |
 | Frontend (Next.js) | http://localhost:4000 | Repo standard for dev and Docker         |
 | Grafana            | http://localhost:3051 | Only when observability stack is enabled |
 | Langfuse UI        | http://localhost:3300 | Only when Langfuse stack is enabled      |
@@ -214,8 +214,8 @@ uv run python scripts/ingest_documents.py --dir ./documents
 #### Option A – Local processes
 
 ```bash
-# Terminal 1 – FastAPI backend
-./run_api.sh
+# Terminal 1 – LangGraph Agent Server with custom FastAPI routes
+uv run langgraph dev
 
 # Terminal 2 – Next.js UI (port 4000)
 cd frontend
@@ -224,17 +224,16 @@ cp env.example .env.local
 PORT=4000 pnpm dev
 ```
 
-#### Option B – Docker Compose (backend + LangGraph + frontend)
+#### Option B – Docker Compose (LangGraph + frontend)
 
 ```bash
-docker compose up -d backend langgraph frontend
+docker compose up -d langgraph frontend
 # or just `docker compose up -d` to include any other services defined
 ```
 
-- API: http://localhost:3002 (default; override with `PORT` env var)
-- LangGraph Agent Server: http://localhost:2024
+- LangGraph Agent Server and product APIs: http://localhost:2024
 - Frontend: http://localhost:4000 (container exposes port 3000 at 4000 per compose)
-- Logs: `docker compose logs -f backend langgraph frontend`
+- Logs: `docker compose logs -f langgraph frontend`
 - Stop: `docker compose down`
 
 #### Optional observability stack (Grafana/Loki/Tempo)
@@ -247,7 +246,7 @@ docker compose --profile observability down
 
 This starts the collector + Loki + Tempo + Grafana defined in `docker-compose.yml`.
 
-If you are running the API locally (Option A), you can also have `./run_api.sh` start these containers by setting `ENABLE_OBSERVABILITY_STACK=true` in `.env`.
+If you are running locally, start optional observability containers with the compose command above or `uv run python scripts/manage_stacks.py up --stacks observability`.
 
 #### Optional Langfuse stack
 
@@ -261,7 +260,7 @@ docker compose -f observability/langfuse/docker-compose.yml up -d
 
 The Langfuse UI will run at `http://localhost:3300` (default) using its own compose file so it doesn't interfere with the main stack. See `observability/langfuse/README.md` for details.
 
-- API: http://localhost:3002 (default; override with `PORT` env var)
+- LangGraph Agent Server and product APIs: http://localhost:2024
 - Frontend: http://localhost:4000 (Next.js dev server reads API URL from env)
 
 #### Optional one-command stack management
@@ -287,7 +286,7 @@ The Langfuse UI will run at `http://localhost:3300` (default) using its own comp
 ### 3. Query the Knowledge Base
 
 1. Enter your question in the chat interface
-2. The backend routes by `mode` (`rag`, `mcp`, `mixed`, `direct`)
+2. The LangGraph `chat_agent` routes by `mode` (`rag`, `mcp`, `mixed`, `direct`)
 3. Receive streaming answer with references in assistant message metadata (`citations`, `reranker_docs`, `mcp_tool_invocations`, and related fields)
 4. Inspect sources in the chat UI
 
@@ -302,7 +301,7 @@ The Langfuse UI will run at `http://localhost:3300` (default) using its own comp
 ### 🔄 Chat History and Memory
 
 - Maintains conversation context by `thread_id`
-- Server-side short-term memory in `ChatRuntimeService`
+- Server-side short-term memory in LangGraph thread/checkpoint state
 - Cleared through `DELETE /api/threads/{thread_id}`
 
 ### 🧭 Retrieval Relevance Filtering

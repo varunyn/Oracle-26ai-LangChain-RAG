@@ -3,7 +3,7 @@
 ## Base URL
 
 ```text
-http://127.0.0.1:3002
+http://127.0.0.1:2024
 ```
 
 ## Content types

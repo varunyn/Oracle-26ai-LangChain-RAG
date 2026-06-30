@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Quick check: do Loki and Tempo have data from the RAG API?
-# Run from project root. Requires: stack up, API running with ENABLE_OTEL_TRACING=1.
+# Run from project root. Requires: stack up, Agent Server running with ENABLE_OTEL_TRACING=1.
 
 set -e
 LOKI="${LOKI:-http://localhost:3100}"
 TEMPO="${TEMPO:-http://localhost:3200}"
-API="${API:-http://localhost:3002}"
+API="${API:-http://localhost:2024}"
 COLLECTOR="${COLLECTOR:-http://localhost:4318}"
 
 echo "=== 0. Collector reachable? (API must send to this endpoint) ==="
@@ -24,7 +24,7 @@ if curl -sf --connect-timeout 2 -o /dev/null "$API/health"; then
   echo "  API is up. Sending 3 health requests..."
   for i in 1 2 3; do curl -sf -o /dev/null "$API/health"; sleep 0.5; done
 else
-  echo "  WARNING: API not reachable at $API/health. Start it with ENABLE_OTEL_TRACING=1 and run_api.sh"
+  echo "  WARNING: API not reachable at $API/health. Start it with ENABLE_OTEL_TRACING=1 and uv run langgraph dev"
 fi
 
 echo ""

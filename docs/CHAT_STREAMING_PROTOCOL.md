@@ -29,7 +29,7 @@ Run-start request shape:
 Notes:
 
 - Stream completion is transport close (there is no `[DONE]` sentinel).
-- Assistant references, sources, and tool activity are carried in `response_metadata` / `additional_kwargs` on assistant messages.
+- Assistant references and sources are carried in `response_metadata` / `additional_kwargs` on assistant messages.
 - Frontend uses `@langchain/react` directly against `NEXT_PUBLIC_LANGGRAPH_API_BASE` (local default: `http://localhost:2024`).
 - FastAPI no longer adapts or proxies the chat protocol.
 
@@ -58,28 +58,16 @@ curl -sS -N \
 ### Tool activity channels
 
 - Native Agent Server tool calls use the `tools` channel and are projected by `@langchain/react` as `stream.toolCalls`.
-- MCP tools executed inside the graph's MCP node use the named custom channel `custom:mcp_tool_activity`.
-- MCP activity events contain `tool_run_id`, `tool_name`, `status`, `args`, `output`, and `error`; the final assistant message also retains `mcp_tool_invocations` for replay and history.
+- MCP history/replay metadata is retained on the final assistant message in `mcp_tool_invocations`.
 
 ### Inspecting + deleting thread state
 
-- Inspect programmatically:
+- Inspect through the Agent Server:
 
 ```bash
-uv run python - <<'PY'
-import asyncio
-from api.dependencies import build_chat_config
-from src.rag_agent.runtime.chat_service import ChatRuntimeService
-
-async def main() -> None:
-    run_config = build_chat_config(thread_id="t1")
-    snap = await ChatRuntimeService().get_state(run_config)
-    values = getattr(snap, "values", {}) or {}
-    print(len(values.get("messages") or []))
-
-asyncio.run(main())
-PY
+curl -s http://localhost:2024/threads/search
+curl -s http://localhost:2024/threads/<thread_id>/state
 ```
 
 - Delete via LangGraph client or Agent Server thread APIs.
-- Reset all state: restart the relevant process if you are using process-local memory.
+- Reset all state: delete the thread through Agent Server APIs or clear the configured checkpoint storage.

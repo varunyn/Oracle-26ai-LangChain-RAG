@@ -4,19 +4,25 @@ This file is local-only orientation for Codex work in this repo. The closest `AG
 
 ## Repo Map
 
-| Area                                                  | Stack                                | Primary Commands                                            |
-| ----------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------- |
-| `src`, `api`, `scripts`, `mcp_servers`, `tests`, `ui` | Python 3.11, LangChain, FastAPI, MCP | `uv run python ...`, `uv run pytest`, `./run_api.sh`        |
-| `frontend`                                            | Next.js 16, React 19, Tailwind CSS   | `PORT=4000 pnpm dev`, `pnpm build`, `pnpm lint`             |
-| Docker stacks                                         | Core app, observability, Langfuse    | `uv run python scripts/manage_stacks.py up --stacks <name>` |
+| Area                            | Purpose                                                                | Primary commands                        |
+| ------------------------------- | ---------------------------------------------------------------------- | --------------------------------------- |
+| `src/rag_agent/graphs/`         | LangGraph `chat_agent` and direct/RAG/MCP/mixed nodes                  | `uv run langgraph dev`                  |
+| `src/rag_agent/runtime/`        | Runtime helpers, memory/message normalization, streaming, retrieval    | `uv run pytest tests/unit_tests`        |
+| `src/rag_agent/infrastructure/` | Oracle/OCI, MCP adapters/config, retrieval, model integrations         | `uv run python ...`                     |
+| `api/`                          | FastAPI product APIs mounted into the LangGraph Agent Server           | `uv run langgraph dev`                  |
+| `frontend/`                     | Next.js 16/React 19 chat and Settings UI                               | `cd frontend && pnpm dev`               |
+| `mcp_servers/`                  | Standalone FastMCP semantic-search and RAG servers                     | `uv run python mcp_servers/<server>.py` |
+| `docs/` and `docs-site/`        | Markdown source and Astro/ReallySimpleDocs site                        | `cd docs-site && npm run dev`           |
+| `observability/`                | Grafana, Tempo, Loki, OTEL, and Langfuse stack configuration           | `make observability-up`                 |
+| `scripts/`                      | Ingestion, database, stack, API-doc, smoke, and release utilities      | `uv run python scripts/<name>.py`       |
 
 Scoped hints:
 
 - `api/AGENTS.md`: FastAPI route/runtime boundaries and API contracts.
 - `frontend/AGENTS.md`: Next.js layout, frontend commands, and UI/backend contracts.
-- `src/AGENTS.md`: LangChain documentation rule for runtime/source work.
+- `src/AGENTS.md`: LangChain documentation rule and runtime/graph ownership.
 - `tests/AGENTS.md`: LangChain testing categories and fake-model guidance.
-- `scripts/AGENTS.md`, `mcp_servers/AGENTS.md`, `observability/AGENTS.md`: scoped operational notes.
+- `scripts/AGENTS.md`, `mcp_servers/AGENTS.md`, `observability/AGENTS.md`, `docs-site/AGENTS.md`: scoped operational notes.
 
 ## Environment
 
@@ -28,31 +34,46 @@ Scoped hints:
 
 ## Runtime Commands
 
-- FastAPI API: `./run_api.sh`
-- Direct API fallback: `uv run uvicorn api.main:app --host 127.0.0.1 --port 3002 --reload`
-- API health: `curl -s http://127.0.0.1:3002/health`
+- LangGraph Agent Server and product APIs: `uv run langgraph dev`
+- Product API health: `curl -s http://127.0.0.1:2024/health`
 - Frontend dev: `cd frontend && PORT=4000 pnpm dev`
 - Check running Compose services first: `docker compose ps`
 - Inspect Compose logs before guessing: `docker compose logs --tail 120 <service>`
 - Observability stack: `uv run python scripts/manage_stacks.py up --stacks observability`
 - Langfuse stack: `uv run python scripts/manage_stacks.py up --stacks langfuse`
+- Core stack: `make core-up`; stop with `make core-down`; inspect with `make status`
 
-## Live Runtime Debugging
+## Runtime Debugging
 
-- Start from the running system. Check `docker compose ps`, then `docker compose logs --tail 120 <service>` before guessing from source or screenshots.
-- When the user is testing Docker, treat Docker as the source of truth. Frontend changes require the frontend image/container to be rebuilt or hot-loaded by the active dev setup before browser results matter.
-- For faster backend iteration, use direct uvicorn or the bind-mounted dev override: `docker compose -f docker-compose.yml -f docker-compose.dev.yml up backend`.
-- For browser-visible regressions, collect the actual console/network symptom, request ID, backend log lines, and response/stream payload before changing code.
-- Leave local-only Codex or MCP config such as `.codex/config.toml` out of commits unless the user explicitly asks to version it.
+Start from the running system:
+
+1. Check whether Docker Compose services are already running.
+2. Inspect relevant logs before changing code.
+3. For browser-visible regressions, collect:
+   - console errors
+   - network response
+   - request ID
+   - backend log lines
+   - response or stream payload
+4. When Docker is the user’s test surface, treat Docker as the source of truth.
+5. Rebuild or hot-load frontend changes before trusting browser results.
+
+## Runtime Boundaries
+
+- The browser chat uses the LangGraph Agent Server at `http://localhost:2024` and graph id `chat_agent` from `langgraph.json`.
+- `api/` owns product endpoints, not the primary chat stream. Keep chat orchestration in `src/rag_agent/graphs/` and runtime helpers in `src/rag_agent/runtime/`.
+- `ChatRuntimeService` is a compatibility adapter for direct/RAG paths; do not restore MCP/mixed ownership there without an explicit migration.
+- MCP server definitions are managed through the Settings UI/config store and resolved by the MCP infrastructure layer. Do not hardcode consumed server URLs in graph or standalone server code.
+- LangGraph Agent Server persistence owns chat thread history. Preserve structured `AIMessage` content and stable message ids across stream and replay changes.
 
 ## Agentic AI Changes
 
-- For agentic AI, MCP, tool-calling, routing, retry, memory/state, streaming, or output-quality bugs, inspect live Langfuse traces before coding. Use `langfuse --env .env api traces list --limit 5 --json`, then fetch the trace and observations by trace id.
+- For agentic AI, MCP, tool-calling, routing, retry, memory/state, streaming, or output-quality bugs, inspect live Langfuse traces before coding. Use `langfuse --env .env api traces list --limit 5 --json`, then fetch the trace with embedded observations using `langfuse --env .env api traces get <trace-id> --fields core,io,scores,observations,metrics --json`.
 - Do not hardcode prompt-keyword or tool-name scenarios to make one example pass. Prefer model tool-calling semantics, tool descriptions, structured state, middleware, and deterministic checks on already-structured tool results.
 - For provider errors, inspect the real package behavior and live payload shape first. Keep compatibility fixes at the app/provider boundary and avoid patching vendored packages unless explicitly requested.
-- Unit tests are not enough for LangChain/LangGraph changes. Run an integration or end-to-end path that exercises the actual graph/agent flow; use real model calls and real tool calls when the environment allows.
+- Unit tests are not enough for LangChain/LangGraph changes. Run a workflow test plus an Agent Server or frontend path that exercises the actual graph/agent flow; use real model calls and real tool calls when the environment allows.
 - If real calls are not possible, say exactly what was validated instead and what remains unproven. Keep deterministic unit/workflow tests for guardrails, but do not present them as proof of live agent behavior.
-- Streaming fixes must be verified at the stream contract and UI layers: backend SSE/events, frontend stream state, visible tool progress, and final answer rendering.
+- Streaming fixes must be verified at the stream contract and UI layers: Agent Server SSE/events, frontend stream state, visible tool progress, thread replay, and final answer/citation rendering.
 
 ## Checks
 
@@ -86,11 +107,12 @@ Test categories:
 - Keep response contracts stable unless frontend, tests, and docs move together.
 - Runtime response fields such as `final_answer`, `citations`, `reranker_docs`, `context_usage`, and `mcp_*` are public-facing within this app.
 - Citation normalization belongs in `src/rag_agent/core/citations.py`.
-- Chat runtime state is owned by `src/rag_agent/runtime/chat_service.py`; request config helpers live in `api/dependencies.py`.
+- Chat graph state and thread persistence are owned by the LangGraph Agent Server graph/runtime; request config helpers live in `api/dependencies.py`.
 - For agentic workflow control, avoid regex or hardcoded prompt-keyword routing. Prefer model/tool-calling semantics, structured state, and deterministic validation of already-structured data.
 - For LangChain-related source or test changes, check the current official docs through the configured LangChain docs MCP before recommending APIs or changing patterns.
-- For agentic AI, tool-calling, MCP, routing, or LLM behavior debugging, inspect live traces with the installed Langfuse CLI before guessing from code. Prefer `langfuse --env .env api traces list --limit 5 --json`, `langfuse --env .env api traces get <trace-id> --fields core,io,scores,observations,metrics --json`, and `langfuse --env .env api observations list --filter '[{"type":"string","column":"traceId","operator":"=","value":"<trace-id>"}]' --fields core,basic,io,model,usage,metadata --json`. Never print public/secret key values.
+- For agentic AI, tool-calling, MCP, routing, or LLM behavior debugging, inspect live traces with the installed Langfuse CLI before guessing from code. Prefer `langfuse --env .env api traces list --limit 5 --json` followed by `langfuse --env .env api traces get <trace-id> --fields core,io,scores,observations,metrics --json`. The local self-hosted stack is Langfuse v3; do not use `api observations list` here because that endpoint requires Langfuse v4 write mode. Never print public/secret key values.
 - For runtime bugs, prefer live evidence first: check whether the Docker Compose app is already running, use the existing containers/surface when available, inspect Docker logs before guessing, then use browser/devtools output, actual tool schemas, request IDs, and repro commands.
+- For frontend chat regressions, check both `frontend/src/hooks/chat/` projection/state code and the Agent Server payload before changing rendering components.
 - Significant features, fixes, refactorings, specification updates, deployment changes, and documentation updates must be recorded in CHANGELOG.md under the current date.
 
 ## Contribution Notes
@@ -99,3 +121,12 @@ Test categories:
 - Use conventional, descriptive commit subjects. Do not add `Co-authored-by`.
 - Before opening PRs, run the relevant checks above and report any failures with concrete logs.
 - For releases, use `./scripts/release_checklist.sh`.
+
+## AGENTS.md Maintenance
+
+- Keep this root file limited to repo-wide rules and architectural landmarks; put subsystem-specific rules in the nearest scoped file.
+- Prefer references to stable directories, entry points, and commands over exhaustive file inventories.
+- When a command, ownership boundary, or generated-file rule changes, update the nearest affected guide in the same change.
+- Keep scoped guides tracked and review them like code; do not hide project guidance with local ignore rules.
+
+Don't leave fallbacks and legacy code. Implementation must be thorough

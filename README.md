@@ -10,8 +10,8 @@ A LangChain-powered Oracle RAG application with chat, MCP tools, and observabili
 
 This repository is best understood as a **reference implementation**, not a zero-config starter. It combines:
 
-- a FastAPI backend with LangGraph-compatible thread/run endpoints
-- `ChatRuntimeService` mode dispatch for retrieval, MCP tools, direct chat, and follow-up transforms
+- a LangGraph Agent Server chat runtime with custom FastAPI product routes mounted through `langgraph.json`
+- graph-owned mode dispatch for retrieval, MCP tools, direct chat, and follow-up transforms
 - a Next.js chat frontend with streaming responses and citations
 - Oracle/OCI-backed embeddings, chat models, and vector search
 - optional observability with OpenTelemetry, Grafana/Tempo/Loki, and Langfuse
@@ -54,7 +54,7 @@ The UI includes the main chat workspace, document upload controls, source review
 
 ## Architecture
 
-The active backend runtime is centered on `ChatRuntimeService` in `src/rag_agent/runtime/chat_service.py`. API routes normalize incoming chat turns, dispatch to one of the explicit runtime modes, and return stable chat responses or LangGraph-compatible `event: values` streams.
+The active chat runtime is the LangGraph Agent Server `chat_agent` graph in `src/rag_agent/graphs/chat_agent.py`. FastAPI remains mounted as a custom app for product routes such as config, suggestions, feedback, and document ingestion.
 
 ## LangGraph Agent Server development
 
@@ -64,7 +64,7 @@ Run the graph server locally:
 uv run langgraph dev
 ```
 
-The graph id is `chat_agent`, and `langgraph.json` keeps FastAPI mounted through `api/main.py:app` while the legacy chat surface still coexists during this compatibility phase.
+The graph id is `chat_agent`, and `langgraph.json` keeps FastAPI mounted through `api/main.py:app` so product routes are served from the same `localhost:2024` Agent Server host.
 
 ### Key Directories
 
@@ -198,7 +198,7 @@ RUN_INTEGRATION_TESTS=1 OCI_INTEGRATION_TESTS=1 AI_WORKFLOW_E2E_TESTS=1 \
 
 | Service            | URL                   | Notes                                    |
 | ------------------ | --------------------- | ---------------------------------------- |
-| Backend (FastAPI)  | http://localhost:3002 | Default API port                         |
+| LangGraph + APIs   | http://localhost:2024 | Agent Server plus custom FastAPI routes  |
 | Frontend (Next.js) | http://localhost:4000 | Repo standard for dev and Docker         |
 | Grafana            | http://localhost:3051 | Only when observability stack is enabled |
 | Langfuse UI        | http://localhost:3300 | Only when Langfuse stack is enabled      |
@@ -206,8 +206,8 @@ RUN_INTEGRATION_TESTS=1 OCI_INTEGRATION_TESTS=1 AI_WORKFLOW_E2E_TESTS=1 \
 #### Option A – Local processes
 
 ```bash
-# Terminal 1 – FastAPI backend
-./run_api.sh
+# Terminal 1 – LangGraph Agent Server with custom FastAPI routes
+uv run langgraph dev
 
 # Terminal 2 – Next.js UI (port 4000)
 cd frontend
@@ -216,19 +216,18 @@ cp env.example .env.local
 PORT=4000 pnpm dev
 ```
 
-#### Option B – Docker Compose (backend + LangGraph + frontend)
+#### Option B – Docker Compose (LangGraph + frontend)
 
 ```bash
-docker compose up -d backend langgraph frontend
+docker compose up -d langgraph frontend
 # or just `docker compose up -d` to include any other services defined
 ```
 
-- API: http://localhost:3002 (default; override with `PORT` env var)
-- LangGraph Agent Server: http://localhost:2024
+- LangGraph Agent Server and product APIs: http://localhost:2024
 - Frontend: http://localhost:4000 (container exposes port 3000 at 4000 per compose)
-- The Docker frontend is built with `NEXT_PUBLIC_LANGGRAPH_API_BASE=http://localhost:2024` by default so browser streaming talks directly to the local Agent Server.
+- The Docker frontend is built with `NEXT_PUBLIC_API_BASE=http://localhost:2024` and `NEXT_PUBLIC_LANGGRAPH_API_BASE=http://localhost:2024` by default.
 - The Docker LangGraph service allows local browser origins through `CORS_ALLOW_ORIGINS` and bind-mounts `./langgraph.json`, so local CORS/config changes apply after recreating `rag-langgraph`.
-- Logs: `docker compose logs -f backend langgraph frontend`
+- Logs: `docker compose logs -f langgraph frontend`
 - Stop: `docker compose down`
 
 #### Optional observability stack (Grafana/Loki/Tempo)
@@ -241,7 +240,7 @@ docker compose --profile observability down
 
 This starts the collector + Loki + Tempo + Grafana defined in `docker-compose.yml`.
 
-If you are running the API locally (Option A), you can also have `./run_api.sh` start these containers by setting `ENABLE_OBSERVABILITY_STACK=true` in `.env`.
+If you are running locally, start optional observability containers with the compose command above or `uv run python scripts/manage_stacks.py up --stacks observability`.
 
 #### Optional Langfuse stack
 
@@ -255,7 +254,7 @@ docker compose -f observability/langfuse/docker-compose.yml up -d
 
 The Langfuse UI will run at `http://localhost:3300` (default) using its own compose file so it doesn’t interfere with the main stack. See `observability/langfuse/README.md` for details.
 
-- API: http://localhost:3002 (default; override with `PORT` env var)
+- LangGraph Agent Server and product APIs: http://localhost:2024
 - Frontend: http://localhost:4000 (Next.js dev server reads API URL from env)
 
 #### Optional one-command stack management
@@ -314,8 +313,8 @@ uv run python scripts/ingest_documents.py --dir ./documents
 - Maintains conversation context (`chat_history` in state)
 - Rewrites retrieval-oriented follow-up questions when needed
 - Configurable history length (`MAX_MSGS_IN_HISTORY`)
-- When `ENABLE_PERSISTENT_MEMORY=true`, thread state is persisted per `thread_id`
-  in the SQLite file configured by `LANGGRAPH_SQLITE_PATH`
+- Thread state is persisted per `thread_id` in the SQLite file configured by
+  `LANGGRAPH_SQLITE_PATH`
 
 ### 🎯 Intelligent Reranking
 

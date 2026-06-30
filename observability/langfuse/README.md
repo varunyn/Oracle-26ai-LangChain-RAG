@@ -20,12 +20,31 @@ CLICKHOUSE_CPUS=1.0
 CLICKHOUSE_MEM_LIMIT=2g
 ```
 
-Docker `json-file` log rotation is also enabled to prevent local Docker/Colima disks from filling up. The defaults keep three 10 MB files and can be adjusted in `observability/langfuse/.env`:
+Docker `json-file` log rotation is also enabled to prevent local Docker/Colima disks from filling up. ClickHouse keeps three 10 MB files; Langfuse web/worker, Redis, and MinIO keep two 5 MB files. Adjust these in `observability/langfuse/.env`:
 
 ```bash
 CLICKHOUSE_DOCKER_LOG_MAX_SIZE=10m
 CLICKHOUSE_DOCKER_LOG_MAX_FILE=3
+LANGFUSE_DOCKER_LOG_MAX_SIZE=5m
+LANGFUSE_DOCKER_LOG_MAX_FILE=2
 ```
+
+The local MinIO bucket is configured with lifecycle rules so raw ingestion blobs do not accumulate indefinitely. By default, raw event uploads expire after one day, while media and export objects expire after seven days:
+
+```bash
+MINIO_EVENT_RETENTION_DAYS=1
+MINIO_MEDIA_RETENTION_DAYS=7
+MINIO_EXPORT_RETENTION_DAYS=7
+```
+
+Keep SDK trace payloads small for local development. The application defaults in `.env.example` sample only a fraction of traces and truncate very large exported OTEL attributes before they reach Langfuse:
+
+```bash
+LANGFUSE_SAMPLE_RATE=0.25
+LANGFUSE_MAX_ATTRIBUTE_CHARS=12000
+```
+
+Set `LANGFUSE_SAMPLE_RATE=1.0` only when you need every run. Increase `LANGFUSE_MAX_ATTRIBUTE_CHARS` only when you need full prompt/tool/result payloads in Langfuse.
 
 To stop everything:
 

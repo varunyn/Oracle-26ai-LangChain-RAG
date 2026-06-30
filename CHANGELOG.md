@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-06-30
+
+- Fixed local Docker chat persistence after browser refresh/container recreation by bind-mounting the LangGraph dev runtime `.langgraph_api` thread/run registry alongside the SQLite checkpoint directory.
+- Fixed OCI Gemini mixed/MCP tool calls by stripping Gemini-rejected JSON Schema bounds (`exclusiveMinimum` / `exclusiveMaximum`) from provider-bound function declarations while keeping the standard `langchain_oci` `ChatOCIGenAI` path.
+- Added a LangGraph Agent Server custom SQLite checkpointer backed by `LANGGRAPH_SQLITE_PATH` with a local checkpoint TTL, and removed the obsolete FastAPI-side checkpoint resource wrapper so chat thread persistence has one owner.
+- Removed the standalone FastAPI backend Docker service and made the LangGraph Agent Server the default host for both chat streaming and custom FastAPI product routes served through `langgraph.json` `http.app`.
+- Added local Langfuse storage controls: SDK-side OTEL attribute truncation, low-sample local `.env.example` defaults, MinIO lifecycle rules for event/media/export objects, Redis memory caps, and Docker log rotation for Langfuse services so self-hosted dev traces do not fill Docker volumes as quickly.
+- Fixed follow-up suggestions generation to use LangChain `ToolStrategy` explicitly instead of first attempting provider-native structured output with the selected model and falling back after `strict` provider errors, eliminating duplicate Langfuse `suggestions` traces.
+- Fixed graph chat runs to finalize the root Langfuse `chat-*` observation with the latest user question and final answer. Live verification showed the root observation and child LangChain/LangGraph observations are now correct, while the self-hosted v3 trace list may still display child generation I/O.
+- Fixed mixed-mode retrieval tool turns to keep the agent’s native final answer and attach RAG references to it instead of running a second RAG synthesis pass, preventing duplicate payment-terms answers after `oracle_retrieval`.
+- Fixed native MCP tool-call rendering in the chat UI by normalizing the current `@langchain/react` `stream.toolCalls` shapes before matching them to assistant `tool_calls` ids, without restoring message-derived or MCP activity fallbacks.
+- Registered LangGraph `ToolCallTransformer` on the compiled `chat_agent` and stopped returning inner MCP input humans to outer graph state, so MCP/mixed runs emit native `stream.toolCalls` without duplicating the submitted user message.
+- Updated local Langfuse troubleshooting guidance to avoid the v4-only Observations API against the self-hosted v3 stack, using `traces get --fields ...observations...` as the supported local CLI path.
+- Refactored graph-owned MCP/mixed execution to preserve the Agent Server runnable config and run streamed MCP tool execution through LangGraph `ToolNode`, so native tool lifecycle can surface through the LangGraph stream instead of a message/progress fallback.
+- Removed the legacy MCP executor callback/projection fallback API (`tool_progress_callback`, `answer_delta_callback`, stop-after-tool handling, and tool-name server inference), leaving MCP/mixed tool lifecycle owned by the LangGraph stream path.
+- Removed the legacy `ChatRuntimeService` and synthetic `v3_raw_event` compatibility stream adapter, along with their stale tests/docs, so chat execution, event streaming, and thread state are described and implemented only through the LangGraph Agent Server `chat_agent` path.
+- Removed the frontend-only `custom:mcp_tool_activity` adapter and replay fallback so live tool UI now relies solely on native `@langchain/react` `stream.toolCalls`, simplifying the LangGraph chat contract around one authoritative tool-progress surface.
+- Fixed LangGraph chat run-config construction to attach Langfuse LangChain callbacks for traced graph runs, so graph-owned `direct`, `rag`, `mcp`, and `mixed` chats can emit nested model/tool observations instead of only a root `chat-*` trace.
+- Confirmed the local self-hosted Langfuse Docker stack is still pinned to `langfuse:3` / `langfuse-worker:3` under `observability/langfuse/docker-compose.yml`; this explains why the Observations v2 CLI endpoint is unavailable locally and should be upgraded separately from the runtime trace-wiring fix.
+
 ## 2026-06-29
 
 - Fixed LangGraph Langfuse callback wiring to bind the callback handler to the configured project key explicitly instead of relying on ambient default-client resolution, preventing Docker `localhost:3300` fallback OTEL exports during traced MCP/mixed runs.

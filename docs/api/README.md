@@ -45,13 +45,13 @@ That means most schema docs can be generated automatically. These markdown files
 Backend default:
 
 ```text
-http://127.0.0.1:3002
+http://127.0.0.1:2024
 ```
 
 ## Quick checks
 
 ```bash
-curl -s http://127.0.0.1:3002/health
+curl -s http://127.0.0.1:2024/health
 uv run pytest tests/workflow_tests/test_openapi_baseline.py -q
 uv run pytest tests/workflow_tests/test_api_docs_sync.py -q
 uv run python scripts/sync_api_docs.py --check
@@ -64,7 +64,7 @@ A starter Bruno collection lives under `docs/api/bruno/CustomRAGAgent`.
 
 Recommended workflow:
 
-1. Start the API with `./run_api.sh`
+1. Start the Agent Server with `uv run langgraph dev`
 2. Open the Bruno collection directory
 3. Select the `local` environment
 4. Run health first, then JSON endpoints, then streaming endpoints

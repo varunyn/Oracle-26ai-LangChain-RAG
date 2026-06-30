@@ -22,7 +22,7 @@ For the smoothest first run, use this order:
 1. Configure backend `.env`
 2. Create the vector table (if needed)
 3. Ingest a small set of documents
-4. Start the backend with `./run_api.sh`
+4. Start the LangGraph Agent Server with `uv run langgraph dev`
 5. Start the frontend on port `4000`
 
 If you prefer Docker-managed services, see [DOCKER-SETUP.md](DOCKER-SETUP.md) after finishing the basic local path once.
@@ -65,9 +65,9 @@ From the `frontend/` directory:
 cp env.example .env.local
 ```
 
-Set `NEXT_PUBLIC_API_BASE` if your API is not on `http://localhost:3002`.
+Set `NEXT_PUBLIC_API_BASE` if your API is not on `http://localhost:2024`.
 
-Docker Compose injects `FASTAPI_BACKEND_URL` for the frontend container. Local `.env.local` normally only needs the browser-visible `NEXT_PUBLIC_*` settings.
+Docker Compose injects `FASTAPI_BACKEND_URL=http://langgraph:2024` for the frontend container. Local `.env.local` normally only needs the browser-visible `NEXT_PUBLIC_*` settings.
 
 ## 4. Create the vector table (once)
 
@@ -93,15 +93,15 @@ Or pass specific files:
 uv run python scripts/ingest_documents.py --files doc1.pdf notes.txt readme.md
 ```
 
-## 6. Run the backend API
+## 6. Run the Agent Server and product API
 
 ```bash
-./run_api.sh
+uv run langgraph dev
 ```
 
-The API defaults to **http://localhost:3002**.
+The Agent Server and product API default to **http://localhost:2024**.
 
-If the API fails to start, stop here and fix backend/database/OCI configuration before starting the frontend. A running frontend without a working backend is not a meaningful validation of the app.
+If the API fails to start, stop here and fix database/OCI configuration before starting the frontend. A running frontend without a working API is not a meaningful validation of the app.
 
 ## 7. Run the frontend
 

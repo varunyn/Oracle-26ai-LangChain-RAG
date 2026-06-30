@@ -40,5 +40,5 @@ The frontend uses `@langchain/react` with:
 
 ```bash
 uv run langgraph dev
-./run_api.sh
+uv run langgraph dev
 ```

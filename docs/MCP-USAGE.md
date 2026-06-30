@@ -154,7 +154,7 @@ The backend fetches and refreshes the bearer token automatically and injects it 
 
 ## RAG vs MCP flow (mode)
 
-Chat is handled by `ChatRuntimeService` in `src/rag_agent/runtime/chat_service.py` (no LangGraph graph). Request **`mode`** selects the path:
+Chat is handled by the LangGraph Agent Server `chat_agent` graph. Request **`mode`** selects the path:
 
 | API `mode` | Behavior                                                                                                                                                  |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -163,11 +163,9 @@ Chat is handled by `ChatRuntimeService` in `src/rag_agent/runtime/chat_service.p
 | `mcp`      | MCP tools only (`get_mcp_answer_async`); tools from `langchain_mcp_adapters`.                                                                             |
 | `mixed`    | MCP tools plus the local **`oracle_retrieval`** tool in one LangChain agent loop. When retrieval returns documents, the final answer is synthesized through the RAG answer path. Non-retrieval MCP tool outputs from the same turn are passed into that synthesis as supplemental context. If retrieval is not used or returns no documents, the response comes from the MCP agent answer or a retrieval error. |
 
-**Follow-up transform:** Before mode dispatch, the service may detect a follow-up that should **reformat** the previous assistant answer (LLM JSON `kind: transform`) and return that answer without running RAG or MCP.
-
 - **Default `mode`** (when not sent): `build_chat_config` in `api/dependencies.py` sets `mixed` when `ENABLE_MCP_TOOLS` is true and at least one MCP server is configured; otherwise `rag`.
 - **API**: Send `mode` and optional `mcp_server_keys` in top-level run `context` to limit which MCP servers load.
-- **RAG path**: Uses Oracle vector similarity search and a single answer prompt in `ChatRuntimeService`.
+- **RAG path**: Uses Oracle vector similarity search plus the graph-owned RAG answer path.
 - **Mixed RAG handoff**: Mixed mode exposes `oracle_retrieval` and configured MCP tools together. When `oracle_retrieval` returns docs, the final answer is synthesized by the RAG runtime so answer text can stream after tool execution. Non-retrieval MCP tool results from the same turn are included as supplemental context. Retrieval infrastructure errors are surfaced as retrieval failures, not as "no documents found."
 - **MCP tool-call limit**: `MCP_MAX_ROUNDS` (default 4) caps total tool calls in one agent run. Mixed mode may need more than two calls when a turn combines Oracle retrieval with MCP tool actions.
 
@@ -183,7 +181,7 @@ Use `"mode": "mcp"` for MCP tools only, `"mode": "rag"` for retrieval-only, `"mo
 
 ## Implementation (consuming side)
 
-MCP and mixed chat modes load tools through **`langchain_mcp_adapters.MultiServerMCPClient`** (`src/rag_agent/infrastructure/mcp_adapter_runtime.py`; clients and tool lists are cached per connection set). The MCP tool loop runs through **`src/rag_agent/infrastructure/mcp_agent.py`** and **`src/rag_agent/infrastructure/mcp_agent_executor.py`**, invoked from **`src/rag_agent/runtime/chat_service.py`**. In mixed mode, `ChatRuntimeService` hands retrieved docs plus non-retrieval tool outputs to the RAG runtime for answer synthesis when `oracle_retrieval` returns documents. RAG-only and direct modes do not load MCP tools.
+MCP and mixed chat modes load tools through **`langchain_mcp_adapters.MultiServerMCPClient`** (`src/rag_agent/infrastructure/mcp_adapter_runtime.py`; clients and tool lists are cached per connection set). The MCP tool loop runs through **`src/rag_agent/infrastructure/mcp_agent.py`** and **`src/rag_agent/infrastructure/mcp_agent_executor.py`** inside the graph-owned `mcp` and `mixed` nodes. In mixed mode, retrieved docs plus non-retrieval tool outputs are handed to the RAG runtime for answer synthesis when `oracle_retrieval` returns documents. RAG-only and direct modes do not load MCP tools.
 
 ### Flow diagram (high level)
 
@@ -206,7 +204,7 @@ flowchart TD
 
 | Path         | When         | Main modules                                                 |
 | ------------ | ------------ | ------------------------------------------------------------ |
-| **`rag`**    | `mode=rag`   | Oracle VS + `RAG_ANSWER_PROMPT_TEMPLATE` in `chat_service` |
+| **`rag`**    | `mode=rag`   | Oracle VS + graph-owned RAG answer synthesis |
 | **`mcp`**    | `mode=mcp`   | `mcp_adapter_runtime` → `get_mcp_answer_async`              |
 | **`mixed`**  | `mode=mixed` | `oracle_retrieval` tool + MCP tools → RAG answer synthesis when docs are found; otherwise MCP agent answer or retrieval error |
 | **`direct`** | `mode=direct`| `get_llm().invoke` on history                               |

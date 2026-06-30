@@ -233,4 +233,4 @@ For most contributors:
 
 ## Note on server-owned chat memory
 
-The `chat_agent` flow keeps thread-scoped memory in `ChatRuntimeService` for the current process. This does not change tracing/observability wiring, but you may see prior-turn context reflected in LangChain spans and Langfuse metadata (for example `mcp_used`, `mcp_tools_used`, `standalone_question`, and `context_usage`).
+The `chat_agent` flow keeps thread-scoped memory in LangGraph thread/checkpoint state. This does not change tracing/observability wiring, but you may see prior-turn context reflected in LangChain spans and Langfuse metadata (for example `mcp_used`, `mcp_tools_used`, `standalone_question`, and `context_usage`).

@@ -21,7 +21,7 @@ Upload supported files and ingest them into the configured OracleVS-compatible v
 ### Example curl
 
 ```bash
-curl -X POST http://127.0.0.1:3002/api/documents/upload \
+curl -X POST http://127.0.0.1:2024/api/documents/upload \
   -F "files=@./example.pdf" \
   -F "collection_name=RAG_KNOWLEDGE_BASE"
 ```

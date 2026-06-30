@@ -7,7 +7,7 @@ Lightweight health check for load balancers and local verification.
 ### Example
 
 ```bash
-curl -s http://127.0.0.1:3002/health
+curl -s http://127.0.0.1:2024/health
 ```
 
 ### Response

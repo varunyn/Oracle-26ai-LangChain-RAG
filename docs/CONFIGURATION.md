@@ -52,9 +52,9 @@ The **frontend** also uses:
    cp .env.example .env
    ```
 2. Edit `.env`: set Oracle DB wallet + DSN, OCI profile, `COMPARTMENT_ID`, and any other options you need.
-3. Run the backend:
+3. Run the LangGraph Agent Server and mounted product API:
    ```bash
-   ./run_api.sh
+   uv run langgraph dev
    ```
 4. Configure the frontend env (from `frontend/`):
    ```bash
@@ -172,10 +172,10 @@ The frontend gets most config from the backend via `GET /api/config`. These opti
 
 | Variable                        | Default                 | Description                                                          |
 | ------------------------------- | ----------------------- | -------------------------------------------------------------------- |
-| `NEXT_PUBLIC_API_BASE`          | `http://localhost:3002` | Browser-visible backend base URL for direct frontend API calls.      |
+| `NEXT_PUBLIC_API_BASE`          | `http://localhost:2024` | Browser-visible product API base URL for direct frontend API calls.  |
 | `NEXT_PUBLIC_DEFAULT_FLOW_MODE` | `mixed`                 | Default flow when the app loads: `rag`, `mcp`, `mixed`, or `direct`. |
 
-`FASTAPI_BACKEND_URL` is still supported for server-side config/bootstrap fetches when the Next.js server cannot use the browser-visible API base. The Docker Compose frontend service sets it to `http://backend:3002`; local `frontend/.env.local` usually does not need it.
+`FASTAPI_BACKEND_URL` is still supported for server-side config/bootstrap fetches when the Next.js server cannot use the browser-visible API base. The Docker Compose frontend service sets it to `http://langgraph:2024`; local `frontend/.env.local` usually does not need it.
 
 ### Default model (browser)
 
@@ -189,11 +189,12 @@ Thread state behavior.
 
 | Variable                   | Default          | Description                                                       |
 | -------------------------- | ---------------- | ----------------------------------------------------------------- |
-| `ENABLE_PERSISTENT_MEMORY` | `false`          | Persist thread state across API restarts.                         |
-| `LANGGRAPH_SQLITE_PATH`    | `.local-data/langgraph-checkpoints.sqlite` | SQLite checkpoint file used when persistent memory is enabled. |
+| `LANGGRAPH_SQLITE_PATH`    | `.local-data/langgraph-checkpoints.sqlite` | SQLite checkpoint file used by the LangGraph Agent Server custom checkpointer. |
 | `ALLOW_CLIENT_THREAD_ID`   | `true`           | Allow client to send thread ID.                                   |
 | `THREAD_ID_STRATEGY`       | `uuid4`          | How thread IDs are generated.                                     |
 | `THREAD_ID_PREFIX`         | empty            | Optional prefix for thread IDs.                                   |
+
+For local Docker/dev persistence, mount both `./local-data` and `./.langgraph_api`. The SQLite file stores graph checkpoints, while `.langgraph_api` stores the local Agent Server thread/run registry used by `/threads/search` and `/threads/{thread_id}/state`.
 
 ### Clear chat
 

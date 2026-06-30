@@ -8,10 +8,17 @@ x-clickhouse-log-rotation: &clickhouse-log-rotation
     max-size: ${CLICKHOUSE_DOCKER_LOG_MAX_SIZE:-10m}
     max-file: ${CLICKHOUSE_DOCKER_LOG_MAX_FILE:-3}
 
+x-local-log-rotation: &local-log-rotation
+  driver: json-file
+  options:
+    max-size: ${LANGFUSE_DOCKER_LOG_MAX_SIZE:-5m}
+    max-file: ${LANGFUSE_DOCKER_LOG_MAX_FILE:-2}
+
 services:
   langfuse-worker:
     image: docker.io/langfuse/langfuse-worker:3
     restart: always
+    logging: *local-log-rotation
     depends_on: &langfuse-depends-on
       postgres:
         condition: service_healthy
@@ -76,6 +83,7 @@ services:
   langfuse-web:
     image: docker.io/langfuse/langfuse:3
     restart: always
+    logging: *local-log-rotation
     depends_on: *langfuse-depends-on
     networks:
       default: {}
@@ -88,7 +96,7 @@ services:
       - .env
     environment:
       <<: *langfuse-worker-env
-      # Listen on all interfaces so other containers (e.g. rag-backend on rag-network) can reach OTLP/health
+      # Listen on all interfaces so other containers (e.g. rag-langgraph on rag-network) can reach OTLP/health
       HOSTNAME: "0.0.0.0"
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-mysecret}
       LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
@@ -131,8 +139,20 @@ services:
   minio:
     image: cgr.dev/chainguard/minio
     restart: always
+    logging: *local-log-rotation
     entrypoint: sh
-    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    command: >
+      -c '
+      mkdir -p /data/langfuse;
+      (
+        until mc alias set local http://127.0.0.1:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"; do sleep 1; done;
+        mc mb -p local/langfuse || true;
+        mc ilm rule add local/langfuse --prefix "$${LANGFUSE_S3_EVENT_UPLOAD_PREFIX:-events/}" --expire-days "$${MINIO_EVENT_RETENTION_DAYS:-1}" || true;
+        mc ilm rule add local/langfuse --prefix "$${LANGFUSE_S3_MEDIA_UPLOAD_PREFIX:-media/}" --expire-days "$${MINIO_MEDIA_RETENTION_DAYS:-7}" || true;
+        mc ilm rule add local/langfuse --prefix "$${LANGFUSE_S3_BATCH_EXPORT_PREFIX:-exports/}" --expire-days "$${MINIO_EXPORT_RETENTION_DAYS:-7}" || true;
+      ) &
+      minio server --address ":9000" --console-address ":9001" /data
+      '
     env_file:
       - .env
     environment:
@@ -153,8 +173,10 @@ services:
   redis:
     image: docker.io/redis:7
     restart: always
+    logging: *local-log-rotation
     command: >
       --requirepass ${REDIS_AUTH:-myredissecret}
+      --maxmemory ${REDIS_MAXMEMORY:-256mb}
       --maxmemory-policy noeviction
     ports:
       - 127.0.0.1:6379:6379
@@ -187,7 +209,7 @@ services:
 
 # Join rag-network (from root docker-compose.yml) so backend can reach langfuse-web.
 # Start main stack first to create the network, then: docker compose -f observability/langfuse/docker-compose.yml up -d
-# Verify from backend: docker exec rag-backend python -c "import urllib.request; urllib.request.urlopen('http://langfuse-web:3000/api/public/health', timeout=3)"
+# Verify from LangGraph: docker exec rag-langgraph python -c "import urllib.request; urllib.request.urlopen('http://langfuse-web:3000/api/public/health', timeout=3)"
 networks:
   rag-network:
     external: true

@@ -1,12 +1,12 @@
 # Docker setup
 
-This page describes how to run the backend, LangGraph Agent Server, frontend, and optional stacks using Docker. The **Makefile** is the preferred entrypoint for all commands.
+This page describes how to run the LangGraph Agent Server, frontend, and optional stacks using Docker. The **Makefile** is the preferred entrypoint for all commands.
 
 ## Prerequisites
 
 - Docker Desktop (or Docker Engine) + Docker Compose
 - `.env` in the repo root (copy from `.env.example`)
-- OCI config + wallet in `./local-config/` (used by the backend container)
+- OCI config + wallet in `./local-config/` (used by the LangGraph container)
 
 ## 1. Makefile (preferred)
 
@@ -16,11 +16,11 @@ From the repo root, use `make` to run core and optional stacks:
 make help
 ```
 
-**Core app (backend + LangGraph + frontend):**
+**Core app (LangGraph + frontend):**
 
 ```bash
-make core-up          # Start backend + frontend
-make core-logs        # Follow backend logs
+make core-up          # Start LangGraph + frontend
+make core-logs        # Follow LangGraph/frontend logs
 make core-down       # Stop and remove containers
 ```
 
@@ -56,33 +56,32 @@ make stacks-down
 
 Ports:
 
-- API: <http://localhost:3002>
+- LangGraph Agent Server and product APIs: <http://localhost:2024>
 - UI: <http://localhost:4000>
 - Langfuse (if run): <http://localhost:3300>
 
-## 2. Backend + LangGraph + frontend (without Makefile)
+## 2. LangGraph + frontend (without Makefile)
 
 If you prefer to call Docker Compose directly:
 
 ```bash
-docker compose up -d backend langgraph frontend
-docker compose logs -f backend langgraph frontend
+docker compose up -d langgraph frontend
+docker compose logs -f langgraph frontend
 docker compose down
 ```
 
 Ports:
 
-- API: <http://localhost:3002>
-- LangGraph Agent Server: <http://localhost:2024>
+- LangGraph Agent Server and product APIs: <http://localhost:2024>
 - UI: <http://localhost:4000>
 
-The Docker frontend image uses `NEXT_PUBLIC_LANGGRAPH_API_BASE=http://localhost:2024` by default for browser-to-Agent-Server streaming. Rebuild the frontend image after changing this value.
+The Docker frontend image uses `NEXT_PUBLIC_API_BASE=http://localhost:2024` and `NEXT_PUBLIC_LANGGRAPH_API_BASE=http://localhost:2024` by default. Rebuild the frontend image after changing either value.
 
-The LangGraph container sets `CORS_ALLOW_ORIGINS` for local browser origins and bind-mounts `./langgraph.json`, including local CORS settings for `localhost:3000`, `localhost:4000`, and `localhost:4040`. Recreate `rag-langgraph` after changing either setting.
+The LangGraph container sets `CORS_ALLOW_ORIGINS` for local browser origins and bind-mounts `./langgraph.json`, including local CORS settings for `localhost:3000`, `localhost:4000`, and `localhost:4040` plus the local SQLite checkpointer. Recreate `rag-langgraph` after changing these settings.
 
 ## 3. Configure OCI + wallet for Docker
 
-The backend container mounts `./local-config` and uses the wallet and OCI key from there:
+The LangGraph container mounts `./local-config` and uses the wallet and OCI key from there:
 
 - `./local-config/wallet` → mounted at `/app/wallet`
 - `./local-config/oci_api_key.pem` → mounted as a Docker secret (`/run/secrets/oci_api_key`)
@@ -106,7 +105,7 @@ uv run python scripts/manage_stacks.py down
 
 Stack names:
 
-- `core` → backend + frontend (started by `make core-up` / `docker compose`; the script can manage it if configured)
+- `core` → LangGraph + frontend (started by `make core-up` / `docker compose`; the script can manage it if configured)
 - `observability` → Loki, Tempo, OTEL collector, Grafana
 - `langfuse` → Langfuse web + worker (compose under `observability/langfuse/`)
 
@@ -146,4 +145,4 @@ uv run python scripts/manage_stacks.py up --stacks langfuse
 docker compose -f observability/langfuse/docker-compose.yml up -d
 ```
 
-Langfuse UI: <http://localhost:3300>. For the backend (e.g. rag-backend) to send traces to Langfuse, ensure the Langfuse stack is on `rag-network` and `langfuse-web` was started with the network alias and `HOSTNAME=0.0.0.0` (see `observability/langfuse/docker-compose.yml`). Start the main stack first so `rag-network` exists, then run `make langfuse-up`.
+Langfuse UI: <http://localhost:3300>. For the LangGraph service to send traces to Langfuse, ensure the Langfuse stack is on `rag-network` and `langfuse-web` was started with the network alias and `HOSTNAME=0.0.0.0` (see `observability/langfuse/docker-compose.yml`). Start the main stack first so `rag-network` exists, then run `make langfuse-up`.
