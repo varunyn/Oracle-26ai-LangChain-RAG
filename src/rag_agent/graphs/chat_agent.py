@@ -17,6 +17,14 @@ def _bootstrap_node(state: ChatGraphState) -> ChatGraphState:
     return state
 
 
+def _mixed_progress_node(_state: ChatGraphState) -> ChatGraphState:
+    return {"progress": "Searching your collection and tools…"}
+
+
+def _rag_progress_node(_state: ChatGraphState) -> ChatGraphState:
+    return {"progress": "Searching your collection…"}
+
+
 def _runtime_context(runtime: Runtime[ChatGraphContext]) -> ChatGraphContext:
     context = runtime.context
     if isinstance(context, dict):
@@ -34,6 +42,8 @@ def route_mode(_state: ChatGraphState, runtime: Runtime[ChatGraphContext]) -> st
 def build_chat_agent(*, checkpointer: Any | None = None) -> CompiledStateGraph:
     graph = StateGraph(ChatGraphState, context_schema=ChatGraphContext)
     graph.add_node("bootstrap", _bootstrap_node)
+    graph.add_node("mixed_progress", _mixed_progress_node)
+    graph.add_node("rag_progress", _rag_progress_node)
     graph.add_node("direct", run_direct_node)
     graph.add_node("mcp", run_mcp_node)
     graph.add_node("mixed", run_mixed_node)
@@ -45,10 +55,12 @@ def build_chat_agent(*, checkpointer: Any | None = None) -> CompiledStateGraph:
         {
             "direct": "direct",
             "mcp": "mcp",
-            "mixed": "mixed",
-            "rag": "rag",
+            "mixed": "mixed_progress",
+            "rag": "rag_progress",
         },
     )
+    graph.add_edge("mixed_progress", "mixed")
+    graph.add_edge("rag_progress", "rag")
     graph.add_edge("direct", END)
     graph.add_edge("mcp", END)
     graph.add_edge("mixed", END)

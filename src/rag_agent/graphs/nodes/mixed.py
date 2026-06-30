@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from langgraph.config import get_stream_writer
 from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.mcp_policies import (
@@ -26,6 +27,7 @@ from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
 from src.rag_agent.infrastructure import oci_models as _oci_models
 from src.rag_agent.runtime import rag_runtime
 from src.rag_agent.runtime.mcp_turn import run_mcp_agent_turn, tool_failure_summary
+from src.rag_agent.runtime.mcp_activity import mcp_tool_activity_event
 from src.rag_agent.runtime.memory import (
     chat_history_before_latest_user,
     langchain_messages_to_dicts,
@@ -69,6 +71,10 @@ async def run_mixed_node(
                 mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
                 trace_context=langfuse_trace.trace_context if langfuse_trace else None,
             )
+
+            def emit_tool_activity(event: dict[str, object]) -> None:
+                get_stream_writer()(mcp_tool_activity_event(event))
+
             mcp_turn = await run_mcp_agent_turn(
                 question=question,
                 chat_history=chat_history,
@@ -79,7 +85,7 @@ async def run_mixed_node(
                 require_tool_call=require_tool_call_enabled(),
                 repeated_workflow_enabled=repeated_workflow_controller_enabled(),
                 workflow_checkpoint_path=workflow_checkpoint_path(),
-                tool_progress_callback=None,
+                tool_progress_callback=emit_tool_activity,
                 answer_delta_callback=None,
                 stop_after_tool_names=None,
                 extra_tools=[retrieval_tool],

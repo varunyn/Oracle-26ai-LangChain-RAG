@@ -2,6 +2,12 @@
 
 ## 2026-06-29
 
+- Fixed LangGraph Langfuse callback wiring to bind the callback handler to the configured project key explicitly instead of relying on ambient default-client resolution, preventing Docker `localhost:3300` fallback OTEL exports during traced MCP/mixed runs.
+
+- Clarified the chat stream contract: native message/state/tool projections retain their documented meanings, MCP progress uses one custom channel, and configured MCP server identity is propagated explicitly instead of inferred from arbitrary tool names.
+
+- Clarified frontend ownership so `@langchain/react` is the only chat runtime, `@langchain/core` is limited to message models/types, and AI Elements remains presentation-only.
+- Added a canonical `custom:mcp_tool_activity` stream channel so internal MCP tool execution appears live in the UI without being misrepresented as native Agent Server tool calls.
 - Removed persisted browser sidebar thread history so LangGraph/SQLite server state is the sole conversation-history source; localStorage now keeps only the active thread ID pointer.
 - Fixed chat-history deletion so the active thread is removed from the sidebar only after the Agent Server DELETE succeeds, and a cleared unbound chat no longer refreshes and re-adds that thread.
 - Added a mixed-mode progress state update so the SSE stream communicates retrieval/tool work before emitting one final citation-bearing assistant message.

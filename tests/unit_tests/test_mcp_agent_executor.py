@@ -203,10 +203,7 @@ class _FakeProjectionPropertyStream:
         self.messages = _FakeMessages(messages or [])
         self.raw_events = raw_events or []
         self._raw_idx = 0
-        self.output = self._resolve_output()
-
-    async def _resolve_output(self) -> dict[str, object]:
-        return self._output
+        self.output = _FakeAwaitableOutput(output)
 
     def __aiter__(self):
         return self
@@ -217,6 +214,17 @@ class _FakeProjectionPropertyStream:
         event = self.raw_events[self._raw_idx]
         self._raw_idx += 1
         return event
+
+
+class _FakeAwaitableOutput:
+    def __init__(self, value: dict[str, object]) -> None:
+        self.value = value
+
+    def __await__(self):
+        async def _resolve() -> dict[str, object]:
+            return self.value
+
+        return _resolve().__await__()
 
 
 class _FakeProjectionStreamingAgent:
@@ -256,6 +264,16 @@ class _FakeSequencedAgent:
         idx = min(self._idx, len(self.outputs) - 1)
         self._idx += 1
         return self.outputs[idx]
+
+
+class _ConfigurableLLM:
+    def __init__(self) -> None:
+        self.configs: list[object] = []
+        self.is_stream = False
+
+    def with_config(self, config: object) -> _ConfigurableLLM:
+        self.configs.append(config)
+        return self
 
 
 def test_langchain_executor_returns_final_answer_and_tools(monkeypatch) -> None:
@@ -298,6 +316,88 @@ def test_langchain_executor_returns_final_answer_and_tools(monkeypatch) -> None:
     assert len(fake_agent.calls) == 1
 
 
+def test_langchain_executor_suppresses_internal_llm_message_streams(monkeypatch) -> None:
+    fake_agent = _FakeAgent({"messages": [AIMessage(content="done")]})
+    fake_llm = _ConfigurableLLM()
+    models: list[object] = []
+
+    def fake_create_agent(**kwargs: Any) -> _FakeAgent:
+        models.append(kwargs["model"])
+        return fake_agent
+
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: fake_llm)
+    monkeypatch.setattr(mod, "create_agent", fake_create_agent)
+
+    answer, tools_used, invocations = asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="finish",
+            chat_history=None,
+            model_id=None,
+            tools=[SimpleNamespace(name="finish", description="finish")],
+            run_config=None,
+            require_tool_call=False,
+            answer_delta_callback=None,
+        )
+    )
+
+    assert answer == "done"
+    assert tools_used == []
+    assert invocations == []
+    assert models == [fake_llm]
+    assert fake_llm.configs == [{"tags": ["nostream"]}]
+    assert fake_llm.is_stream is False
+    assert fake_agent.calls[0]["config"] == {"tags": ["nostream"]}
+
+
+def test_langchain_executor_keeps_visible_answer_streaming_enabled(monkeypatch) -> None:
+    fake_agent = _FakeProjectionStreamingAgent(
+        _FakeProjectionStream(
+            {"messages": [AIMessage(content="done")]},
+            [],
+            raw_events=[
+                {
+                    "method": "messages",
+                    "params": {
+                        "data": (
+                            {
+                                "event": "content-block-delta",
+                                "delta": {"type": "text-delta", "text": "done"},
+                            },
+                            {"langgraph_node": "model"},
+                        )
+                    },
+                },
+            ],
+        )
+    )
+    fake_llm = _ConfigurableLLM()
+    answer_deltas: list[str] = []
+
+    monkeypatch.setattr("api.settings.get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=2))
+    monkeypatch.setattr(mod, "get_llm", lambda model_id=None: fake_llm)
+    monkeypatch.setattr(mod, "create_agent", lambda **kwargs: fake_agent)
+
+    answer, tools_used, invocations = asyncio.run(
+        mod.get_mcp_answer_with_langchain_agent_async(
+            question="finish",
+            chat_history=None,
+            model_id=None,
+            tools=[SimpleNamespace(name="finish", description="finish")],
+            run_config=None,
+            require_tool_call=False,
+            answer_delta_callback=answer_deltas.append,
+        )
+    )
+
+    assert answer == "done"
+    assert tools_used == []
+    assert invocations == []
+    assert answer_deltas == ["done"]
+    assert fake_llm.configs == []
+    assert fake_llm.is_stream is True
+
+
 def test_langchain_executor_does_not_install_callback_progress_fallback(monkeypatch) -> None:
     fake_agent = _FakeAgent({"messages": [AIMessage(content="done")]})
     progress_events: list[dict[str, object]] = []
@@ -321,7 +421,7 @@ def test_langchain_executor_does_not_install_callback_progress_fallback(monkeypa
     assert answer == "done"
     assert tools_used == []
     assert invocations == []
-    assert fake_agent.calls[0]["config"] == {}
+    assert fake_agent.calls[0]["config"] == {"tags": ["nostream"]}
     assert progress_events == []
 
 
@@ -535,6 +635,20 @@ def test_langchain_executor_streams_message_projection_deltas(monkeypatch) -> No
     assert fake_llm.is_stream is True
 
 
+def test_server_name_for_tool_prefers_configured_prefix_match() -> None:
+    assert (
+        mod._server_name_for_tool(
+            "calculator_linear_regression",
+            ["calculator", "linear"],
+        )
+        == "calculator"
+    )
+
+
+def test_server_name_for_tool_returns_none_for_unrecognized_name() -> None:
+    assert mod._server_name_for_tool("lookup", ["calculator", "search"]) is None
+
+
 def test_langchain_executor_can_stop_after_requested_tool_result(monkeypatch) -> None:
     tool_call_id = str(uuid.uuid4())
     final_state = {
@@ -598,6 +712,46 @@ def test_langchain_executor_can_stop_after_requested_tool_result(monkeypatch) ->
     ]
     assert stream._raw_idx == 2
     assert [event["phase"] for event in progress_events] == ["start", "end"]
+
+
+def test_tool_progress_projection_includes_server_name_for_configured_prefix() -> None:
+    stream = _FakeProjectionPropertyStream(
+        {"messages": [AIMessage(content="done")]},
+        tool_calls=[
+            _FakeProjectedToolCall(
+                tool_call_id="call-1",
+                tool_name="calculator_linear_regression",
+                tool_input={"data": [[1, 2], [2, 3.5]]},
+                output="ok",
+            )
+        ],
+    )
+    progress_events: list[dict[str, object]] = []
+
+    asyncio.run(
+        mod._consume_tool_call_projection(
+            stream,
+            progress_events.append,
+            configured_server_keys=["calculator", "search"],
+        )
+    )
+
+    assert progress_events == [
+        {
+            "phase": "start",
+            "tool_name": "calculator_linear_regression",
+            "server_name": "calculator",
+            "args": {"data": [[1, 2], [2, 3.5]]},
+            "tool_run_id": "call-1",
+        },
+        {
+            "phase": "end",
+            "tool_name": "calculator_linear_regression",
+            "server_name": "calculator",
+            "result": "ok",
+            "tool_run_id": "call-1",
+        },
+    ]
 
 
 def test_langchain_executor_does_not_stop_when_other_tool_was_requested(
@@ -879,12 +1033,14 @@ def test_langchain_executor_uses_tool_call_projection_for_live_progress(monkeypa
         {
             "phase": "start",
             "tool_name": "Calculator_solve_equation",
+            "server_name": None,
             "args": {"equation": "x^2 - 5x + 6 = 0"},
             "tool_run_id": tool_call_id,
         },
         {
             "phase": "end",
             "tool_name": "Calculator_solve_equation",
+            "server_name": None,
             "result": '{"solutions": "[2, 3]"}',
             "tool_run_id": tool_call_id,
         },
@@ -957,12 +1113,14 @@ def test_langchain_executor_uses_async_output_property_projection(monkeypatch) -
         {
             "phase": "start",
             "tool_name": "Calculator_linear_regression",
+            "server_name": None,
             "args": {"data": [[1, 2], [2, 4]]},
             "tool_run_id": tool_call_id,
         },
         {
             "phase": "end",
             "tool_name": "Calculator_linear_regression",
+            "server_name": None,
             "result": '{"slope": 2.0, "intercept": 0.0}',
             "tool_run_id": tool_call_id,
         },

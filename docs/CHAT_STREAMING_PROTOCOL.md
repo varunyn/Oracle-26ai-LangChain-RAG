@@ -55,6 +55,12 @@ curl -sS -N \
   - Frontend persists only the active `thread_id` as a reopen pointer and reuses it on later turns.
   - Sidebar history is loaded from the Agent Server `threads.search(...)` response and is not persisted in browser storage.
 
+### Tool activity channels
+
+- Native Agent Server tool calls use the `tools` channel and are projected by `@langchain/react` as `stream.toolCalls`.
+- MCP tools executed inside the graph's MCP node use the named custom channel `custom:mcp_tool_activity`.
+- MCP activity events contain `tool_run_id`, `tool_name`, `status`, `args`, `output`, and `error`; the final assistant message also retains `mcp_tool_invocations` for replay and history.
+
 ### Inspecting + deleting thread state
 
 - Inspect programmatically:

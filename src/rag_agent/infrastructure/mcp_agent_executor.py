@@ -24,6 +24,8 @@ from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import BaseTool
 
 from ..prompts.mcp_agent_prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_MIXED, TOOL_SUMMARY_PLACEHOLDER
+from .mcp_adapter_runtime import configured_server_name_for_tool
+from ..runtime.llm_invocation import suppress_llm_streaming
 from .oci_models import get_llm
 
 logger = logging.getLogger(__name__)
@@ -78,6 +80,7 @@ async def _ainvoke_or_stream_agent(
     stop_after_tool_names: set[str] | None = None,
 ) -> Mapping[str, object]:
     payload = _sanitize_agent_payload_for_oci(payload)
+    configured_server_keys = _configured_server_keys_from_run_config(config)
     if (
         tool_progress_callback is None
         and answer_delta_callback is None
@@ -99,11 +102,18 @@ async def _ainvoke_or_stream_agent(
             stop_after_tool_names=stop_after_tool_names,
             tool_progress_callback=tool_progress_callback,
             answer_delta_callback=answer_delta_callback,
+            configured_server_keys=configured_server_keys,
         )
 
     consumers: list[Awaitable[None]] = []
     if tool_progress_callback is not None:
-        consumers.append(_consume_tool_call_projection(stream, tool_progress_callback))
+        consumers.append(
+            _consume_tool_call_projection(
+                stream,
+                tool_progress_callback,
+                configured_server_keys=configured_server_keys,
+            )
+        )
     if answer_delta_callback is not None and hasattr(stream, "__aiter__"):
         consumers.append(_consume_raw_text_events(stream, answer_delta_callback))
     if consumers:
@@ -118,6 +128,7 @@ async def _consume_until_tool_result(
     stop_after_tool_names: set[str],
     tool_progress_callback: ToolProgressCallback | None,
     answer_delta_callback: AnswerDeltaCallback | None,
+    configured_server_keys: Sequence[str] | None,
 ) -> Mapping[str, object]:
     latest_state: Mapping[str, object] = {}
     started_tool_ids: set[str] = set()
@@ -138,6 +149,7 @@ async def _consume_until_tool_result(
                     tool_progress_callback=tool_progress_callback,
                     started_tool_ids=started_tool_ids,
                     ended_tool_ids=ended_tool_ids,
+                    configured_server_keys=configured_server_keys,
                 )
             for invocation in _extract_tool_invocations(state):
                 tool_name = str(invocation.get("tool_name") or "").strip().lower()
@@ -182,17 +194,21 @@ async def _drain_tool_call(call: Any) -> None:
 async def _consume_tool_call_projection(
     stream: Any,
     tool_progress_callback: ToolProgressCallback,
+    *,
+    configured_server_keys: Sequence[str] | None = None,
 ) -> None:
     tool_calls = getattr(stream, "tool_calls", None)
     if tool_calls is None:
         return
     async for call in cast(AsyncIterable[Any], tool_calls):
         tool_name = str(getattr(call, "tool_name", "") or "unknown_tool")
+        server_name = _server_name_for_tool(tool_name, configured_server_keys)
         tool_call_id = str(getattr(call, "tool_call_id", "") or "")
         tool_progress_callback(
             {
                 "phase": "start",
                 "tool_name": tool_name,
+                "server_name": server_name,
                 "args": getattr(call, "input", None),
                 "tool_run_id": tool_call_id,
             }
@@ -204,6 +220,7 @@ async def _consume_tool_call_projection(
                 {
                     "phase": "error",
                     "tool_name": tool_name,
+                    "server_name": server_name,
                     "error": _truncate_tool_text(str(error)),
                     "tool_run_id": tool_call_id,
                 }
@@ -213,6 +230,7 @@ async def _consume_tool_call_projection(
             {
                 "phase": "end",
                 "tool_name": tool_name,
+                "server_name": server_name,
                 "result": _serialize_tool_output(getattr(call, "output", None)),
                 "tool_run_id": tool_call_id,
             }
@@ -282,12 +300,35 @@ def _state_has_non_stop_tool_calls(
     return False
 
 
+def _configured_server_keys_from_run_config(
+    run_config: RunnableConfig | None,
+) -> list[str] | None:
+    configurable = (
+        cast(dict[str, object], run_config.get("configurable"))
+        if isinstance(run_config, dict) and isinstance(run_config.get("configurable"), dict)
+        else {}
+    )
+    selected = configurable.get("mcp_server_keys")
+    if not isinstance(selected, Sequence) or isinstance(selected, (str, bytes)):
+        return None
+    keys = [str(item).strip() for item in selected if str(item).strip()]
+    return keys or None
+
+
+def _server_name_for_tool(
+    tool_name: str,
+    configured_server_keys: Sequence[str] | None,
+) -> str | None:
+    return configured_server_name_for_tool(tool_name, configured_server_keys)
+
+
 def _emit_tool_progress_from_state(
     state: Mapping[str, object],
     *,
     tool_progress_callback: ToolProgressCallback,
     started_tool_ids: set[str],
     ended_tool_ids: set[str],
+    configured_server_keys: Sequence[str] | None,
 ) -> None:
     messages_raw = state.get("messages")
     if not isinstance(messages_raw, Sequence) or isinstance(messages_raw, (str, bytes)):
@@ -306,6 +347,7 @@ def _emit_tool_progress_from_state(
                 tool_name = str(tool_call.get("name") or "").strip()
                 if not tool_call_id or not tool_name:
                     continue
+                server_name = _server_name_for_tool(tool_name, configured_server_keys)
                 tool_names_by_id[tool_call_id] = tool_name
                 args_by_id[tool_call_id] = tool_call.get("args")
                 if tool_call_id in started_tool_ids:
@@ -315,6 +357,7 @@ def _emit_tool_progress_from_state(
                     {
                         "phase": "start",
                         "tool_name": tool_name,
+                        "server_name": server_name,
                         "args": tool_call.get("args"),
                         "tool_run_id": tool_call_id,
                     }
@@ -331,11 +374,13 @@ def _emit_tool_progress_from_state(
             tool_call_id,
             "unknown_tool",
         )
+        server_name = _server_name_for_tool(tool_name, configured_server_keys)
         if status == "error":
             tool_progress_callback(
                 {
                     "phase": "error",
                     "tool_name": tool_name,
+                    "server_name": server_name,
                     "error": _truncate_tool_text(_serialize_tool_output(msg)),
                     "tool_run_id": tool_call_id,
                 }
@@ -345,6 +390,7 @@ def _emit_tool_progress_from_state(
             {
                 "phase": "end",
                 "tool_name": tool_name,
+                "server_name": server_name,
                 "result": _serialize_tool_output(msg),
                 "tool_run_id": tool_call_id,
             }
@@ -736,6 +782,8 @@ async def get_mcp_answer_with_langchain_agent_async(
     settings = get_settings()
     llm_model = get_llm(model_id=model_id)
     stream_answer_callback = None if require_tool_call else answer_delta_callback
+    if stream_answer_callback is None:
+        llm_model = suppress_llm_streaming(llm_model)
     if stream_answer_callback is not None:
         try:
             setattr(llm_model, "is_stream", True)
@@ -757,6 +805,12 @@ async def get_mcp_answer_with_langchain_agent_async(
         tool_invocations: list[dict[str, object]] = []
 
         invoke_config_map: dict[str, object] = dict(run_config or {})
+        if answer_delta_callback is None:
+            raw_tags = invoke_config_map.get("tags")
+            tags = list(raw_tags) if isinstance(raw_tags, list) else []
+            if "nostream" not in tags:
+                tags.append("nostream")
+            invoke_config_map["tags"] = tags
         raw_callbacks = invoke_config_map.get("callbacks")
         callbacks = list(raw_callbacks) if isinstance(raw_callbacks, list) else []
         if callbacks:

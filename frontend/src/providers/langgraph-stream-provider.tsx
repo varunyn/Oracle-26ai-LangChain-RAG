@@ -12,16 +12,21 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
-import { useStream } from "@langchain/react";
+import { useChannel, useStream } from "@langchain/react";
 import { debugChatStage } from "@/hooks/chat/debug";
 import { resolveLanggraphApiUrl } from "@/hooks/chat/stream-config";
 import type { BaseMessageWithKwargs } from "@/hooks/chat/references";
+import {
+  projectMcpToolActivities,
+  type McpToolActivity,
+} from "@/lib/types/mcp-activity";
 
 type StreamValue = ReturnType<typeof useStream>;
 type RunCompletedInfo = {
   runId?: string;
   reason: "success" | "error" | "interrupt" | "stopped";
 };
+type RunCreatedInfo = { runId: string };
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -33,28 +38,11 @@ function threadMessagesFromStatePayload(payload: unknown): BaseMessageWithKwargs
   return Array.isArray(values?.messages) ? (values.messages as BaseMessageWithKwargs[]) : undefined;
 }
 
-function threadMessagesFromSearchPayload(
-  payload: unknown,
-  threadId: string | null,
-): BaseMessageWithKwargs[] | undefined {
-  if (!threadId || !Array.isArray(payload)) return undefined;
-  const match = payload.find((thread) => {
-    return (
-      thread != null &&
-      typeof thread === "object" &&
-      (thread as { thread_id?: unknown }).thread_id === threadId
-    );
-  }) as { values?: { messages?: unknown } } | undefined;
-  return Array.isArray(match?.values?.messages)
-    ? (match.values.messages as BaseMessageWithKwargs[])
-    : undefined;
-}
-
 type LangGraphStreamContextValue = {
   threadId: string | null;
   setThreadId: Dispatch<SetStateAction<string | null>> | ((threadId: string | null) => void);
-  serverThreadMessages: BaseMessageWithKwargs[] | undefined;
   authoritativeThreadMessages: BaseMessageWithKwargs[] | undefined;
+  mcpToolActivities: McpToolActivity[];
   stream: StreamValue;
   transportError: Error | null;
 };
@@ -78,13 +66,6 @@ export function LangGraphStreamProvider({
     error: null,
     threadId,
   });
-  const [serverThreadMessagesState, setServerThreadMessagesState] = useState<{
-    messages: BaseMessageWithKwargs[] | undefined;
-    threadId: string | null;
-  }>({
-    messages: undefined,
-    threadId,
-  });
   const [authoritativeThreadMessagesState, setAuthoritativeThreadMessagesState] = useState<{
     messages: BaseMessageWithKwargs[] | undefined;
     threadId: string | null;
@@ -93,6 +74,8 @@ export function LangGraphStreamProvider({
     threadId,
   });
   const threadIdRef = useRef<string | null>(threadId);
+  const mcpActivityEventsRef = useRef<readonly unknown[]>([]);
+  const [mcpActivityStartIndex, setMcpActivityStartIndex] = useState(0);
   const mountedRef = useRef(false);
 
   useEffect(() => {
@@ -105,10 +88,6 @@ export function LangGraphStreamProvider({
 
   const transportError =
     transportErrorState.threadId === threadId ? transportErrorState.error : null;
-  const serverThreadMessages =
-    serverThreadMessagesState.threadId === threadId
-      ? serverThreadMessagesState.messages
-      : undefined;
   const authoritativeThreadMessages =
     authoritativeThreadMessagesState.threadId === threadId
       ? authoritativeThreadMessagesState.messages
@@ -131,20 +110,6 @@ export function LangGraphStreamProvider({
           (requestUrl.includes("/threads/") || requestUrl.includes("/threads/search"))
         ) {
           setTransportErrorState({ error: nextError, threadId: threadIdRef.current });
-        }
-        if (response.ok && requestUrl.endsWith("/state")) {
-          const payload = await response.clone().json().catch(() => null);
-          const messages = threadMessagesFromStatePayload(payload);
-          if (messages && mountedRef.current) {
-            setServerThreadMessagesState({ messages, threadId: threadIdRef.current });
-          }
-        }
-        if (response.ok && requestUrl.includes("/threads/search")) {
-          const payload = await response.clone().json().catch(() => null);
-          const messages = threadMessagesFromSearchPayload(payload, threadIdRef.current);
-          if (messages && mountedRef.current) {
-            setServerThreadMessagesState({ messages, threadId: threadIdRef.current });
-          }
         }
         return response;
       } catch (error) {
@@ -202,11 +167,17 @@ export function LangGraphStreamProvider({
     [hydrateAuthoritativeThread],
   );
 
+  const handleCreated = useCallback((info: RunCreatedInfo) => {
+    setMcpActivityStartIndex(mcpActivityEventsRef.current.length);
+    debugChatStage("LangGraphStreamProvider.onCreated", { runId: info.runId });
+  }, []);
+
   const stream = useStream({
     apiUrl: langgraphApiUrl,
     assistantId: "chat_agent",
     fetch: instrumentedFetch,
     threadId,
+    onCreated: handleCreated,
     onCompleted: handleCompleted,
     onThreadId: (id) => {
       if (id) {
@@ -219,6 +190,29 @@ export function LangGraphStreamProvider({
       }
     },
   });
+
+  const mcpActivityEvents = useChannel(stream, ["custom:mcp_tool_activity"]);
+  useEffect(() => {
+    mcpActivityEventsRef.current = mcpActivityEvents;
+  }, [mcpActivityEvents]);
+  const mcpToolActivities = useMemo(
+    () => projectMcpToolActivities(mcpActivityEvents.slice(mcpActivityStartIndex)),
+    [mcpActivityEvents, mcpActivityStartIndex],
+  );
+
+  useEffect(() => {
+    debugChatStage("LangGraphStreamProvider.mcpActivity", {
+      eventCount: mcpActivityEvents.length,
+      startIndex: mcpActivityStartIndex,
+      activityCount: mcpToolActivities.length,
+      events: mcpActivityEvents.slice(-3),
+      activities: mcpToolActivities.map(({ toolRunId, toolName, status }) => ({
+        toolRunId,
+        toolName,
+        status,
+      })),
+    });
+  }, [mcpActivityEvents, mcpActivityStartIndex, mcpToolActivities]);
 
   useEffect(() => {
     debugChatStage("LangGraphStreamProvider.state", {
@@ -236,8 +230,8 @@ export function LangGraphStreamProvider({
       value={{
         threadId,
         setThreadId,
-        serverThreadMessages,
         authoritativeThreadMessages,
+        mcpToolActivities,
         stream,
         transportError,
       }}

@@ -4,6 +4,7 @@ from __future__ import annotations
 # pyright: reportUnreachable=false, reportUnusedCallResult=false, reportUnusedParameter=false
 import asyncio
 import logging
+import os
 import threading
 from dataclasses import dataclass
 from typing import Any, cast
@@ -40,6 +41,33 @@ _CLIENT_LOCK = threading.Lock()
 _LANGFUSE_CLIENT: Any | None = None
 _LANGFUSE_DISABLED = False
 _DISABLE_REASON = ""
+
+
+def _env_or_settings_str(key: str) -> str:
+    env_value = os.environ.get(key)
+    if isinstance(env_value, str) and env_value.strip():
+        return env_value.strip()
+    value = getattr(get_settings(), key, "") or ""
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _running_in_docker() -> bool:
+    return os.path.exists("/.dockerenv")
+
+
+def _resolve_langfuse_host() -> str:
+    host = _env_or_settings_str("LANGFUSE_HOST")
+    if host and not _running_in_docker():
+        return host
+    if host in {"http://localhost:3300", "http://127.0.0.1:3300"} and _running_in_docker():
+        rewritten = "http://langfuse-web:3000"
+        logger.warning(
+            "Rewriting LANGFUSE_HOST=%s to %s inside Docker so Langfuse OTEL export does not loop back to the container",
+            host,
+            rewritten,
+        )
+        return rewritten
+    return host
 
 
 @dataclass
@@ -157,9 +185,9 @@ def get_langfuse_client() -> Any | None:
         _disable("langfuse package not installed")
         return None
 
-    host = (getattr(get_settings(), "LANGFUSE_HOST", "") or "").strip()
-    public_key = (getattr(get_settings(), "LANGFUSE_PUBLIC_KEY", "") or "").strip()
-    secret_key = (getattr(get_settings(), "LANGFUSE_SECRET_KEY", "") or "").strip()
+    host = _resolve_langfuse_host()
+    public_key = _env_or_settings_str("LANGFUSE_PUBLIC_KEY")
+    secret_key = _env_or_settings_str("LANGFUSE_SECRET_KEY")
 
     if not (host and public_key and secret_key):
         _disable("missing LANGFUSE config")
@@ -266,7 +294,8 @@ def add_langfuse_callbacks(
     """
     if not langfuse_enabled():
         return
-    if get_langfuse_client() is None:
+    client = get_langfuse_client()
+    if client is None:
         return
     try:
         from langfuse.langchain import CallbackHandler
@@ -274,7 +303,15 @@ def add_langfuse_callbacks(
         logger.debug("Langfuse LangChain callback not available: %s", exc)
         return
     callbacks = list(run_config.get("callbacks") or [])
-    handler = CallbackHandler(trace_context=cast(Any, trace_context))
+    public_key = getattr(client, "public_key", None)
+    if not isinstance(public_key, str) or not public_key.strip():
+        public_key = (
+            getattr(get_settings(), "LANGFUSE_PUBLIC_KEY", None) or None
+        )
+    handler_kwargs: dict[str, Any] = {"trace_context": cast(Any, trace_context)}
+    if isinstance(public_key, str) and public_key.strip():
+        handler_kwargs["public_key"] = public_key.strip()
+    handler = CallbackHandler(**handler_kwargs)
     callbacks.append(_TokenUsageCallback(handler))
     callbacks.append(handler)
     run_config["callbacks"] = callbacks

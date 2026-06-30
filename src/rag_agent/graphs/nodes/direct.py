@@ -13,7 +13,10 @@ from src.rag_agent.graphs.nodes.references import (
 from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, get_thread_id
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
 from src.rag_agent.infrastructure import oci_models as _oci_models
-from src.rag_agent.runtime.llm_invocation import invoke_llm_with_optional_config
+from src.rag_agent.runtime.llm_invocation import (
+    invoke_llm_with_optional_config,
+    suppress_llm_streaming,
+)
 from src.rag_agent.runtime.memory import langchain_messages_to_dicts, latest_user_message
 from src.rag_agent.runtime.observability import emit_usage_observability, extract_usage
 from src.rag_agent.utils.langfuse_tracing import start_langfuse_chat_trace
@@ -58,7 +61,7 @@ async def run_direct_node(
                 mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
                 trace_context=langfuse_trace.trace_context if langfuse_trace else None,
             )
-            llm = get_llm(model_id=cast(str | None, context.get("model_id")))
+            llm = suppress_llm_streaming(get_llm(model_id=cast(str | None, context.get("model_id"))))
             response = await asyncio.to_thread(invoke_llm_with_optional_config, llm, history, run_cfg)
             usage = extract_usage(response)
             resolved_model_id = cast(str | None, getattr(llm, "model_id", None)) or cast(

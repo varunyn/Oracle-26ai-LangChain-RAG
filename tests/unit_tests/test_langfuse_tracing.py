@@ -53,7 +53,13 @@ def test_add_langfuse_callbacks_sets_trace_context_name_and_tags(monkeypatch: An
     captured: dict[str, Any] = {}
 
     class _CallbackHandler:
-        def __init__(self, *, trace_context: dict[str, str] | None = None) -> None:
+        def __init__(
+            self,
+            *,
+            public_key: str | None = None,
+            trace_context: dict[str, str] | None = None,
+        ) -> None:
+            captured["public_key"] = public_key
             captured["trace_context"] = trace_context
 
     import langfuse.langchain
@@ -61,7 +67,12 @@ def test_add_langfuse_callbacks_sets_trace_context_name_and_tags(monkeypatch: An
     monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
     monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
     monkeypatch.setattr(langfuse.langchain, "CallbackHandler", _CallbackHandler)
-    langfuse_tracing.set_langfuse_client(object(), disabled=False)
+    monkeypatch.setattr(
+        langfuse_tracing,
+        "get_settings",
+        lambda: SimpleNamespace(LANGFUSE_PUBLIC_KEY="pk-test"),
+    )
+    langfuse_tracing.set_langfuse_client(SimpleNamespace(public_key="pk-test"), disabled=False)
 
     run_config: dict[str, Any] = {"configurable": {"thread_id": "t-3", "model_id": "model-a"}}
     langfuse_tracing.add_langfuse_callbacks(
@@ -74,12 +85,44 @@ def test_add_langfuse_callbacks_sets_trace_context_name_and_tags(monkeypatch: An
     )
 
     metadata = run_config["metadata"]
+    assert captured["public_key"] == "pk-test"
     assert captured["trace_context"] == {"trace_id": "trace-3", "parent_span_id": "span-3"}
     assert metadata["langfuse_session_id"] == "sess-3"
     assert "langfuse_user_id" not in metadata
     assert metadata["langfuse_trace_name"] == "chat-rag"
     assert metadata["langfuse_tags"] == ["chat", "mode:rag", "model:model-a"]
     assert metadata["ls_model_name"] == "model-a"
+
+
+def test_add_langfuse_callbacks_falls_back_to_settings_public_key(monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    class _CallbackHandler:
+        def __init__(
+            self,
+            *,
+            public_key: str | None = None,
+            trace_context: dict[str, str] | None = None,
+        ) -> None:
+            captured["public_key"] = public_key
+            captured["trace_context"] = trace_context
+
+    import langfuse.langchain
+
+    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
+    monkeypatch.setattr(langfuse.langchain, "CallbackHandler", _CallbackHandler)
+    monkeypatch.setattr(
+        langfuse_tracing,
+        "get_settings",
+        lambda: SimpleNamespace(LANGFUSE_PUBLIC_KEY="pk-settings"),
+    )
+    langfuse_tracing.set_langfuse_client(object(), disabled=False)
+
+    run_config: dict[str, Any] = {"configurable": {"thread_id": "t-4"}}
+    langfuse_tracing.add_langfuse_callbacks(run_config, session_id="sess-4", user_id=None)
+
+    assert captured["public_key"] == "pk-settings"
 
 
 def test_get_langfuse_client_passes_sample_rate_when_configured(monkeypatch: Any) -> None:
@@ -108,6 +151,51 @@ def test_get_langfuse_client_passes_sample_rate_when_configured(monkeypatch: Any
 
     assert langfuse_tracing.get_langfuse_client() is not None
     assert captured["sample_rate"] == 0.25
+
+
+def test_get_langfuse_client_prefers_environment_over_settings(monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    class _LangfuseRuntime:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", _LangfuseRuntime)
+    monkeypatch.setenv("LANGFUSE_HOST", "http://langfuse-web:3000")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-env")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-env")
+    monkeypatch.setattr(
+        langfuse_tracing,
+        "get_settings",
+        lambda: SimpleNamespace(
+            LANGFUSE_HOST="http://localhost:3300",
+            LANGFUSE_PUBLIC_KEY="pk-settings",
+            LANGFUSE_SECRET_KEY="sk-settings",
+            LANGFUSE_TRACING_ENVIRONMENT="test",
+            LANGFUSE_ENVIRONMENT=None,
+            LANGFUSE_RELEASE=None,
+            LANGFUSE_SAMPLE_RATE=None,
+        ),
+    )
+    langfuse_tracing.set_langfuse_client(None, disabled=False)
+
+    assert langfuse_tracing.get_langfuse_client() is not None
+    assert captured["base_url"] == "http://langfuse-web:3000"
+    assert captured["public_key"] == "pk-env"
+    assert captured["secret_key"] == "sk-env"
+
+
+def test_resolve_langfuse_host_rewrites_localhost_inside_docker(monkeypatch: Any) -> None:
+    monkeypatch.setattr(langfuse_tracing, "_running_in_docker", lambda: True)
+    monkeypatch.setattr(
+        langfuse_tracing,
+        "get_settings",
+        lambda: SimpleNamespace(LANGFUSE_HOST="http://localhost:3300"),
+    )
+    monkeypatch.delenv("LANGFUSE_HOST", raising=False)
+
+    assert langfuse_tracing._resolve_langfuse_host() == "http://langfuse-web:3000"
 
 
 def test_start_langfuse_chat_trace_propagates_trace_attributes(monkeypatch: Any) -> None:

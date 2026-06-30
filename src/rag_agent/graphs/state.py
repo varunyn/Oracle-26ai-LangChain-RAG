@@ -23,3 +23,4 @@ class ChatGraphState(TypedDict, total=False):
     messages: Annotated[list[object], merge_chat_messages]
     context: ChatGraphContext
     references: dict[str, object]
+    progress: str

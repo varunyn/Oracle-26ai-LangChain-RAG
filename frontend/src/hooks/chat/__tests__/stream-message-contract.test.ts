@@ -1,7 +1,11 @@
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
 
-import { projectStreamMessages } from "../message-projection";
+import { projectMcpToolActivities } from "@/lib/types/mcp-activity";
+import {
+  projectStreamMessages,
+  selectMessagesForStatus,
+} from "../message-projection";
 
 describe("frontend stream message contract", () => {
   it("supports HumanMessage and AIMessage instances from stream.messages", () => {
@@ -29,7 +33,6 @@ describe("frontend stream message contract", () => {
 
     const projected = projectStreamMessages({
       streamMessages: [user, assistant],
-      liveToolProgressEvents: [],
     });
 
     expect(projected).toEqual([
@@ -75,7 +78,6 @@ describe("frontend stream message contract", () => {
 
     const projected = projectStreamMessages({
       streamMessages: [user, partialAssistant, finalAssistant],
-      liveToolProgressEvents: [],
     });
 
     expect(projected.map((message) => message.id)).toEqual(["user-1", "assistant-1"]);
@@ -111,5 +113,125 @@ describe("frontend stream message contract", () => {
         references: { citations: [{ source: "terms.pdf", page: null }] },
       },
     ]);
+  });
+
+  it("uses finalized state messages at completion instead of maintaining a second fetch-derived message store", () => {
+    const liveMessages = projectStreamMessages({
+      streamMessages: [
+        new HumanMessage({ id: "user-1", content: "What are the terms?" }),
+        new AIMessage({ id: "assistant-live", content: "Answer without citations" }),
+      ],
+    });
+    const finalizedMessages = projectStreamMessages({
+      streamMessages: [
+        new HumanMessage({ id: "user-1", content: "What are the terms?" }),
+        new AIMessage({
+          id: "assistant-final",
+          content: "Answer with citations",
+          additional_kwargs: {
+            citations: [{ source: "terms.pdf", page: "2" }],
+          },
+        }),
+      ],
+    });
+
+    expect(selectMessagesForStatus(liveMessages, finalizedMessages, "ready")).toEqual(
+      finalizedMessages,
+    );
+  });
+
+  it("uses finalized state messages for RAG completion without requiring MCP activity", () => {
+    const liveMessages = projectStreamMessages({
+      streamMessages: [
+        new HumanMessage({ id: "user-1", content: "What are the terms?" }),
+        new AIMessage({ id: "assistant-live", content: "Answer without citations" }),
+      ],
+    });
+    const finalizedMessages = projectStreamMessages({
+      streamMessages: [
+        new HumanMessage({ id: "user-1", content: "What are the terms?" }),
+        new AIMessage({
+          id: "assistant-final",
+          content: "Answer with citations",
+          additional_kwargs: {
+            citations: [{ source: "terms.pdf", page: "2" }],
+          },
+        }),
+      ],
+    });
+
+    expect(selectMessagesForStatus(liveMessages, finalizedMessages, "ready")).toEqual(
+      finalizedMessages,
+    );
+  });
+
+  it("keeps MCP activity on the dedicated provider channel adapter instead of mixing it into native tool-call projection", () => {
+    const projectedActivities = projectMcpToolActivities([
+      {
+        method: "custom",
+        params: {
+          data: {
+            name: "mcp_tool_activity",
+            payload: {
+              tool_run_id: "call-1",
+              tool_name: "Calculator_linear_regression",
+              status: "running",
+              args: { data: [[1, 2], [2, 3.5]] },
+            },
+          },
+        },
+      },
+      {
+        method: "custom",
+        params: {
+          data: {
+            name: "mcp_tool_activity",
+            payload: {
+              tool_run_id: "call-1",
+              tool_name: "Calculator_linear_regression",
+              status: "finished",
+              output: "{\"slope\":1.54,\"intercept\":0.44}",
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(projectedActivities).toEqual([
+      {
+        toolRunId: "call-1",
+        toolName: "Calculator_linear_regression",
+        serverName: null,
+        status: "finished",
+        args: { data: [[1, 2], [2, 3.5]] },
+        output: "{\"slope\":1.54,\"intercept\":0.44}",
+        error: null,
+      },
+    ]);
+  });
+
+  it("keeps MCP activity separate from native tool-call projection", () => {
+    const activities = projectMcpToolActivities([
+      {
+        method: "custom",
+        params: {
+          data: {
+            name: "mcp_tool_activity",
+            payload: {
+              tool_run_id: "call-1",
+              tool_name: "Calculator_linear_regression",
+              server_name: "calculator",
+              status: "finished",
+              output: "ok",
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(activities[0]).toMatchObject({
+      serverName: "calculator",
+      toolName: "Calculator_linear_regression",
+    });
   });
 });
