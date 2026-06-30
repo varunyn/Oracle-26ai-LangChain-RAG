@@ -9,7 +9,11 @@ import {
   type BaseMessageWithKwargs,
   isSameContextUsage,
 } from "@/hooks/chat/references";
-import type { NativeToolCall } from "@/hooks/chat/tool-call-mapping";
+import {
+  mergeToolCalls,
+  toolCallsFromMessages,
+  type NativeToolCall,
+} from "@/hooks/chat/tool-call-mapping";
 import { isMissingThreadError } from "@/hooks/chat/thread-errors";
 import { useChatActions } from "@/hooks/chat/useChatActions";
 import { useChatBodyParams } from "@/hooks/useChatBodyParams";
@@ -58,6 +62,14 @@ export function useChatController({
 
   const streamMessages = stream.messages;
   const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
+  const replayedToolCalls = useMemo(
+    () => toolCallsFromMessages(streamMessages as readonly unknown[] | undefined),
+    [streamMessages]
+  );
+  const visibleToolCalls = useMemo(
+    () => mergeToolCalls(replayedToolCalls, streamToolCalls),
+    [replayedToolCalls, streamToolCalls]
+  );
   const progress =
     typeof (stream.values as { progress?: unknown } | undefined)?.progress ===
     "string"
@@ -235,7 +247,7 @@ export function useChatController({
     setInput,
     messages,
     progress,
-    toolCalls: streamToolCalls,
+    toolCalls: visibleToolCalls,
     status,
     maxCitationsToShow,
     handleSubmit,

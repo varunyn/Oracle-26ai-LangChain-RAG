@@ -713,6 +713,93 @@ test.describe("chat streaming", () => {
     await expect(page.getByText("Result", { exact: true })).toBeVisible();
   });
 
+  test("replays persisted tool calls after refreshing an existing thread", async ({
+    page,
+  }) => {
+    const threadId = "00000000-0000-4000-8000-000000000008";
+    const callId = "persisted-call-1";
+    const toolName = "Calculator_solve_equation";
+
+    await page.addInitScript((storedThreadId) => {
+      window.localStorage.setItem("rag_agent_thread_id", storedThreadId);
+    }, threadId);
+    await page.route("**/threads/search**", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            thread_id: threadId,
+            created_at: "2026-06-30T10:00:00Z",
+            updated_at: "2026-06-30T10:01:00Z",
+            values: {
+              messages: [
+                {
+                  type: "human",
+                  content: "Solve x^2 - 5x + 6 = 0 using tools",
+                },
+              ],
+            },
+          },
+        ]),
+      });
+    });
+    await page.route(`**/threads/${threadId}/state`, (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          values: {
+            messages: [
+              {
+                type: "human",
+                content: "Solve x^2 - 5x + 6 = 0 using tools",
+              },
+              {
+                type: "ai",
+                content: [{ type: "tool_call", id: callId }],
+                tool_calls: [
+                  {
+                    id: callId,
+                    name: toolName,
+                    args: { equation: "x**2 - 5*x + 6 = 0" },
+                  },
+                ],
+              },
+              {
+                type: "tool",
+                name: toolName,
+                tool_call_id: callId,
+                content: [
+                  { type: "text", text: '{"solutions":"[2, 3]"}' },
+                ],
+                artifact: {
+                  structured_content: { solutions: "[2, 3]" },
+                },
+                status: "success",
+              },
+              {
+                type: "ai",
+                content: "The solutions are x = 2 and x = 3.",
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    await page.goto("/");
+
+    const tool = page.locator(
+      `[data-tool-type="tool-${toolName}"][data-tool-state="output-available"]`
+    );
+    await expect(tool).toBeVisible();
+    await expect(tool).toContainText("solutions");
+    await expect(
+      page.getByText("The solutions are x = 2 and x = 3.")
+    ).toBeVisible();
+  });
+
   test("renders native tool calls once the final assistant payload arrives", async ({
     page,
   }) => {

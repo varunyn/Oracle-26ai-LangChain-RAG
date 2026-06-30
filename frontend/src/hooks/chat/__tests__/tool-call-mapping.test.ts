@@ -2,11 +2,67 @@ import { describe, expect, it } from "vitest";
 
 import {
   type NativeToolCall,
+  mergeToolCalls,
   toolCallStateForStatus,
+  toolCallsFromMessages,
   toolCallsForMessage,
 } from "../tool-call-mapping";
 
 describe("toolCallsForMessage", () => {
+  it("reconstructs completed calls from persisted assistant and tool messages", () => {
+    const toolCalls = toolCallsFromMessages([
+      {
+        type: "ai",
+        tool_calls: [
+          {
+            id: "call-1",
+            name: "Calculator_solve_equation",
+            args: { equation: "x**2 - 5*x + 6 = 0" },
+          },
+        ],
+      },
+      {
+        type: "tool",
+        name: "Calculator_solve_equation",
+        tool_call_id: "call-1",
+        content: [{ type: "text", text: '{"solutions":"[2, 3]"}' }],
+        artifact: { structured_content: { solutions: "[2, 3]" } },
+        status: "success",
+      },
+    ]);
+
+    expect(toolCallsForMessage(["call-1"], toolCalls)).toMatchObject([
+      {
+        callId: "call-1",
+        input: { equation: "x**2 - 5*x + 6 = 0" },
+        name: "Calculator_solve_equation",
+        output: { solutions: "[2, 3]" },
+        status: "finished",
+      },
+    ]);
+  });
+
+  it("lets live lifecycle calls override replayed calls with the same id", () => {
+    const replayed = toolCallsFromMessages([
+      {
+        type: "ai",
+        tool_calls: [{ id: "call-1", name: "lookup", args: { q: "old" } }],
+      },
+    ]);
+    const live: NativeToolCall = {
+      callId: "call-1",
+      id: "call-1",
+      name: "lookup",
+      input: { q: "new" },
+      output: "fresh result",
+      status: "running",
+    };
+
+    expect(toolCallsForMessage(["call-1"], mergeToolCalls(replayed, [live]))).toMatchObject([
+      { callId: "call-1", input: { q: "new" }, status: "running" },
+    ]);
+  });
+
   it("returns only calls whose callId belongs to the assistant message", () => {
     const toolCalls: NativeToolCall[] = [
       {

@@ -2,6 +2,7 @@
 
 ## 2026-06-30
 
+- Restored native tool-call cards when rehydrating persisted threads by reconstructing calls from stored assistant/tool messages and preferring live lifecycle data when available.
 - Updated native tool-call presentation to follow the AI Elements Tool pattern with a real collapsible header/content structure, state-aware status badges, compact running calls, and automatic expansion for completed or errored calls.
 - Added per-thread delete actions in the chat sidebar, reusing the LangGraph Agent Server thread delete path for both non-active thread removal and active-thread clear/delete behavior.
 - Stabilized sidebar thread titles so selecting an existing thread no longer rewrites fallback labels from a random thread suffix to the first user question during replay.
