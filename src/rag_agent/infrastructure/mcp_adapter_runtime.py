@@ -47,24 +47,6 @@ class AdapterConnectionConfig(TypedDict, total=False):
     terminate_on_close: bool
 
 
-def configured_server_name_for_tool(
-    tool_name: str,
-    configured_server_keys: Sequence[str] | None,
-) -> str | None:
-    normalized_tool_name = str(tool_name or "").strip().lower()
-    if not normalized_tool_name:
-        return None
-
-    for raw_key in configured_server_keys or ():
-        key = str(raw_key or "").strip()
-        if not key:
-            continue
-        normalized_key = key.lower()
-        if normalized_tool_name.startswith(f"{normalized_key}_"):
-            return key
-    return None
-
-
 def _extract_configurable(run_config: Mapping[str, Any] | None) -> Mapping[str, Any]:
     if not isinstance(run_config, Mapping):
         return {}

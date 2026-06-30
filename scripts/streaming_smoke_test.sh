@@ -5,7 +5,7 @@ set -euo pipefail
 # Checks that the LangGraph stream returns SSE values events and closes cleanly.
 
 API_HOST="127.0.0.1"
-API_PORT="3002"
+API_PORT="2024"
 API_URL="http://${API_HOST}:${API_PORT}"
 
 # Colors for output
@@ -19,7 +19,7 @@ echo -e "${YELLOW}Running streaming smoke test...${NC}"
 # Check if API is running
 if ! curl -s --max-time 5 "${API_URL}/health" > /dev/null; then
     echo -e "${RED}❌ API not running on ${API_URL}${NC}"
-    echo -e "${YELLOW}Start API with: ./run_api.sh${NC}"
+    echo -e "${YELLOW}Start API with: uv run langgraph dev${NC}"
     exit 1
 fi
 
@@ -27,9 +27,9 @@ fi
 SMOKE_OUTPUT=$(mktemp)
 HEADER_FILE=$(mktemp)
 
-if ! curl -N -X POST "${API_URL}/api/langgraph/threads/smoke-thread/runs/stream" \
+if ! curl -N -X POST "${API_URL}/threads/smoke-thread/runs/stream" \
     -H "Content-Type: application/json" \
-    -d '{"assistant_id":"mcp_agent_executor","input":{"messages":[{"type":"human","content":"Hello"}]}}' \
+    -d '{"assistant_id":"chat_agent","input":{"messages":[{"type":"human","content":"Hello"}]},"stream_mode":["values"]}' \
     --dump-header "$HEADER_FILE" \
     --max-time 30 2>/dev/null > "$SMOKE_OUTPUT"; then
     echo -e "${RED}❌ Streaming request failed${NC}"

@@ -23,7 +23,6 @@ from .workflow_intent import (
 )
 
 AnswerCallable = Callable[..., Awaitable[tuple[str, list[str], list[dict[str, object]]]]]
-ToolProgressCallback = Callable[[dict[str, object]], None]
 
 
 async def run_repeated_mcp_workflow(
@@ -35,7 +34,6 @@ async def run_repeated_mcp_workflow(
     require_tool_call: bool,
     get_answer: AnswerCallable,
     checkpoint_path: str | Path | None = None,
-    tool_progress_callback: ToolProgressCallback | None = None,
     discovery_result: tuple[str, list[str], list[dict[str, object]]] | None = None,
     chat_history: Sequence[object] | None = None,
 ) -> tuple[str, list[str], list[dict[str, object]]] | None:
@@ -74,7 +72,6 @@ async def run_repeated_mcp_workflow(
             tools=list(discovery_tools),
             run_config=run_config,
             require_tool_call=require_tool_call,
-            tool_progress_callback=tool_progress_callback,
         )
     else:
         processing_tools = list(tools)
@@ -100,7 +97,6 @@ async def run_repeated_mcp_workflow(
             tools=list(processing_tools),
             run_config=run_config,
             require_tool_call=require_tool_call,
-            tool_progress_callback=tool_progress_callback,
         )
         per_unit_tools.extend(used)
         per_unit_invocations.extend(invocations)
@@ -152,7 +148,6 @@ async def run_repeated_mcp_workflow(
         tools=list(finalization_tools),
         run_config=run_config,
         require_tool_call=require_tool_call,
-        tool_progress_callback=tool_progress_callback,
     )
     tools_used = _dedupe([*discovery_tool_names, *per_unit_tools, *final_used])
     invocations = [*discovery_invocations, *per_unit_invocations, *final_invocations]

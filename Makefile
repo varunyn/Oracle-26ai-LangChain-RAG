@@ -3,7 +3,7 @@
 help:
 	@echo "Targets:"
 	@echo "  up/down/status                     - Run core + auto stacks from .env flags"
-	@echo "  core-up/core-down/core-logs        - Run backend+langgraph+frontend with docker compose (no Python)"
+	@echo "  core-up/core-down/core-logs        - Run langgraph+frontend with docker compose (no Python)"
 	@echo "  observability-up/down/status       - Manage observability stack via scripts/manage_stacks.py"
 	@echo "  langfuse-up/down/status            - Manage langfuse stack via scripts/manage_stacks.py"
 	@echo "  stacks-up/down/status              - Manage all enabled stacks via scripts/manage_stacks.py"
@@ -21,15 +21,15 @@ status:
 	docker compose ps
 	uv run python scripts/manage_stacks.py status
 
-# Core app (backend + langgraph + frontend) using compose directly
+# Core app (LangGraph Agent Server + frontend) using compose directly
 core-up:
-	docker compose up -d backend langgraph frontend
+	docker compose up -d langgraph frontend
 
 core-down:
 	docker compose down
 
 core-logs:
-	docker compose logs -f backend langgraph frontend
+	docker compose logs -f langgraph frontend
 
 # Observability stack (preferred via manage_stacks.py)
 observability-up:

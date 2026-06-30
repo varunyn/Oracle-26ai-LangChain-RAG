@@ -67,8 +67,6 @@ def repeated_workflow_controller_enabled() -> bool:
 
 def workflow_checkpoint_path() -> str | None:
     settings = get_settings()
-    if not bool(getattr(settings, "ENABLE_PERSISTENT_MEMORY", False)):
-        return None
     raw_path = str(getattr(settings, "LANGGRAPH_SQLITE_PATH", "") or "").strip()
     return raw_path or None
 

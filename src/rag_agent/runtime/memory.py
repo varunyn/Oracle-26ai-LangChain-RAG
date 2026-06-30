@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 from collections.abc import Sequence
 from typing import Any
@@ -9,20 +10,106 @@ from langchain_core.runnables.config import RunnableConfig
 
 from src.rag_agent.infrastructure.oci_models import get_llm
 
-from .llm_invocation import invoke_llm_with_optional_config
+from .llm_invocation import invoke_llm_with_optional_config, message_text, suppress_llm_streaming
+
+
+def _content_text(content: object) -> str:
+    content = _structured_content(content)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            block_type = str(item.get("type") or "")
+            if block_type in {"text", "text_delta"}:
+                parts.append(str(item.get("text") or item.get("content") or ""))
+        return "".join(parts)
+    return str(content or "")
+
+
+def _structured_content(content: object) -> object:
+    if not isinstance(content, str):
+        return content
+    text = content.strip()
+    if not text.startswith("[") or "\"type\"" not in text and "'type'" not in text:
+        return content
+    try:
+        parsed = ast.literal_eval(text)
+    except (SyntaxError, ValueError):
+        return content
+    if isinstance(parsed, list) and all(isinstance(item, dict) for item in parsed):
+        return parsed
+    return content
+
+
+def _message_role(message: object) -> str | None:
+    if isinstance(message, HumanMessage):
+        return "user"
+    if isinstance(message, AIMessage):
+        return "assistant"
+    if isinstance(message, SystemMessage):
+        return "system"
+    if isinstance(message, dict):
+        role = str(message.get("role") or "").strip().lower()
+        if role in {"user", "human"}:
+            return "user"
+        if role in {"assistant", "ai"}:
+            return "assistant"
+        if role == "system":
+            return "system"
+        message_type = str(message.get("type") or "").strip().lower()
+        if message_type in {"user", "human"}:
+            return "user"
+        if message_type in {"assistant", "ai"}:
+            return "assistant"
+        if message_type == "system":
+            return "system"
+    return None
+
+
+def _message_id(message: object) -> str | None:
+    if isinstance(message, (HumanMessage, AIMessage, SystemMessage)):
+        message_id = getattr(message, "id", None)
+        if isinstance(message_id, str) and message_id.strip():
+            return message_id.strip()
+    if isinstance(message, dict):
+        message_id = message.get("id")
+        if isinstance(message_id, str) and message_id.strip():
+            return message_id.strip()
+    return None
+
+
+def _message_content(message: object) -> object:
+    if isinstance(message, (HumanMessage, AIMessage, SystemMessage)):
+        return _structured_content(message.content or "")
+    if isinstance(message, dict):
+        return _structured_content(message.get("content") or "")
+    return ""
+
+
+def _langchain_content(content: object) -> str | list[object]:
+    if isinstance(content, list):
+        return content
+    return _content_text(content)
 
 
 def to_langchain_messages(messages: list[dict[str, object]]) -> list[Any]:
     converted: list[Any] = []
     for item in messages:
-        role = str(item.get("role") or "").strip().lower()
-        content = str(item.get("content") or "")
+        role = _message_role(item)
+        content = _langchain_content(item.get("content") or "")
+        message_id = _message_id(item)
         if role == "user":
-            converted.append(HumanMessage(content=content))
+            converted.append(HumanMessage(content=content, id=message_id))
         elif role == "assistant":
-            converted.append(AIMessage(content=content))
+            converted.append(AIMessage(content=content, id=message_id))
         elif role == "system":
-            converted.append(SystemMessage(content=content))
+            converted.append(SystemMessage(content=content, id=message_id))
     return converted
 
 
@@ -46,9 +133,8 @@ def hydrate_thread_messages(
 def latest_user_message(messages: list[dict[str, object]]) -> str:
     latest = ""
     for item in messages:
-        role = str(item.get("role") or "").strip().lower()
-        content = str(item.get("content") or "")
-        if role == "user":
+        content = _content_text(item.get("content") or "")
+        if _message_role(item) == "user":
             latest = content.strip() or latest
     return latest
 
@@ -56,8 +142,7 @@ def latest_user_message(messages: list[dict[str, object]]) -> str:
 def chat_history_before_latest_user(messages: list[dict[str, object]]) -> list[Any]:
     last_user_idx = -1
     for idx in range(len(messages) - 1, -1, -1):
-        role = str(messages[idx].get("role") or "").strip().lower()
-        if role == "user":
+        if _message_role(messages[idx]) == "user":
             last_user_idx = idx
             break
     if last_user_idx <= 0:
@@ -90,14 +175,14 @@ async def contextualize_question(
         f"Conversation history:\n{transcript}\n\n"
         f"Latest user question:\n{question}"
     )
-    llm = get_llm(model_id=model_id)
+    llm = suppress_llm_streaming(get_llm(model_id=model_id))
     response = await asyncio.to_thread(
         invoke_llm_with_optional_config,
         llm,
         [HumanMessage(content=prompt)],
         run_config,
     )
-    standalone = str(getattr(response, "content", "") or "").strip()
+    standalone = message_text(response).strip()
     return standalone or question
 
 
@@ -137,33 +222,30 @@ def merge_chat_messages(left: Sequence[object], right: Sequence[object]) -> list
 
 
 def message_signature(message: object) -> tuple[str, str] | None:
-    if isinstance(message, HumanMessage):
-        return ("user", str(message.content or ""))
-    if isinstance(message, AIMessage):
-        return ("assistant", str(message.content or ""))
-    if isinstance(message, SystemMessage):
-        return ("system", str(message.content or ""))
-    if isinstance(message, dict):
-        role = str(message.get("role") or "").strip().lower()
-        content = str(message.get("content") or "")
-        if role in {"user", "assistant", "system"}:
-            return (role, content)
-    return None
+    role = _message_role(message)
+    if role is None:
+        return None
+    message_id = _message_id(message)
+    if message_id is not None:
+        return (role, f"id:{message_id}")
+    return (role, _content_text(_message_content(message)))
 
 
 def message_role_label(message: object) -> str:
-    signature = message_signature(message)
-    return signature[0] if signature else "message"
+    return _message_role(message) or "message"
 
 
 def langchain_messages_to_dicts(messages: Sequence[object]) -> list[dict[str, object]]:
     serialized: list[dict[str, object]] = []
     for message in messages:
-        signature = message_signature(message)
-        if signature is None:
+        role = _message_role(message)
+        if role is None:
             continue
-        role, content = signature
-        serialized.append({"role": role, "content": content})
+        payload: dict[str, object] = {"role": role, "content": _message_content(message)}
+        message_id = _message_id(message)
+        if message_id is not None:
+            payload["id"] = message_id
+        serialized.append(payload)
     return serialized
 
 

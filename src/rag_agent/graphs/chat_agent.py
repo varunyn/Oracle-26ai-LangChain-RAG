@@ -4,6 +4,7 @@ from typing import Any
 
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.prebuilt import ToolCallTransformer
 from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.nodes.direct import run_direct_node
@@ -65,7 +66,7 @@ def build_chat_agent(*, checkpointer: Any | None = None) -> CompiledStateGraph:
     graph.add_edge("mcp", END)
     graph.add_edge("mixed", END)
     graph.add_edge("rag", END)
-    return graph.compile(checkpointer=checkpointer)
+    return graph.compile(checkpointer=checkpointer, transformers=[ToolCallTransformer])
 
 
 chat_agent = build_chat_agent()

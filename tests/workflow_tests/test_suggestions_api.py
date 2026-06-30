@@ -2,6 +2,7 @@ import asyncio
 
 import httpx
 from httpx import ASGITransport
+from langchain.agents.structured_output import ToolStrategy
 
 from api.main import app
 from api.routes import suggestions as suggestions_route
@@ -57,7 +58,8 @@ def test_suggestions_endpoint_uses_structured_agent_response(monkeypatch) -> Non
     asyncio.run(run())
     assert captured["model"] is fake_llm
     assert captured["tools"] == []
-    assert captured["response_format"].__name__ == "FollowUpSuggestions"
+    assert isinstance(captured["response_format"], ToolStrategy)
+    assert captured["response_format"].schema.__name__ == "FollowUpSuggestions"
     assert "Latest assistant answer" in str(captured["payload"])
 
 
@@ -130,7 +132,7 @@ def test_suggestions_endpoint_returns_empty_when_model_output_is_invalid(monkeyp
     asyncio.run(run())
 
 
-def test_suggestions_endpoint_falls_back_when_selected_model_rejects_strict(
+def test_suggestions_endpoint_uses_tool_strategy_without_default_model_retry(
     monkeypatch,
 ) -> None:
     llm_calls: list[str | None] = []
@@ -140,13 +142,7 @@ def test_suggestions_endpoint_falls_back_when_selected_model_rejects_strict(
         def __init__(self, model_id: str | None) -> None:
             self.model_id = model_id
 
-    class RaisingAgent:
-        def invoke(self, payload: dict[str, object], config: dict[str, object] | None = None):
-            assert payload
-            assert config
-            raise TypeError("Unrecognized keyword arguments: strict")
-
-    class FallbackAgent:
+    class FakeAgent:
         def invoke(self, payload: dict[str, object], config: dict[str, object] | None = None):
             assert payload
             assert config
@@ -168,12 +164,11 @@ def test_suggestions_endpoint_falls_back_when_selected_model_rejects_strict(
     ):
         assert tools == []
         assert system_prompt
-        assert response_format.__name__ == "FollowUpSuggestions"
+        assert isinstance(response_format, ToolStrategy)
+        assert response_format.schema.__name__ == "FollowUpSuggestions"
         model_id = getattr(model, "model_id", None)
         agent_models.append(model_id)
-        if model_id == "xai.grok-4":
-            return RaisingAgent()
-        return FallbackAgent()
+        return FakeAgent()
 
     monkeypatch.setattr(suggestions_route, "get_llm", fake_get_llm)
     monkeypatch.setattr(suggestions_route, "create_agent", fake_create_agent, raising=False)
@@ -195,5 +190,5 @@ def test_suggestions_endpoint_falls_back_when_selected_model_rejects_strict(
             ]
 
     asyncio.run(run())
-    assert llm_calls == ["xai.grok-4", None]
-    assert agent_models == ["xai.grok-4", None]
+    assert llm_calls == ["xai.grok-4"]
+    assert agent_models == ["xai.grok-4"]

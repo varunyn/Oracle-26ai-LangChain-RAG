@@ -12,7 +12,9 @@ from src.rag_agent.graphs.nodes import direct
 class FakeLlm:
     model_id = "fake-direct-model"
 
-    def invoke(self, messages: list[object], config: dict[str, object] | None = None) -> AIMessage:
+    async def ainvoke(
+        self, messages: list[object], config: dict[str, object] | None = None
+    ) -> AIMessage:
         _ = messages, config
         return AIMessage(content="Direct answer")
 
@@ -24,12 +26,14 @@ def test_direct_node_invokes_llm_without_chat_runtime_service(monkeypatch) -> No
         calls.append({"model_id": model_id})
         return FakeLlm()
 
-    def fake_invoke(llm: FakeLlm, history: list[Any], run_config: dict[str, object]) -> AIMessage:
+    async def fake_ainvoke(
+        llm: FakeLlm, history: list[Any], run_config: dict[str, object]
+    ) -> AIMessage:
         calls.append({"history": history, "run_config": run_config, "llm": llm})
         return AIMessage(content="Direct answer")
 
     monkeypatch.setattr(direct, "get_llm", fake_get_llm)
-    monkeypatch.setattr(direct, "invoke_llm_with_optional_config", fake_invoke)
+    monkeypatch.setattr(direct, "ainvoke_llm_with_optional_config", fake_ainvoke)
     monkeypatch.setattr(
         direct,
         "emit_usage_observability",
@@ -58,6 +62,54 @@ def test_direct_node_invokes_llm_without_chat_runtime_service(monkeypatch) -> No
     assert assistant.content == "Direct answer"
     assert assistant.additional_kwargs["mode"] == "direct"
     assert calls[0]["model_id"] == "model-1"
+
+
+def test_direct_node_accepts_native_human_type_dict_messages(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_get_llm(*, model_id: str | None = None) -> FakeLlm:
+        calls.append({"model_id": model_id})
+        return FakeLlm()
+
+    async def fake_ainvoke(
+        llm: FakeLlm, history: list[Any], run_config: dict[str, object]
+    ) -> AIMessage:
+        calls.append({"history": history, "run_config": run_config, "llm": llm})
+        return AIMessage(content="Direct answer")
+
+    monkeypatch.setattr(direct, "get_llm", fake_get_llm)
+    monkeypatch.setattr(direct, "ainvoke_llm_with_optional_config", fake_ainvoke)
+    monkeypatch.setattr(
+        direct,
+        "emit_usage_observability",
+        lambda **kwargs: (None, None),
+    )
+    monkeypatch.setattr(
+        direct,
+        "start_langfuse_chat_trace",
+        lambda **kwargs: _FakeTraceContextManager(),
+    )
+
+    runtime = SimpleNamespace(
+        context={"model_id": "model-1", "session_id": "session-1", "enable_tracing": False},
+        execution_info=SimpleNamespace(thread_id="thread-1"),
+    )
+
+    result = asyncio.run(
+        direct.run_direct_node(
+            {"messages": [{"type": "human", "content": "Hello", "id": "user-1"}]},
+            runtime,  # type: ignore[arg-type]
+        )
+    )
+
+    history = calls[1]["history"]
+    assert isinstance(history, list)
+    assert len(history) == 1
+    assert getattr(history[0], "id", None) == "user-1"
+    assert getattr(history[0], "content", None) == "Hello"
+    assistant = result["messages"][0]
+    assert isinstance(assistant, AIMessage)
+    assert assistant.additional_kwargs["standalone_question"] == "Hello"
 
 
 class _FakeTrace:

@@ -13,6 +13,7 @@ from uuid import UUID
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
+from opentelemetry.util.types import AttributeValue
 from typing_extensions import override
 
 from api.settings import get_settings
@@ -21,20 +22,39 @@ from src.rag_agent.utils.context_window import estimate_tokens, messages_to_text
 
 LangfuseRuntime: type[Any] | None
 LangfusePropagateAttributes: Any | None
+MaskOtelSpansParams: type[Any] | None
+MaskOtelSpansResult: type[Any] | None
+OtelSpanPatch: type[Any] | None
 try:
     from langfuse import Langfuse as _LangfuseRuntime
     from langfuse import propagate_attributes as _propagate_attributes
+    from langfuse.types import (
+        MaskOtelSpansParams as _MaskOtelSpansParams,
+    )
+    from langfuse.types import (
+        MaskOtelSpansResult as _MaskOtelSpansResult,
+    )
+    from langfuse.types import (
+        OtelSpanPatch as _OtelSpanPatch,
+    )
 except Exception:
     LangfuseRuntime = None  # type: ignore[assignment]
     LangfusePropagateAttributes = None
+    MaskOtelSpansParams = None
+    MaskOtelSpansResult = None
+    OtelSpanPatch = None
 else:
     LangfuseRuntime = _LangfuseRuntime
     LangfusePropagateAttributes = _propagate_attributes
+    MaskOtelSpansParams = _MaskOtelSpansParams
+    MaskOtelSpansResult = _MaskOtelSpansResult
+    OtelSpanPatch = _OtelSpanPatch
 
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_FLUSH_TIMEOUT = 0.2
+DEFAULT_LANGFUSE_MAX_ATTRIBUTE_CHARS = 12_000
 
 
 _CLIENT_LOCK = threading.Lock()
@@ -49,6 +69,16 @@ def _env_or_settings_str(key: str) -> str:
         return env_value.strip()
     value = getattr(get_settings(), key, "") or ""
     return value.strip() if isinstance(value, str) else ""
+
+
+def _env_or_settings_int(key: str, default: int) -> int:
+    env_value = os.environ.get(key)
+    raw_value: object = env_value if env_value is not None else getattr(get_settings(), key, default)
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return max(parsed, 0)
 
 
 def _running_in_docker() -> bool:
@@ -70,6 +100,53 @@ def _resolve_langfuse_host() -> str:
     return host
 
 
+def _truncate_attribute_value(value: AttributeValue, max_chars: int) -> tuple[AttributeValue, bool]:
+    if max_chars <= 0:
+        return value, False
+    if isinstance(value, str) and len(value) > max_chars:
+        return (
+            f"{value[:max_chars]}... [truncated {len(value) - max_chars} chars by LANGFUSE_MAX_ATTRIBUTE_CHARS]",
+            True,
+        )
+    if isinstance(value, (list, tuple)) and all(isinstance(item, str) for item in value):
+        changed = False
+        items: list[str] = []
+        for item in value:
+            if len(item) > max_chars:
+                items.append(
+                    f"{item[:max_chars]}... [truncated {len(item) - max_chars} chars by LANGFUSE_MAX_ATTRIBUTE_CHARS]"
+                )
+                changed = True
+            else:
+                items.append(item)
+        if changed:
+            return items, True
+    return value, False
+
+
+def _build_langfuse_otel_mask(max_chars: int) -> object | None:
+    if max_chars <= 0 or MaskOtelSpansResult is None or OtelSpanPatch is None:
+        return None
+
+    def _mask_otel_spans(*, params: Any) -> object | None:
+        span_patches: dict[object, object] = {}
+        for identifier, span in getattr(params, "spans", {}).items():
+            set_attributes: dict[str, AttributeValue] = {}
+            for key, value in getattr(span, "attributes", {}).items():
+                truncated, changed = _truncate_attribute_value(value, max_chars)
+                if changed:
+                    set_attributes[str(key)] = truncated
+            if set_attributes:
+                set_attributes["rag_app.langfuse_payload_truncated"] = True
+                set_attributes["rag_app.langfuse_max_attribute_chars"] = max_chars
+                span_patches[identifier] = OtelSpanPatch(set_attributes=set_attributes)
+        if not span_patches:
+            return None
+        return MaskOtelSpansResult(span_patches=span_patches)
+
+    return _mask_otel_spans
+
+
 @dataclass
 class LangfuseChatTrace:
     trace_id: str | None = None
@@ -78,6 +155,7 @@ class LangfuseChatTrace:
     session_id: str | None = None
     metadata: dict[str, str] | None = None
     tags: list[str] | None = None
+    input_payload: object | None = None
     _manager: Any | None = None
     _observation: Any | None = None
     _propagation_manager: Any | None = None
@@ -95,10 +173,9 @@ class LangfuseChatTrace:
         if self._observation is None:
             return
         update = getattr(self._observation, "update", None)
-        if not callable(update):
-            return
         try:
-            update(output=output)
+            if callable(update):
+                update(output=output)
         except Exception as exc:
             logger.debug("Langfuse root trace output update failed: %s", exc)
 
@@ -205,6 +282,13 @@ def get_langfuse_client() -> Any | None:
     sample_rate = getattr(get_settings(), "LANGFUSE_SAMPLE_RATE", None)
     if isinstance(sample_rate, (int, float)) and not isinstance(sample_rate, bool):
         extra_kwargs["sample_rate"] = float(sample_rate)
+    max_attribute_chars = _env_or_settings_int(
+        "LANGFUSE_MAX_ATTRIBUTE_CHARS",
+        DEFAULT_LANGFUSE_MAX_ATTRIBUTE_CHARS,
+    )
+    otel_mask = _build_langfuse_otel_mask(max_attribute_chars)
+    if otel_mask is not None:
+        extra_kwargs["mask_otel_spans"] = otel_mask
 
     with _CLIENT_LOCK:
         if _LANGFUSE_CLIENT is not None:
@@ -273,6 +357,7 @@ def start_langfuse_chat_trace(
         session_id=session_id,
         metadata=metadata or None,
         tags=resolved_tags,
+        input_payload=input_payload,
         _manager=manager,
     )
 
@@ -302,7 +387,6 @@ def add_langfuse_callbacks(
     except Exception as exc:
         logger.debug("Langfuse LangChain callback not available: %s", exc)
         return
-    callbacks = list(run_config.get("callbacks") or [])
     public_key = getattr(client, "public_key", None)
     if not isinstance(public_key, str) or not public_key.strip():
         public_key = (
@@ -312,9 +396,7 @@ def add_langfuse_callbacks(
     if isinstance(public_key, str) and public_key.strip():
         handler_kwargs["public_key"] = public_key.strip()
     handler = CallbackHandler(**handler_kwargs)
-    callbacks.append(_TokenUsageCallback(handler))
-    callbacks.append(handler)
-    run_config["callbacks"] = callbacks
+    _append_callbacks(run_config, [_TokenUsageCallback(handler), handler])
     metadata = dict(run_config.get("metadata") or {})
     model_id = (
         run_config.get("configurable", {}).get("model_id")
@@ -332,6 +414,28 @@ def add_langfuse_callbacks(
     if tags:
         metadata["langfuse_tags"] = tags
     run_config["metadata"] = metadata
+
+
+def _append_callbacks(run_config: dict[str, Any], callbacks: list[object]) -> None:
+    existing = run_config.get("callbacks")
+    if existing is None:
+        run_config["callbacks"] = callbacks
+        return
+    add_handler = getattr(existing, "add_handler", None)
+    if callable(add_handler):
+        copy = getattr(existing, "copy", None)
+        manager = copy() if callable(copy) else existing
+        for callback in callbacks:
+            manager.add_handler(cast(Any, callback))
+        run_config["callbacks"] = manager
+        return
+    if isinstance(existing, list):
+        run_config["callbacks"] = [*existing, *callbacks]
+        return
+    if isinstance(existing, tuple):
+        run_config["callbacks"] = [*existing, *callbacks]
+        return
+    run_config["callbacks"] = [existing, *callbacks]
 
 
 class _TokenUsageCallback(BaseCallbackHandler):

@@ -7,6 +7,7 @@ from langchain_core.runnables.config import RunnableConfig
 from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.state import ChatGraphContext
+from src.rag_agent.utils.langfuse_tracing import add_langfuse_callbacks
 
 
 def get_runtime_context(runtime: Runtime[ChatGraphContext]) -> ChatGraphContext:
@@ -25,6 +26,7 @@ def get_thread_id(runtime: Runtime[ChatGraphContext]) -> str | None:
 
 def build_run_config(
     *,
+    parent_config: RunnableConfig | None = None,
     thread_id: str | None,
     mode: str,
     model_id: str | None,
@@ -33,10 +35,15 @@ def build_run_config(
     mcp_server_keys: list[str] | None,
     trace_context: dict[str, object] | None = None,
 ) -> RunnableConfig:
-    configurable: dict[str, Any] = {
+    run_config: dict[str, Any] = dict(parent_config or {})
+    parent_configurable = run_config.get("configurable")
+    configurable: dict[str, Any] = (
+        dict(parent_configurable) if isinstance(parent_configurable, dict) else {}
+    )
+    configurable.update({
         "mode": mode,
         "enable_tracing": bool(enable_tracing),
-    }
+    })
     if thread_id:
         configurable["thread_id"] = thread_id
     if model_id:
@@ -47,7 +54,25 @@ def build_run_config(
         configurable["mcp_server_keys"] = mcp_server_keys
     if trace_context:
         configurable["langfuse_trace_context"] = trace_context
-    return cast(RunnableConfig, {"configurable": configurable})
+    run_config["configurable"] = configurable
+    if enable_tracing is True:
+        add_langfuse_callbacks(
+            run_config,
+            session_id=session_id,
+            user_id=None,
+            trace_context=cast(dict[str, str] | None, trace_context),
+            trace_name=f"chat-{mode}",
+            tags=[
+                tag
+                for tag in (
+                    "chat",
+                    f"mode:{mode}",
+                    f"model:{model_id}" if model_id else None,
+                )
+                if tag is not None
+            ],
+        )
+    return cast(RunnableConfig, run_config)
 
 
 def references_from_result(result: dict[str, object], *, mode: str) -> dict[str, object]:

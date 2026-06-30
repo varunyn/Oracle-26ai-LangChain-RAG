@@ -103,7 +103,6 @@ def test_runtime_flags_and_trivial_answer_use_settings(monkeypatch) -> None:
             {
                 "REQUIRE_TOOL_CALL": True,
                 "MCP_REPEATED_WORKFLOW_CONTROLLER": True,
-                "ENABLE_PERSISTENT_MEMORY": True,
                 "LANGGRAPH_SQLITE_PATH": "/tmp/langgraph.sqlite",
             },
         )(),

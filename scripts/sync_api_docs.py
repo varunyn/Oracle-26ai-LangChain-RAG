@@ -184,7 +184,7 @@ def generate_bruno_files(route_index: dict[str, Any], manifest: dict[str, Any]) 
     )
     outputs[BRUNO_ROOT / "environments.bru"] = (
         "vars {\n"
-        "  baseUrl: http://127.0.0.1:3002\n"
+        "  baseUrl: http://127.0.0.1:2024\n"
         "  langgraphBaseUrl: http://127.0.0.1:2024\n"
         "  defaultCollection: RAG_KNOWLEDGE_BASE\n"
         "  defaultModel: cohere.command-r-plus\n"

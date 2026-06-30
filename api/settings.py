@@ -172,7 +172,6 @@ class Settings(BaseSettings):
     # =============================================================================
     # CONVERSATION MEMORY / THREADS
     # =============================================================================
-    ENABLE_PERSISTENT_MEMORY: bool = False
     LANGGRAPH_SQLITE_PATH: str = ".local-data/langgraph-checkpoints.sqlite"
     ALLOW_CLIENT_THREAD_ID: bool = True
     THREAD_ID_STRATEGY: str = "uuid4"
@@ -302,6 +301,7 @@ class Settings(BaseSettings):
     LANGFUSE_ENVIRONMENT: str | None = None
     LANGFUSE_RELEASE: str | None = None
     LANGFUSE_SAMPLE_RATE: float | None = Field(default=None, ge=0.0, le=1.0)
+    LANGFUSE_MAX_ATTRIBUTE_CHARS: int = Field(default=12_000, ge=0)
 
     # =============================================================================
     # Local Docker stacks (optional helper)

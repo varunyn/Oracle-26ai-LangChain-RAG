@@ -101,6 +101,10 @@ async def run_rag_node(
             }
             if langfuse_trace is not None and langfuse_trace.trace_id:
                 result["trace_id"] = langfuse_trace.trace_id
+            if langfuse_trace is not None:
+                update_trace_output = getattr(langfuse_trace, "update_output", None)
+                if callable(update_trace_output):
+                    update_trace_output({"answer": result["final_answer"]})
         assistant_message = assistant_message_from_result("rag", result)
     except Exception as exc:
         assistant_message = assistant_message_from_exception("rag", exc)

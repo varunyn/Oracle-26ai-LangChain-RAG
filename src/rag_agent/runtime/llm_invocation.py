@@ -1,9 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, cast
 
 from langchain_core.runnables.config import RunnableConfig
+
+
+def suppress_llm_streaming(llm: object) -> object:
+    with_config = getattr(llm, "with_config", None)
+    if not callable(with_config):
+        return llm
+    try:
+        return with_config({"tags": ["nostream"]})
+    except TypeError:
+        try:
+            return with_config(tags=["nostream"])
+        except TypeError:
+            return llm
 
 
 def invoke_llm_with_optional_config(
@@ -20,6 +34,22 @@ def invoke_llm_with_optional_config(
     return invoke(messages)
 
 
+async def ainvoke_llm_with_optional_config(
+    llm: object,
+    messages: Sequence[object],
+    run_config: RunnableConfig | None,
+) -> object:
+    ainvoke = getattr(llm, "ainvoke", None)
+    if callable(ainvoke):
+        if run_config:
+            try:
+                return await ainvoke(messages, config=run_config)
+            except TypeError:
+                return await ainvoke(messages)
+        return await ainvoke(messages)
+    return await asyncio.to_thread(invoke_llm_with_optional_config, llm, messages, run_config)
+
+
 async def stream_llm_chunks_with_optional_config(
     llm: object,
     messages: Sequence[object],
@@ -31,10 +61,10 @@ async def stream_llm_chunks_with_optional_config(
 
     stream = astream(messages, config=run_config) if run_config else astream(messages)
     async for chunk in stream:
-        yield _message_text(chunk), chunk
+        yield message_text(chunk), chunk
 
 
-def _message_text(message: object) -> str:
+def message_text(message: object) -> str:
     content = getattr(message, "content", "")
     if isinstance(content, str):
         return content
@@ -59,4 +89,10 @@ def _message_text(message: object) -> str:
     return ""
 
 
-__all__ = ["invoke_llm_with_optional_config", "stream_llm_chunks_with_optional_config"]
+__all__ = [
+    "ainvoke_llm_with_optional_config",
+    "invoke_llm_with_optional_config",
+    "message_text",
+    "stream_llm_chunks_with_optional_config",
+    "suppress_llm_streaming",
+]

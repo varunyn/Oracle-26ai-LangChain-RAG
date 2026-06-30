@@ -6,11 +6,16 @@ import logging
 import os
 import re
 import tempfile
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import oracledb
 from langchain_core.documents import Document
+from langchain_core.language_models.chat_models import LanguageModelInput
+from langchain_core.messages import AIMessage
+from langchain_core.runnables import Runnable
+from langchain_core.tools import BaseTool
 from langchain_oci import ChatOCIGenAI, OCIGenAIEmbeddings
 from langchain_oci.common.auth import create_oci_client_kwargs
 from langchain_oracledb.vectorstores import OracleVS
@@ -18,6 +23,7 @@ from langchain_oracledb.vectorstores.utils import DistanceStrategy
 from oci.generative_ai_inference import GenerativeAiInferenceClient
 from oci.generative_ai_inference import models as oci_genai_models
 from opentelemetry import trace
+from pydantic import BaseModel
 
 from api.settings import get_settings
 
@@ -25,6 +31,59 @@ logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _embedding_model_cache: dict[tuple[object, ...], OCIGenAIEmbeddings] = {}
+_GEMINI_UNSUPPORTED_SCHEMA_KEYS = {
+    "exclusiveMaximum",
+    "exclusiveMinimum",
+}
+
+
+class OCIChatModel(ChatOCIGenAI):
+    """Project-local OCI chat model adapter for provider-specific tool schemas."""
+
+    def bind_tools(
+        self,
+        tools: Sequence[dict[str, Any] | type[BaseModel] | Callable[..., Any] | BaseTool],
+        *,
+        tool_choice: (
+            dict[str, Any] | str | Literal["auto", "none", "required", "any"] | bool | None
+        ) = None,
+        parallel_tool_calls: bool | None = None,
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, AIMessage]:
+        bound = super().bind_tools(
+            tools,
+            tool_choice=tool_choice,
+            parallel_tool_calls=parallel_tool_calls,
+            **kwargs,
+        )
+        if str(self.model_id or "").startswith("google."):
+            _sanitize_gemini_tool_schemas(cast_bind_kwargs(bound))
+        return bound
+
+
+def cast_bind_kwargs(bound: Runnable[LanguageModelInput, AIMessage]) -> dict[str, Any]:
+    kwargs = getattr(bound, "kwargs", None)
+    return kwargs if isinstance(kwargs, dict) else {}
+
+
+def _sanitize_gemini_tool_schemas(bind_kwargs: dict[str, Any]) -> None:
+    for tool in bind_kwargs.get("tools") or []:
+        parameters = getattr(tool, "parameters", None)
+        if parameters is not None:
+            _strip_gemini_unsupported_schema_keys(parameters)
+
+
+def _strip_gemini_unsupported_schema_keys(value: Any) -> None:
+    if isinstance(value, dict):
+        for key in list(value):
+            if key in _GEMINI_UNSUPPORTED_SCHEMA_KEYS:
+                value.pop(key, None)
+                continue
+            _strip_gemini_unsupported_schema_keys(value[key])
+        return
+    if isinstance(value, list):
+        for item in value:
+            _strip_gemini_unsupported_schema_keys(item)
 
 
 def _uses_auth_profile(auth_type: str | None) -> bool:
@@ -152,7 +211,7 @@ def get_llm(
         llm_kwargs["auth_file_location"] = auth_file_location
         logger.info("Using OCI profile: %s from %s", profile, auth_file_location)
 
-    llm = ChatOCIGenAI(**llm_kwargs)
+    llm = OCIChatModel(**llm_kwargs)
     logger.info("OCI Gen AI via ChatOCIGenAI (profile=%s, model=%s)", profile, model_id)
     return llm
 

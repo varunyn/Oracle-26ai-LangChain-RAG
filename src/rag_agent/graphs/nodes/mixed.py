@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from langgraph.config import get_stream_writer
+from langchain_core.messages import AIMessage
+from langchain_core.runnables.config import RunnableConfig
 from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.mcp_policies import (
@@ -20,14 +21,13 @@ from src.rag_agent.graphs.mcp_policies import (
 )
 from src.rag_agent.graphs.nodes.references import (
     assistant_message_from_exception,
-    assistant_message_from_result,
+    messages_from_result,
 )
 from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, get_thread_id
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
 from src.rag_agent.infrastructure import oci_models as _oci_models
 from src.rag_agent.runtime import rag_runtime
 from src.rag_agent.runtime.mcp_turn import run_mcp_agent_turn, tool_failure_summary
-from src.rag_agent.runtime.mcp_activity import mcp_tool_activity_event
 from src.rag_agent.runtime.memory import (
     chat_history_before_latest_user,
     langchain_messages_to_dicts,
@@ -40,8 +40,38 @@ def get_llm(model_id: str | None = None) -> Any:
     return _oci_models.get_llm(model_id=model_id)
 
 
+def _content_text(content: object) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+                continue
+            parts.append(str(item))
+        return "".join(parts).strip()
+    return str(content or "").strip()
+
+
+def _latest_agent_final_answer(state_messages: list[object]) -> str | None:
+    for message in reversed(state_messages):
+        if not isinstance(message, AIMessage):
+            continue
+        if message.tool_calls:
+            continue
+        content = _content_text(message.content)
+        if content and not is_trivial_answer(content):
+            return content
+    return None
+
+
 async def run_mixed_node(
-    state: ChatGraphState, runtime: Runtime[ChatGraphContext]
+    state: ChatGraphState,
+    config: RunnableConfig,
+    runtime: Runtime[ChatGraphContext],
 ) -> ChatGraphState:
     context = get_runtime_context(runtime)
     thread_id = get_thread_id(runtime)
@@ -63,6 +93,7 @@ async def run_mixed_node(
             )
             resolved_model_id = cast(str | None, context.get("model_id")) or get_llm().model_id
             run_cfg = build_run_config(
+                parent_config=config,
                 thread_id=thread_id,
                 mode="mixed",
                 model_id=resolved_model_id,
@@ -71,9 +102,6 @@ async def run_mixed_node(
                 mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
                 trace_context=langfuse_trace.trace_context if langfuse_trace else None,
             )
-
-            def emit_tool_activity(event: dict[str, object]) -> None:
-                get_stream_writer()(mcp_tool_activity_event(event))
 
             mcp_turn = await run_mcp_agent_turn(
                 question=question,
@@ -85,13 +113,14 @@ async def run_mixed_node(
                 require_tool_call=require_tool_call_enabled(),
                 repeated_workflow_enabled=repeated_workflow_controller_enabled(),
                 workflow_checkpoint_path=workflow_checkpoint_path(),
-                tool_progress_callback=emit_tool_activity,
-                answer_delta_callback=None,
-                stop_after_tool_names=None,
                 extra_tools=[retrieval_tool],
                 require_mcp_tool_call_when_referenced=True,
             )
             final_answer = mcp_turn.answer
+            state_messages = cast(list[object], getattr(mcp_turn, "state_messages", []) or [])
+            agent_final_answer = _latest_agent_final_answer(state_messages)
+            if agent_final_answer:
+                final_answer = agent_final_answer
             tools_used = mcp_turn.tools_used
             tool_invocations = mcp_turn.tool_invocations
             workflow_policy = workflow_policy_for_request(mode="mixed", question=question)
@@ -134,7 +163,7 @@ async def run_mixed_node(
                 tool_invocations=cast(list[dict[str, object]], tool_invocations),
             ):
                 final_answer = NO_ORACLE_CONTEXT_ANSWER
-            if not policy_error and retrieval_docs:
+            if not policy_error and retrieval_docs and agent_final_answer is None:
                 supplemental_context = mixed_tool_supplemental_context(
                     cast(list[dict[str, object]], tool_invocations)
                 )
@@ -162,10 +191,17 @@ async def run_mixed_node(
                 result["model_id"] = resolved_model_id.strip()
             if langfuse_trace is not None and langfuse_trace.trace_id:
                 result["trace_id"] = langfuse_trace.trace_id
-        assistant_message = assistant_message_from_result("mixed", result)
+            if langfuse_trace is not None:
+                update_trace_output = getattr(langfuse_trace, "update_output", None)
+                if callable(update_trace_output):
+                    update_trace_output({"answer": result["final_answer"]})
+        messages_out = messages_from_result("mixed", result, state_messages)
+        references = cast(dict[str, object], getattr(messages_out[-1], "additional_kwargs", {}) or {})
     except Exception as exc:
         assistant_message = assistant_message_from_exception("mixed", exc)
+        messages_out = [assistant_message]
+        references = assistant_message.additional_kwargs
     return {
-        "messages": [assistant_message],
-        "references": assistant_message.additional_kwargs,
+        "messages": messages_out,
+        "references": references,
     }

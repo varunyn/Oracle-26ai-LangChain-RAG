@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from langgraph.config import get_stream_writer
+from langchain_core.runnables.config import RunnableConfig
 from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.mcp_policies import (
@@ -13,13 +13,12 @@ from src.rag_agent.graphs.mcp_policies import (
 )
 from src.rag_agent.graphs.nodes.references import (
     assistant_message_from_exception,
-    assistant_message_from_result,
+    messages_from_result,
 )
 from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, get_thread_id
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
 from src.rag_agent.infrastructure import oci_models as _oci_models
 from src.rag_agent.runtime.mcp_turn import run_mcp_agent_turn, tool_failure_summary
-from src.rag_agent.runtime.mcp_activity import mcp_tool_activity_event
 from src.rag_agent.runtime.memory import (
     chat_history_before_latest_user,
     langchain_messages_to_dicts,
@@ -32,7 +31,11 @@ def get_llm(model_id: str | None = None) -> Any:
     return _oci_models.get_llm(model_id=model_id)
 
 
-async def run_mcp_node(state: ChatGraphState, runtime: Runtime[ChatGraphContext]) -> ChatGraphState:
+async def run_mcp_node(
+    state: ChatGraphState,
+    config: RunnableConfig,
+    runtime: Runtime[ChatGraphContext],
+) -> ChatGraphState:
     context = get_runtime_context(runtime)
     thread_id = get_thread_id(runtime)
     messages = langchain_messages_to_dicts(state["messages"])
@@ -49,6 +52,7 @@ async def run_mcp_node(state: ChatGraphState, runtime: Runtime[ChatGraphContext]
             chat_history = chat_history_before_latest_user(messages)
             resolved_model_id = cast(str | None, context.get("model_id")) or get_llm().model_id
             run_cfg = build_run_config(
+                parent_config=config,
                 thread_id=thread_id,
                 mode="mcp",
                 model_id=resolved_model_id,
@@ -57,9 +61,6 @@ async def run_mcp_node(state: ChatGraphState, runtime: Runtime[ChatGraphContext]
                 mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
                 trace_context=langfuse_trace.trace_context if langfuse_trace else None,
             )
-
-            def emit_tool_activity(event: dict[str, object]) -> None:
-                get_stream_writer()(mcp_tool_activity_event(event))
 
             mcp_turn = await run_mcp_agent_turn(
                 question=question,
@@ -71,8 +72,6 @@ async def run_mcp_node(state: ChatGraphState, runtime: Runtime[ChatGraphContext]
                 require_tool_call=require_tool_call_enabled(),
                 repeated_workflow_enabled=repeated_workflow_controller_enabled(),
                 workflow_checkpoint_path=workflow_checkpoint_path(),
-                tool_progress_callback=emit_tool_activity,
-                answer_delta_callback=None,
             )
             result: dict[str, object] = {
                 "final_answer": mcp_turn.answer,
@@ -92,10 +91,18 @@ async def run_mcp_node(state: ChatGraphState, runtime: Runtime[ChatGraphContext]
                 result["error"] = tool_failure_error
             if langfuse_trace is not None and langfuse_trace.trace_id:
                 result["trace_id"] = langfuse_trace.trace_id
-        assistant_message = assistant_message_from_result("mcp", result)
+            if langfuse_trace is not None:
+                update_trace_output = getattr(langfuse_trace, "update_output", None)
+                if callable(update_trace_output):
+                    update_trace_output({"answer": result["final_answer"]})
+        state_messages = cast(list[object], getattr(mcp_turn, "state_messages", []) or [])
+        messages_out = messages_from_result("mcp", result, state_messages)
+        references = cast(dict[str, object], getattr(messages_out[-1], "additional_kwargs", {}) or {})
     except Exception as exc:
         assistant_message = assistant_message_from_exception("mcp", exc)
+        messages_out = [assistant_message]
+        references = assistant_message.additional_kwargs
     return {
-        "messages": [assistant_message],
-        "references": assistant_message.additional_kwargs,
+        "messages": messages_out,
+        "references": references,
     }

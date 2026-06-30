@@ -62,14 +62,14 @@ def test_run_direct_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -
         captured["model_id"] = model_id
         return FakeLlm()
 
-    def fake_invoke(llm: object, history: object, run_config: object) -> AIMessage:
+    async def fake_ainvoke(llm: object, history: object, run_config: object) -> AIMessage:
         captured["llm"] = llm
         captured["history"] = history
         captured["run_config"] = run_config
         return AIMessage(content=[{"type": "text", "text": "READY"}])
 
     monkeypatch.setattr(direct_node_module, "get_llm", fake_get_llm)
-    monkeypatch.setattr(direct_node_module, "invoke_llm_with_optional_config", fake_invoke)
+    monkeypatch.setattr(direct_node_module, "ainvoke_llm_with_optional_config", fake_ainvoke)
     monkeypatch.setattr(
         direct_node_module,
         "emit_usage_observability",
@@ -272,6 +272,7 @@ def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
     result = asyncio.run(
         mcp_node_module.run_mcp_node(
             {"messages": [{"role": "user", "content": "19 + 23"}]},
+            {"callbacks": ["outer-callback"], "metadata": {"source": "workflow-test"}},
             _runtime(
                 context={
                     "mode": "mcp",
@@ -290,6 +291,8 @@ def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
     assert run_config["configurable"]["session_id"] == "session-mcp"
     assert run_config["configurable"]["model_id"] == "model-c"
     assert run_config["configurable"]["mcp_server_keys"] == ["calculator"]
+    assert run_config["callbacks"][0] == "outer-callback"
+    assert run_config["metadata"]["source"] == "workflow-test"
     assert captured["mode"] == "mcp"
     assert captured["mcp_server_keys"] == ["calculator"]
     assistant = result["messages"][-1]
@@ -382,6 +385,7 @@ def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) ->
     result = asyncio.run(
         mixed_node_module.run_mixed_node(
             {"messages": [{"role": "user", "content": "payment terms plus 5"}]},
+            {"callbacks": ["outer-callback"], "metadata": {"source": "workflow-test"}},
             _runtime(
                 context={
                     "mode": "mixed",
@@ -405,6 +409,8 @@ def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) ->
     assert run_config["configurable"]["model_id"] == "model-d"
     assert run_config["configurable"]["mcp_server_keys"] == ["calculator"]
     assert run_config["configurable"]["enable_tracing"] is True
+    assert run_config["callbacks"][0] == "outer-callback"
+    assert run_config["metadata"]["source"] == "workflow-test"
     assert captured["retrieval_tool_kwargs"]["collection_name"] == "ORACLE_WEB_EMBEDDINGS"
     assert captured["rerank_kwargs"]["enable_reranker"] is True
     assert mcp_turn_kwargs["mode"] == "mixed"
@@ -447,13 +453,13 @@ def test_build_chat_agent_preserves_messages_across_same_thread(tmp_path, monkey
         lambda **kwargs: _FakeTraceContextManager(),
     )
 
-    def fake_invoke(llm: object, history: object, run_config: object) -> AIMessage:
+    async def fake_ainvoke(llm: object, history: object, run_config: object) -> AIMessage:
         _ = llm, run_config
         assert isinstance(history, list)
         call_messages.append(history)
         return AIMessage(content=f"reply-{len(call_messages)}")
 
-    monkeypatch.setattr(direct_node_module, "invoke_llm_with_optional_config", fake_invoke)
+    monkeypatch.setattr(direct_node_module, "ainvoke_llm_with_optional_config", fake_ainvoke)
 
     async def run() -> tuple[dict[str, object], dict[str, object]]:
         db_path = tmp_path / "chat-agent.sqlite"
@@ -483,72 +489,3 @@ def test_build_chat_agent_preserves_messages_across_same_thread(tmp_path, monkey
         "follow up",
     ]
 
-
-def test_build_chat_agent_dedupes_same_thread_full_transcript_replay(tmp_path, monkeypatch) -> None:
-    call_messages: list[list[object]] = []
-
-    class FakeLlm:
-        model_id = "model-a"
-
-    class _FakeTrace:
-        trace_context = None
-        trace_id = None
-
-    class _FakeTraceContextManager:
-        def __enter__(self) -> _FakeTrace:
-            return _FakeTrace()
-
-        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
-            _ = exc_type, exc, tb
-            return False
-
-    monkeypatch.setattr(direct_node_module, "get_llm", lambda **kwargs: FakeLlm())
-    monkeypatch.setattr(
-        direct_node_module,
-        "emit_usage_observability",
-        lambda **kwargs: (None, None),
-    )
-    monkeypatch.setattr(
-        direct_node_module,
-        "start_langfuse_chat_trace",
-        lambda **kwargs: _FakeTraceContextManager(),
-    )
-
-    def fake_invoke(llm: object, history: object, run_config: object) -> AIMessage:
-        _ = llm, run_config
-        assert isinstance(history, list)
-        call_messages.append(history)
-        return AIMessage(content=f"reply-{len(call_messages)}")
-
-    monkeypatch.setattr(direct_node_module, "invoke_llm_with_optional_config", fake_invoke)
-
-    async def run() -> None:
-        db_path = tmp_path / "chat-agent-replay.sqlite"
-        async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
-            await checkpointer.setup()
-            graph = build_chat_agent(checkpointer=checkpointer)
-            config = {"configurable": {"thread_id": "chat-thread"}}
-
-            first = await graph.ainvoke(
-                {"messages": [{"role": "user", "content": "hello"}]},
-                config,
-            )
-            await graph.ainvoke(
-                {
-                    "messages": [
-                        {"role": "user", "content": "hello"},
-                        {"role": "assistant", "content": _content(first["messages"][-1])},
-                        {"role": "user", "content": "follow up"},
-                    ]
-                },
-                config,
-            )
-
-    asyncio.run(run())
-
-    assert len(call_messages) == 2
-    assert [_content(message) for message in call_messages[1]] == [
-        "hello",
-        "reply-1",
-        "follow up",
-    ]

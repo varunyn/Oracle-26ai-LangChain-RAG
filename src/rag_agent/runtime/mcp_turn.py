@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import cast
 
+from langchain_core.messages import AIMessage
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import BaseTool
 
 from src.rag_agent.infrastructure.mcp_adapter_runtime import load_adapter_tools
-from src.rag_agent.infrastructure.mcp_agent import get_mcp_answer_async
+from src.rag_agent.infrastructure.mcp_agent import (
+    get_mcp_answer_async,
+    get_mcp_answer_result_async,
+)
 from src.rag_agent.workflows.mcp_repeated import run_repeated_mcp_workflow
 from src.rag_agent.workflows.workflow_intent import should_use_repeated_workflow
 
@@ -25,6 +28,7 @@ class MCPAgentTurn:
     tools_used: list[str]
     tool_invocations: list[dict[str, object]]
     resolved_model_id: str
+    state_messages: list[object]
 
 
 def question_explicitly_references_mcp_tools(
@@ -73,9 +77,6 @@ async def run_mcp_agent_turn(
     require_tool_call: bool,
     repeated_workflow_enabled: bool,
     workflow_checkpoint_path: str | None,
-    tool_progress_callback: Callable[[dict[str, object]], None] | None,
-    answer_delta_callback: Callable[[str], None] | None = None,
-    stop_after_tool_names: set[str] | None = None,
     extra_tools: list[BaseTool] | None = None,
     require_mcp_tool_call_when_referenced: bool = False,
 ) -> MCPAgentTurn:
@@ -112,21 +113,21 @@ async def run_mcp_agent_turn(
             require_tool_call=effective_require_tool_call,
             get_answer=get_mcp_answer_async,
             checkpoint_path=workflow_checkpoint_path,
-            tool_progress_callback=tool_progress_callback,
             chat_history=chat_history,
         )
     if repeated_result is None and not repeated_workflow_selected:
-        answer, tools_used, tool_invocations = await get_mcp_answer_async(
+        execution_result = await get_mcp_answer_result_async(
             question,
             chat_history=chat_history,
             model_id=resolved_model_id,
             tools=agent_tools,
             run_config=run_config,
             require_tool_call=effective_require_tool_call,
-            tool_progress_callback=tool_progress_callback,
-            answer_delta_callback=(None if effective_require_tool_call else answer_delta_callback),
-            stop_after_tool_names=stop_after_tool_names,
         )
+        answer = execution_result.answer
+        tools_used = execution_result.tools_used
+        tool_invocations = execution_result.tool_invocations
+        state_messages = execution_result.state_messages
     elif repeated_result is None:
         answer = (
             "I could not identify a work queue from the discovery tool results, "
@@ -134,11 +135,22 @@ async def run_mcp_agent_turn(
         )
         tools_used = []
         tool_invocations = []
+        state_messages = []
     else:
         answer, tools_used, tool_invocations = repeated_result
+        state_messages = []
     return MCPAgentTurn(
         answer=answer,
         tools_used=tools_used,
         tool_invocations=cast(list[dict[str, object]], tool_invocations),
         resolved_model_id=resolved_model_id,
+        state_messages=_normalize_state_messages(state_messages, answer=answer),
     )
+
+
+def _normalize_state_messages(messages: list[object], *, answer: str) -> list[object]:
+    if messages:
+        return messages
+    if not answer:
+        return []
+    return [AIMessage(content=answer)]

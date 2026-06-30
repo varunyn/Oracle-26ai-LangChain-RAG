@@ -2,11 +2,21 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage
 
-from src.rag_agent.graphs.runtime import build_run_config, result_to_assistant_message
+from src.rag_agent.graphs import runtime as graph_runtime
+from src.rag_agent.graphs.runtime import result_to_assistant_message
 
 
-def test_build_run_config_places_chat_context_under_configurable() -> None:
-    config = build_run_config(
+def test_build_run_config_places_chat_context_under_configurable(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_add_langfuse_callbacks(run_config: dict[str, object], **kwargs: object) -> None:
+        captured.update(kwargs)
+        run_config["callbacks"] = ["langfuse"]
+        run_config["metadata"] = {"langfuse_session_id": kwargs["session_id"]}
+
+    monkeypatch.setattr(graph_runtime, "add_langfuse_callbacks", fake_add_langfuse_callbacks)
+
+    config = graph_runtime.build_run_config(
         thread_id="thread-1",
         mode="rag",
         model_id="model-1",
@@ -24,6 +34,11 @@ def test_build_run_config_places_chat_context_under_configurable() -> None:
     assert configurable["enable_tracing"] is True
     assert configurable["mcp_server_keys"] == ["oracle"]
     assert configurable["langfuse_trace_context"] == {"trace_id": "trace-1"}
+    assert config["callbacks"] == ["langfuse"]
+    assert config["metadata"] == {"langfuse_session_id": "session-1"}
+    assert captured["trace_context"] == {"trace_id": "trace-1"}
+    assert captured["trace_name"] == "chat-rag"
+    assert captured["tags"] == ["chat", "mode:rag", "model:model-1"]
 
 
 def test_result_to_assistant_message_preserves_reference_payload() -> None:

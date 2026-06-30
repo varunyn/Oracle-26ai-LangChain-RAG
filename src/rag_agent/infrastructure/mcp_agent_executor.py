@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
 import json
 import logging
 from collections import deque
-from collections.abc import AsyncIterable, Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, cast
 
 from langchain.agents import create_agent
@@ -19,19 +19,23 @@ from langchain.agents.middleware import (
     ToolRetryMiddleware,
 )
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitExceededError
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import BaseTool
+from langgraph.prebuilt import ToolNode
 
 from ..prompts.mcp_agent_prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_MIXED, TOOL_SUMMARY_PLACEHOLDER
-from .mcp_adapter_runtime import configured_server_name_for_tool
 from ..runtime.llm_invocation import suppress_llm_streaming
 from .oci_models import get_llm
 
 logger = logging.getLogger(__name__)
 
-ToolProgressCallback = Callable[[dict[str, object]], None]
-AnswerDeltaCallback = Callable[[str], None]
+@dataclass(frozen=True)
+class MCPAnswerExecutionResult:
+    answer: str
+    tools_used: list[str]
+    tool_invocations: list[dict[str, object]]
+    state_messages: list[object]
 _TOOL_SELECTOR_SYSTEM_PROMPT = """Select all tools that may be needed for the user's next step.
 
 Use the tool names and descriptions exactly as provided.
@@ -70,331 +74,53 @@ def _sanitize_model_request_for_oci(request: ModelRequest) -> ModelRequest:
     return request.override(messages=cast(Any, messages))
 
 
-async def _ainvoke_or_stream_agent(
-    agent: Any,
-    payload: dict[str, object],
+def _has_outer_callback_context(config: RunnableConfig | None) -> bool:
+    return isinstance(config, dict) and config.get("callbacks") is not None
+
+
+async def _run_graph_native_tool_loop(
     *,
+    llm_model: Any,
+    tools: Sequence[BaseTool],
+    messages: Sequence[BaseMessage],
+    system_prompt: str,
     config: RunnableConfig,
-    tool_progress_callback: ToolProgressCallback | None,
-    answer_delta_callback: AnswerDeltaCallback | None = None,
-    stop_after_tool_names: set[str] | None = None,
+    max_rounds: int,
 ) -> Mapping[str, object]:
-    payload = _sanitize_agent_payload_for_oci(payload)
-    configured_server_keys = _configured_server_keys_from_run_config(config)
-    if (
-        tool_progress_callback is None
-        and answer_delta_callback is None
-        and not stop_after_tool_names
-        or not callable(getattr(agent, "astream_events", None))
-    ):
-        return cast(Mapping[str, object], await agent.ainvoke(cast(Any, payload), config=config))
+    bind_tools = getattr(llm_model, "bind_tools", None)
+    if not callable(bind_tools):
+        raise RuntimeError("Configured chat model does not support tool calling.")
 
-    raw_stream = agent.astream_events(cast(Any, payload), config=config, version="v3")
-    stream = await raw_stream if inspect.isawaitable(raw_stream) else raw_stream
-    if not hasattr(stream, "tool_calls") or not hasattr(stream, "output"):
-        raise RuntimeError(
-            "LangChain stream_events(version='v3') did not expose typed stream projections."
+    model_with_tools = bind_tools(list(tools))
+    tool_node = ToolNode(list(tools))
+    conversation: list[BaseMessage] = [SystemMessage(content=system_prompt), *messages]
+    state_messages: list[object] = []
+    rounds = max(1, max_rounds)
+
+    for _idx in range(rounds):
+        model_messages = [_sanitize_ai_message_content_for_oci(message) for message in conversation]
+        response = await model_with_tools.ainvoke(cast(Any, model_messages), config=config)
+        if not isinstance(response, AIMessage):
+            response = AIMessage(content=_normalize_message_content(getattr(response, "content", response)))
+        conversation.append(response)
+        state_messages.append(response)
+        if not response.tool_calls:
+            return {"messages": state_messages}
+
+        tool_state = await tool_node.ainvoke({"messages": [response]}, config=config)
+        raw_tool_messages = (
+            tool_state.get("messages") if isinstance(tool_state, Mapping) else None
         )
-
-    if stop_after_tool_names:
-        return await _consume_until_tool_result(
-            stream,
-            stop_after_tool_names=stop_after_tool_names,
-            tool_progress_callback=tool_progress_callback,
-            answer_delta_callback=answer_delta_callback,
-            configured_server_keys=configured_server_keys,
+        tool_messages = (
+            list(cast(Sequence[object], raw_tool_messages))
+            if isinstance(raw_tool_messages, Sequence)
+            and not isinstance(raw_tool_messages, (str, bytes))
+            else []
         )
+        conversation.extend(cast(list[BaseMessage], tool_messages))
+        state_messages.extend(tool_messages)
 
-    consumers: list[Awaitable[None]] = []
-    if tool_progress_callback is not None:
-        consumers.append(
-            _consume_tool_call_projection(
-                stream,
-                tool_progress_callback,
-                configured_server_keys=configured_server_keys,
-            )
-        )
-    if answer_delta_callback is not None and hasattr(stream, "__aiter__"):
-        consumers.append(_consume_raw_text_events(stream, answer_delta_callback))
-    if consumers:
-        await asyncio.gather(*consumers)
-    output = await _resolve_stream_output(stream)
-    return cast(Mapping[str, object], output or {})
-
-
-async def _consume_until_tool_result(
-    stream: Any,
-    *,
-    stop_after_tool_names: set[str],
-    tool_progress_callback: ToolProgressCallback | None,
-    answer_delta_callback: AnswerDeltaCallback | None,
-    configured_server_keys: Sequence[str] | None,
-) -> Mapping[str, object]:
-    latest_state: Mapping[str, object] = {}
-    started_tool_ids: set[str] = set()
-    ended_tool_ids: set[str] = set()
-    normalized_stop_names = {name.strip().lower() for name in stop_after_tool_names if name.strip()}
-    try:
-        async for event in stream:
-            if answer_delta_callback is not None:
-                for text in _raw_text_deltas(event):
-                    answer_delta_callback(text)
-            state = _state_from_values_event(event)
-            if state is None:
-                continue
-            latest_state = state
-            if tool_progress_callback is not None:
-                _emit_tool_progress_from_state(
-                    state,
-                    tool_progress_callback=tool_progress_callback,
-                    started_tool_ids=started_tool_ids,
-                    ended_tool_ids=ended_tool_ids,
-                    configured_server_keys=configured_server_keys,
-                )
-            for invocation in _extract_tool_invocations(state):
-                tool_name = str(invocation.get("tool_name") or "").strip().lower()
-                result = str(invocation.get("result") or invocation.get("error") or "").strip()
-                if (
-                    tool_name in normalized_stop_names
-                    and result
-                    and not _state_has_non_stop_tool_calls(
-                        state,
-                        stop_tool_names=normalized_stop_names,
-                    )
-                ):
-                    return latest_state
-    finally:
-        close = getattr(stream, "aclose", None)
-        if callable(close):
-            close_result = close()
-            if inspect.isawaitable(close_result):
-                await close_result
-    output = await _resolve_stream_output(stream)
-    return cast(Mapping[str, object], output or latest_state or {})
-
-
-async def _resolve_stream_output(stream: Any) -> object:
-    output_attr = getattr(stream, "output", None)
-    output = output_attr() if callable(output_attr) else output_attr
-    return await output if inspect.isawaitable(output) else output
-
-
-async def _drain_tool_call(call: Any) -> None:
-    if hasattr(call, "__aiter__"):
-        async for _delta in call:
-            pass
-        return
-
-    output_deltas = getattr(call, "output_deltas", None)
-    if hasattr(output_deltas, "__aiter__"):
-        async for _delta in cast(AsyncIterable[Any], output_deltas):
-            pass
-
-
-async def _consume_tool_call_projection(
-    stream: Any,
-    tool_progress_callback: ToolProgressCallback,
-    *,
-    configured_server_keys: Sequence[str] | None = None,
-) -> None:
-    tool_calls = getattr(stream, "tool_calls", None)
-    if tool_calls is None:
-        return
-    async for call in cast(AsyncIterable[Any], tool_calls):
-        tool_name = str(getattr(call, "tool_name", "") or "unknown_tool")
-        server_name = _server_name_for_tool(tool_name, configured_server_keys)
-        tool_call_id = str(getattr(call, "tool_call_id", "") or "")
-        tool_progress_callback(
-            {
-                "phase": "start",
-                "tool_name": tool_name,
-                "server_name": server_name,
-                "args": getattr(call, "input", None),
-                "tool_run_id": tool_call_id,
-            }
-        )
-        await _drain_tool_call(call)
-        error = getattr(call, "error", None)
-        if error:
-            tool_progress_callback(
-                {
-                    "phase": "error",
-                    "tool_name": tool_name,
-                    "server_name": server_name,
-                    "error": _truncate_tool_text(str(error)),
-                    "tool_run_id": tool_call_id,
-                }
-            )
-            continue
-        tool_progress_callback(
-            {
-                "phase": "end",
-                "tool_name": tool_name,
-                "server_name": server_name,
-                "result": _serialize_tool_output(getattr(call, "output", None)),
-                "tool_run_id": tool_call_id,
-            }
-        )
-
-
-async def _consume_raw_text_events(
-    stream: Any,
-    answer_delta_callback: AnswerDeltaCallback,
-) -> None:
-    async for event in stream:
-        for text in _raw_text_deltas(event):
-            answer_delta_callback(text)
-
-
-def _raw_text_deltas(event: object) -> list[str]:
-    if not isinstance(event, Mapping) or event.get("method") != "messages":
-        return []
-    params = event.get("params")
-    if not isinstance(params, Mapping):
-        return []
-    data = params.get("data")
-    if not isinstance(data, tuple) or not data:
-        return []
-    chunk = data[0]
-    if not isinstance(chunk, Mapping):
-        return []
-    if chunk.get("event") != "content-block-delta":
-        return []
-    delta = chunk.get("delta")
-    if not isinstance(delta, Mapping) or delta.get("type") != "text-delta":
-        return []
-    text = str(delta.get("text") or "")
-    return [text] if text else []
-
-
-def _state_from_values_event(event: object) -> Mapping[str, object] | None:
-    if not isinstance(event, Mapping) or event.get("method") != "values":
-        return None
-    params = event.get("params")
-    if not isinstance(params, Mapping):
-        return None
-    data = params.get("data")
-    return cast(Mapping[str, object], data) if isinstance(data, Mapping) else None
-
-
-def _state_has_non_stop_tool_calls(
-    state: Mapping[str, object],
-    *,
-    stop_tool_names: set[str],
-) -> bool:
-    messages_raw = state.get("messages")
-    if not isinstance(messages_raw, Sequence) or isinstance(messages_raw, (str, bytes)):
-        return False
-    for msg in cast(Sequence[object], messages_raw):
-        if not isinstance(msg, AIMessage):
-            continue
-        raw_calls = getattr(msg, "tool_calls", None)
-        if not isinstance(raw_calls, list):
-            continue
-        for tool_call in raw_calls:
-            if not isinstance(tool_call, Mapping):
-                continue
-            tool_name = str(tool_call.get("name") or "").strip().lower()
-            if tool_name and tool_name not in stop_tool_names:
-                return True
-    return False
-
-
-def _configured_server_keys_from_run_config(
-    run_config: RunnableConfig | None,
-) -> list[str] | None:
-    configurable = (
-        cast(dict[str, object], run_config.get("configurable"))
-        if isinstance(run_config, dict) and isinstance(run_config.get("configurable"), dict)
-        else {}
-    )
-    selected = configurable.get("mcp_server_keys")
-    if not isinstance(selected, Sequence) or isinstance(selected, (str, bytes)):
-        return None
-    keys = [str(item).strip() for item in selected if str(item).strip()]
-    return keys or None
-
-
-def _server_name_for_tool(
-    tool_name: str,
-    configured_server_keys: Sequence[str] | None,
-) -> str | None:
-    return configured_server_name_for_tool(tool_name, configured_server_keys)
-
-
-def _emit_tool_progress_from_state(
-    state: Mapping[str, object],
-    *,
-    tool_progress_callback: ToolProgressCallback,
-    started_tool_ids: set[str],
-    ended_tool_ids: set[str],
-    configured_server_keys: Sequence[str] | None,
-) -> None:
-    messages_raw = state.get("messages")
-    if not isinstance(messages_raw, Sequence) or isinstance(messages_raw, (str, bytes)):
-        return
-    tool_names_by_id: dict[str, str] = {}
-    args_by_id: dict[str, object] = {}
-    for msg in cast(Sequence[object], messages_raw):
-        if isinstance(msg, AIMessage):
-            raw_calls = getattr(msg, "tool_calls", None)
-            if not isinstance(raw_calls, list):
-                continue
-            for tool_call in raw_calls:
-                if not isinstance(tool_call, Mapping):
-                    continue
-                tool_call_id = str(tool_call.get("id") or "").strip()
-                tool_name = str(tool_call.get("name") or "").strip()
-                if not tool_call_id or not tool_name:
-                    continue
-                server_name = _server_name_for_tool(tool_name, configured_server_keys)
-                tool_names_by_id[tool_call_id] = tool_name
-                args_by_id[tool_call_id] = tool_call.get("args")
-                if tool_call_id in started_tool_ids:
-                    continue
-                started_tool_ids.add(tool_call_id)
-                tool_progress_callback(
-                    {
-                        "phase": "start",
-                        "tool_name": tool_name,
-                        "server_name": server_name,
-                        "args": tool_call.get("args"),
-                        "tool_run_id": tool_call_id,
-                    }
-                )
-            continue
-        if not isinstance(msg, ToolMessage):
-            continue
-        tool_call_id = str(getattr(msg, "tool_call_id", "") or "").strip()
-        if not tool_call_id or tool_call_id in ended_tool_ids:
-            continue
-        ended_tool_ids.add(tool_call_id)
-        status = str(getattr(msg, "status", "") or "").strip()
-        tool_name = str(getattr(msg, "name", "") or "").strip() or tool_names_by_id.get(
-            tool_call_id,
-            "unknown_tool",
-        )
-        server_name = _server_name_for_tool(tool_name, configured_server_keys)
-        if status == "error":
-            tool_progress_callback(
-                {
-                    "phase": "error",
-                    "tool_name": tool_name,
-                    "server_name": server_name,
-                    "error": _truncate_tool_text(_serialize_tool_output(msg)),
-                    "tool_run_id": tool_call_id,
-                }
-            )
-            continue
-        tool_progress_callback(
-            {
-                "phase": "end",
-                "tool_name": tool_name,
-                "server_name": server_name,
-                "result": _serialize_tool_output(msg),
-                "tool_run_id": tool_call_id,
-            }
-        )
+    raise ToolCallLimitExceededError("MCP agent stopped after tool call limit was reached.")
 
 
 def _sanitize_agent_payload_for_oci(payload: dict[str, object]) -> dict[str, object]:
@@ -536,6 +262,39 @@ def _build_messages(chat_history: Sequence[object] | None, question: str) -> lis
             messages.append(converted)
     messages.append(HumanMessage(content=question))
     return messages
+
+
+def _message_signature(message: object) -> tuple[str, str] | None:
+    if isinstance(message, HumanMessage):
+        role = "human"
+    elif isinstance(message, AIMessage):
+        role = "ai"
+    elif isinstance(message, SystemMessage):
+        role = "system"
+    elif isinstance(message, ToolMessage):
+        role = "tool"
+    else:
+        return None
+
+    message_id = getattr(message, "id", None)
+    if isinstance(message_id, str) and message_id.strip():
+        return (role, f"id:{message_id.strip()}")
+    content = _normalize_message_content(getattr(message, "content", ""))
+    return (role, content)
+
+
+def _strip_input_message_prefix(
+    messages: Sequence[object],
+    input_messages: Sequence[object],
+) -> list[object]:
+    remaining = list(messages)
+    input_list = list(input_messages)
+    if len(remaining) < len(input_list):
+        return remaining
+    for expected, actual in zip(input_list, remaining, strict=False):
+        if _message_signature(expected) != _message_signature(actual):
+            return remaining
+    return remaining[len(input_list) :]
 
 
 def _has_retrieval_tool(tools: Sequence[BaseTool]) -> bool:
@@ -761,7 +520,7 @@ def _extract_tool_invocations(agent_state: Mapping[str, object]) -> list[dict[st
     return invocations
 
 
-async def get_mcp_answer_with_langchain_agent_async(
+async def get_mcp_answer_execution_with_langchain_agent_async(
     *,
     question: str,
     chat_history: Sequence[object] | None,
@@ -769,79 +528,102 @@ async def get_mcp_answer_with_langchain_agent_async(
     tools: Sequence[BaseTool],
     run_config: RunnableConfig | None,
     require_tool_call: bool,
-    tool_progress_callback: ToolProgressCallback | None = None,
-    answer_delta_callback: AnswerDeltaCallback | None = None,
-    stop_after_tool_names: set[str] | None = None,
-) -> tuple[str, list[str], list[dict[str, object]]]:
+) -> MCPAnswerExecutionResult:
     if not tools:
-        return "MCP tools are currently unavailable. Please try again.", [], []
+        return MCPAnswerExecutionResult(
+            answer="MCP tools are currently unavailable. Please try again.",
+            tools_used=[],
+            tool_invocations=[],
+            state_messages=[],
+        )
 
     # Local import keeps this module usable from tests without forcing full settings bootstrap.
     from api.settings import get_settings
 
     settings = get_settings()
     llm_model = get_llm(model_id=model_id)
-    stream_answer_callback = None if require_tool_call else answer_delta_callback
-    if stream_answer_callback is None:
-        llm_model = suppress_llm_streaming(llm_model)
-    if stream_answer_callback is not None:
-        try:
-            setattr(llm_model, "is_stream", True)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("MCP agent LLM stream flag setup failed: %s", exc)
+    llm_model = suppress_llm_streaming(llm_model)
 
     try:
-        agent = create_agent(
-            model=cast(Any, llm_model),
-            tools=list(tools),
-            system_prompt=_build_system_prompt(question, tools, run_config),
-            middleware=cast(Any, _build_middleware(settings, tools)),
-            name="mcp_agent_executor",
-        )
         current_messages: list[object] = cast(list[object], _build_messages(chat_history, question))
         response_state: Mapping[str, object] | None = None
         answer = ""
         tools_used: list[str] = []
         tool_invocations: list[dict[str, object]] = []
+        state_messages: list[object] = []
+        response_messages: list[object] = []
 
         invoke_config_map: dict[str, object] = dict(run_config or {})
-        if answer_delta_callback is None:
+        raw_callbacks = invoke_config_map.get("callbacks")
+        if isinstance(raw_callbacks, list):
+            invoke_config_map["callbacks"] = list(raw_callbacks)
+        elif raw_callbacks is not None:
+            invoke_config_map["callbacks"] = raw_callbacks
+        invoke_config = cast(RunnableConfig, invoke_config_map)
+        use_graph_native_tool_loop = _has_outer_callback_context(invoke_config)
+        if not use_graph_native_tool_loop:
             raw_tags = invoke_config_map.get("tags")
             tags = list(raw_tags) if isinstance(raw_tags, list) else []
             if "nostream" not in tags:
                 tags.append("nostream")
             invoke_config_map["tags"] = tags
-        raw_callbacks = invoke_config_map.get("callbacks")
-        callbacks = list(raw_callbacks) if isinstance(raw_callbacks, list) else []
-        if callbacks:
-            invoke_config_map["callbacks"] = callbacks
-        invoke_config = cast(RunnableConfig, invoke_config_map)
+            invoke_config = cast(RunnableConfig, invoke_config_map)
+        agent = None
+        if not use_graph_native_tool_loop:
+            agent = create_agent(
+                model=cast(Any, llm_model),
+                tools=list(tools),
+                system_prompt=_build_system_prompt(question, tools, run_config),
+                middleware=cast(Any, _build_middleware(settings, tools)),
+                name="mcp_agent_executor",
+            )
         for retry_idx in range(2):
             try:
-                response_state = cast(
-                    Mapping[str, object],
-                    await _ainvoke_or_stream_agent(
-                        agent,
-                        {"messages": current_messages},
+                if use_graph_native_tool_loop:
+                    response_state = await _run_graph_native_tool_loop(
+                        llm_model=llm_model,
+                        tools=tools,
+                        messages=cast(Sequence[BaseMessage], current_messages),
+                        system_prompt=_build_system_prompt(question, tools, run_config),
                         config=invoke_config,
-                        tool_progress_callback=tool_progress_callback,
-                        answer_delta_callback=stream_answer_callback,
-                        stop_after_tool_names=stop_after_tool_names,
-                    ),
-                )
+                        max_rounds=int(getattr(settings, "MCP_MAX_ROUNDS", 0) or 2),
+                    )
+                else:
+                    response_state = cast(
+                        Mapping[str, object],
+                        await agent.ainvoke(
+                            _sanitize_agent_payload_for_oci({"messages": current_messages}),
+                            config=invoke_config,
+                        ),
+                    )
             except ToolCallLimitExceededError as exc:
                 logger.info("MCP agent stopped after tool call limit was reached: %s", exc)
-                return str(exc), [], []
+                return MCPAnswerExecutionResult(
+                    answer=str(exc),
+                    tools_used=[],
+                    tool_invocations=[],
+                    state_messages=state_messages,
+                )
             answer, tools_used = _extract_answer_and_tools(response_state)
             tool_invocations = _extract_tool_invocations(response_state)
+            raw_state_messages = response_state.get("messages")
+            if isinstance(raw_state_messages, Sequence) and not isinstance(
+                raw_state_messages, (str, bytes)
+            ):
+                response_messages = list(cast(Sequence[object], raw_state_messages))
+                state_messages = _strip_input_message_prefix(
+                    response_messages,
+                    current_messages,
+                )
+            else:
+                response_messages = []
+                state_messages = []
             if retry_idx >= 1:
                 break
             if require_tool_call and not tools_used:
-                state_messages = response_state.get("messages")
                 current_messages = (
-                    list(cast(Sequence[object], state_messages))
-                    if isinstance(state_messages, Sequence)
-                    and not isinstance(state_messages, (str, bytes))
+                    list(response_messages)
+                    if response_messages
                     else cast(list[object], _build_messages(chat_history, question))
                 )
                 current_messages.append(
@@ -855,12 +637,18 @@ async def get_mcp_answer_with_langchain_agent_async(
             break
 
         if require_tool_call and not tools_used:
-            return (
-                "MCP tool call required but none was produced after retry. Please try again.",
-                [],
-                [],
+            return MCPAnswerExecutionResult(
+                answer="MCP tool call required but none was produced after retry. Please try again.",
+                tools_used=[],
+                tool_invocations=[],
+                state_messages=state_messages,
             )
-        return answer, tools_used, tool_invocations
+        return MCPAnswerExecutionResult(
+            answer=answer,
+            tools_used=tools_used,
+            tool_invocations=tool_invocations,
+            state_messages=state_messages,
+        )
     finally:
         close = getattr(llm_model, "aclose", None)
         if callable(close):
@@ -872,4 +660,28 @@ async def get_mcp_answer_with_langchain_agent_async(
                 logger.debug("MCP agent LLM async cleanup failed: %s", exc)
 
 
-__all__ = ["get_mcp_answer_with_langchain_agent_async"]
+async def get_mcp_answer_with_langchain_agent_async(
+    *,
+    question: str,
+    chat_history: Sequence[object] | None,
+    model_id: str | None,
+    tools: Sequence[BaseTool],
+    run_config: RunnableConfig | None,
+    require_tool_call: bool,
+) -> tuple[str, list[str], list[dict[str, object]]]:
+    result = await get_mcp_answer_execution_with_langchain_agent_async(
+        question=question,
+        chat_history=chat_history,
+        model_id=model_id,
+        tools=tools,
+        run_config=run_config,
+        require_tool_call=require_tool_call,
+    )
+    return result.answer, result.tools_used, result.tool_invocations
+
+
+__all__ = [
+    "MCPAnswerExecutionResult",
+    "get_mcp_answer_execution_with_langchain_agent_async",
+    "get_mcp_answer_with_langchain_agent_async",
+]

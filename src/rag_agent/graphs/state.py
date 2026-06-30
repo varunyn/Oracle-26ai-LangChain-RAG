@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
+from langchain_core.messages import AnyMessage
+from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
-
-from src.rag_agent.runtime.memory import merge_chat_messages
 
 Mode = Literal["direct", "rag", "mcp", "mixed"]
 
@@ -20,7 +20,7 @@ class ChatGraphContext(TypedDict, total=False):
 
 
 class ChatGraphState(TypedDict, total=False):
-    messages: Annotated[list[object], merge_chat_messages]
+    messages: Annotated[list[AnyMessage], add_messages]
     context: ChatGraphContext
     references: dict[str, object]
     progress: str

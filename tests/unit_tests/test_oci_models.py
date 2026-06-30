@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
+
 from src.rag_agent.infrastructure import oci_models
 
 
@@ -27,7 +30,7 @@ def test_get_llm_builds_chat_oci_genai_with_shared_auth_config(monkeypatch) -> N
 
     monkeypatch.setattr(oci_models, "get_settings", lambda: settings)
     monkeypatch.setattr(oci_models, "_get_oci_auth_file_location", lambda: "/tmp/test.oci.config")
-    monkeypatch.setattr(oci_models, "ChatOCIGenAI", FakeChatOCIGenAI)
+    monkeypatch.setattr(oci_models, "OCIChatModel", FakeChatOCIGenAI)
 
     oci_models.get_llm()
 
@@ -125,7 +128,7 @@ def test_get_llm_preserves_explicit_xai_model_id_without_provider_override(monke
 
     monkeypatch.setattr(oci_models, "get_settings", lambda: settings)
     monkeypatch.setattr(oci_models, "_get_oci_auth_file_location", lambda: "/tmp/test.oci.config")
-    monkeypatch.setattr(oci_models, "ChatOCIGenAI", FakeChatOCIGenAI)
+    monkeypatch.setattr(oci_models, "OCIChatModel", FakeChatOCIGenAI)
 
     oci_models.get_llm()
 
@@ -157,7 +160,7 @@ def test_get_llm_uses_openai_max_completion_tokens(monkeypatch) -> None:
 
     monkeypatch.setattr(oci_models, "get_settings", lambda: settings)
     monkeypatch.setattr(oci_models, "_get_oci_auth_file_location", lambda: "/tmp/test.oci.config")
-    monkeypatch.setattr(oci_models, "ChatOCIGenAI", FakeChatOCIGenAI)
+    monkeypatch.setattr(oci_models, "OCIChatModel", FakeChatOCIGenAI)
 
     oci_models.get_llm()
 
@@ -185,10 +188,41 @@ def test_get_llm_does_not_pass_profile_for_instance_principal(monkeypatch) -> No
     )
 
     monkeypatch.setattr(oci_models, "get_settings", lambda: settings)
-    monkeypatch.setattr(oci_models, "ChatOCIGenAI", FakeChatOCIGenAI)
+    monkeypatch.setattr(oci_models, "OCIChatModel", FakeChatOCIGenAI)
 
     oci_models.get_llm()
 
     assert captured["auth_type"] == "INSTANCE_PRINCIPAL"
     assert "auth_profile" not in captured
     assert "auth_file_location" not in captured
+
+
+def test_gemini_tool_schema_strips_unsupported_exclusive_bounds() -> None:
+    class BoundedInput(BaseModel):
+        value: float = Field(gt=0, lt=1)
+
+    def bounded_tool(value: float) -> float:
+        """Return bounded value."""
+        return value
+
+    tool = StructuredTool.from_function(
+        bounded_tool,
+        name="bounded_tool",
+        description="Return bounded value.",
+        args_schema=BoundedInput,
+    )
+
+    llm = oci_models.OCIChatModel.model_construct(
+        model_id="google.gemini-2.5-pro",
+        model_kwargs={},
+        max_sequential_tool_calls=10,
+        tool_result_guidance=True,
+    )
+
+    bound = llm.bind_tools([tool])
+    tools = oci_models.cast_bind_kwargs(bound)["tools"]
+    value_schema = tools[0].parameters["properties"]["value"]
+
+    assert "exclusiveMaximum" not in value_schema
+    assert "exclusiveMinimum" not in value_schema
+    assert value_schema["type"] == "number"

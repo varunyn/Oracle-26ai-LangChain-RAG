@@ -3,6 +3,15 @@
   "graphs": {
     "chat_agent": "./src/rag_agent/graphs/chat_agent.py:chat_agent"
   },
+  "checkpointer": {
+    "backend": "custom",
+    "path": "./src/rag_agent/runtime/agent_server_checkpointer.py:generate_checkpointer",
+    "ttl": {
+      "strategy": "delete",
+      "sweep_interval_minutes": 60,
+      "default_ttl": 10080
+    }
+  },
   "env": ".env",
   "http": {
     "app": "./api/main.py:app",

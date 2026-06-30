@@ -3,6 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+from langchain_core.callbacks import AsyncCallbackManager, BaseCallbackHandler
+
 from src.rag_agent.core import config
 from src.rag_agent.utils import langfuse_tracing
 
@@ -125,6 +127,46 @@ def test_add_langfuse_callbacks_falls_back_to_settings_public_key(monkeypatch: A
     assert captured["public_key"] == "pk-settings"
 
 
+def test_add_langfuse_callbacks_preserves_callback_manager(monkeypatch: Any) -> None:
+    class _ExistingHandler(BaseCallbackHandler):
+        pass
+
+    class _CallbackHandler(BaseCallbackHandler):
+        def __init__(
+            self,
+            *,
+            public_key: str | None = None,
+            trace_context: dict[str, str] | None = None,
+        ) -> None:
+            _ = public_key, trace_context
+
+    import langfuse.langchain
+
+    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
+    monkeypatch.setattr(langfuse.langchain, "CallbackHandler", _CallbackHandler)
+    monkeypatch.setattr(
+        langfuse_tracing,
+        "get_settings",
+        lambda: SimpleNamespace(LANGFUSE_PUBLIC_KEY="pk-settings"),
+    )
+    langfuse_tracing.set_langfuse_client(object(), disabled=False)
+
+    manager = AsyncCallbackManager([_ExistingHandler()])
+    run_config: dict[str, Any] = {
+        "callbacks": manager,
+        "configurable": {"thread_id": "t-5"},
+    }
+    langfuse_tracing.add_langfuse_callbacks(run_config, session_id="sess-5", user_id=None)
+
+    callbacks = run_config["callbacks"]
+    assert isinstance(callbacks, AsyncCallbackManager)
+    assert callbacks is not manager
+    assert len(callbacks.handlers) == 3
+    assert isinstance(callbacks.handlers[0], _ExistingHandler)
+    assert run_config["metadata"]["langfuse_session_id"] == "sess-5"
+
+
 def test_get_langfuse_client_passes_sample_rate_when_configured(monkeypatch: Any) -> None:
     captured: dict[str, Any] = {}
 
@@ -145,12 +187,41 @@ def test_get_langfuse_client_passes_sample_rate_when_configured(monkeypatch: Any
             LANGFUSE_ENVIRONMENT=None,
             LANGFUSE_RELEASE=None,
             LANGFUSE_SAMPLE_RATE=0.25,
+            LANGFUSE_MAX_ATTRIBUTE_CHARS=12_000,
         ),
     )
     langfuse_tracing.set_langfuse_client(None, disabled=False)
 
     assert langfuse_tracing.get_langfuse_client() is not None
     assert captured["sample_rate"] == 0.25
+    assert callable(captured["mask_otel_spans"])
+
+
+def test_langfuse_otel_mask_truncates_large_attributes() -> None:
+    mask = langfuse_tracing._build_langfuse_otel_mask(10)
+    assert callable(mask)
+
+    identifier = object()
+    params = SimpleNamespace(
+        spans={
+            identifier: SimpleNamespace(
+                attributes={
+                    "short": "small",
+                    "large": "abcdefghijklmnopqrstuvwxyz",
+                    "large_list": ["short", "abcdefghijklmnopqrstuvwxyz"],
+                }
+            )
+        }
+    )
+
+    result = mask(params=params)
+
+    patch = result.span_patches[identifier]
+    assert patch.set_attributes["large"].startswith("abcdefghij... [truncated")
+    assert patch.set_attributes["large_list"][0] == "short"
+    assert patch.set_attributes["large_list"][1].startswith("abcdefghij... [truncated")
+    assert patch.set_attributes["rag_app.langfuse_payload_truncated"] is True
+    assert patch.set_attributes["rag_app.langfuse_max_attribute_chars"] == 10
 
 
 def test_get_langfuse_client_prefers_environment_over_settings(monkeypatch: Any) -> None:
@@ -176,6 +247,7 @@ def test_get_langfuse_client_prefers_environment_over_settings(monkeypatch: Any)
             LANGFUSE_ENVIRONMENT=None,
             LANGFUSE_RELEASE=None,
             LANGFUSE_SAMPLE_RATE=None,
+            LANGFUSE_MAX_ATTRIBUTE_CHARS=12_000,
         ),
     )
     langfuse_tracing.set_langfuse_client(None, disabled=False)
@@ -204,6 +276,9 @@ def test_start_langfuse_chat_trace_propagates_trace_attributes(monkeypatch: Any)
     class _Observation:
         trace_id = "trace-1"
         id = "span-1"
+
+        def update(self, **kwargs: Any) -> None:
+            captured["observation_update"] = kwargs
 
     class _ObservationManager:
         def __enter__(self) -> _Observation:
@@ -243,6 +318,7 @@ def test_start_langfuse_chat_trace_propagates_trace_attributes(monkeypatch: Any)
         input_payload={"question": "hello"},
     ) as trace:
         assert trace.trace_context == {"trace_id": "trace-1", "parent_span_id": "span-1"}
+        trace.update_output({"answer": "hi"})
 
     assert captured["observation_kwargs"] == {
         "name": "chat-rag",
@@ -259,6 +335,7 @@ def test_start_langfuse_chat_trace_propagates_trace_attributes(monkeypatch: Any)
     assert captured["propagation_entered"] is True
     assert captured["propagation_exited"] is True
     assert captured["observation_exited"] is True
+    assert captured["observation_update"] == {"output": {"answer": "hi"}}
 
 
 def test_safe_flush_no_op_when_disabled(monkeypatch: Any) -> None:

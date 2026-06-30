@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
     _using_this_venv = _venv_str in _exe_raw or _venv_str in _exe_resolved
     if not _using_this_venv:
         _log.warning(
-            "Process Python is not from this app's .venv (expected under %s). MCP will fail. Use: ./run_api.sh or ./.venv/bin/python -m uvicorn api.main:app --reload --port 3002",
+            "Process Python is not from this app's .venv (expected under %s). MCP will fail. Use: uv run langgraph dev or ./.venv/bin/langgraph dev",
             _this_venv,
         )
     _warm_thread = threading.Thread(target=_warm_pool_sync, daemon=True)

@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import asyncio
-import inspect
 import logging
 import re
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from typing import cast
 
 from langchain_core.documents import Document
@@ -25,7 +23,10 @@ from src.rag_agent.infrastructure.oci_models import (
 from src.rag_agent.infrastructure.retrieval import search_documents
 from src.rag_agent.prompts.runtime_agents import RAG_ANSWER_PROMPT_TEMPLATE
 
-from .llm_invocation import invoke_llm_with_optional_config, stream_llm_chunks_with_optional_config
+from .llm_invocation import (
+    ainvoke_llm_with_optional_config,
+    message_text,
+)
 from .observability import extract_usage
 
 logger = logging.getLogger(__name__)
@@ -159,46 +160,17 @@ async def synthesize_rag_answer(
     prompt = RAG_ANSWER_PROMPT_TEMPLATE.format(question=question, context=context)
     answer_messages = [HumanMessage(content=prompt)]
     llm = get_llm(model_id=model_id)
-    final_message = await asyncio.to_thread(
-        invoke_llm_with_optional_config,
+    final_message = await ainvoke_llm_with_optional_config(
         llm,
         answer_messages,
         run_config,
     )
     resolved_model_id = cast(str | None, getattr(llm, "model_id", None)) or model_id or "unknown"
     return (
-        str(getattr(final_message, "content", "") or "").strip(),
+        message_text(final_message).strip(),
         extract_usage(final_message),
         resolved_model_id,
     )
-
-
-async def stream_rag_answer(
-    *,
-    question: str,
-    docs: list[Document],
-    model_id: str | None,
-    run_config: RunnableConfig | None = None,
-    supplemental_context: str | None = None,
-) -> AsyncIterator[tuple[str, object, str]]:
-    context = _answer_context(docs, supplemental_context=supplemental_context)
-    prompt = RAG_ANSWER_PROMPT_TEMPLATE.format(question=question, context=context)
-    answer_messages = [HumanMessage(content=prompt)]
-    llm = get_llm(model_id=model_id)
-    resolved_model_id = cast(str | None, getattr(llm, "model_id", None)) or model_id or "unknown"
-    try:
-        async for text_delta, chunk in stream_llm_chunks_with_optional_config(
-            llm,
-            answer_messages,
-            run_config,
-        ):
-            yield text_delta, chunk, resolved_model_id
-    finally:
-        close = getattr(llm, "aclose", None)
-        if callable(close):
-            close_result = close()
-            if inspect.isawaitable(close_result):
-                await close_result
 
 
 def filter_retrieved_docs(query: str, docs: list[Document]) -> list[Document]:
@@ -326,6 +298,5 @@ __all__ = [
     "rerank_retrieved_docs",
     "retrieve_oracle_docs",
     "serialize_docs",
-    "stream_rag_answer",
     "synthesize_rag_answer",
 ]

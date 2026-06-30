@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import cast
 
 from langchain_core.runnables.config import RunnableConfig
@@ -27,10 +28,15 @@ def test_run_mcp_agent_turn_requires_tool_call_when_question_names_mcp_tool(
         _ = kwargs
         return False
 
-    async def fake_get_mcp_answer_async(*args: object, **kwargs: object):
+    async def fake_get_mcp_answer_result_async(*args: object, **kwargs: object):
         _ = args
         captured.update(kwargs)
-        return "answer", ["oracle_retrieval", "Calculator_calculate"], []
+        return SimpleNamespace(
+            answer="answer",
+            tools_used=["oracle_retrieval", "Calculator_calculate"],
+            tool_invocations=[],
+            state_messages=[],
+        )
 
     monkeypatch.setattr(mcp_turn, "load_adapter_tools", fake_load_adapter_tools)
     monkeypatch.setattr(
@@ -38,7 +44,9 @@ def test_run_mcp_agent_turn_requires_tool_call_when_question_names_mcp_tool(
         "should_use_repeated_workflow",
         fake_should_use_repeated_workflow,
     )
-    monkeypatch.setattr(mcp_turn, "get_mcp_answer_async", fake_get_mcp_answer_async)
+    monkeypatch.setattr(
+        mcp_turn, "get_mcp_answer_result_async", fake_get_mcp_answer_result_async
+    )
 
     asyncio.run(
         mcp_turn.run_mcp_agent_turn(
@@ -51,18 +59,22 @@ def test_run_mcp_agent_turn_requires_tool_call_when_question_names_mcp_tool(
             require_tool_call=False,
             repeated_workflow_enabled=False,
             workflow_checkpoint_path=None,
-            tool_progress_callback=None,
-            stop_after_tool_names={"oracle_retrieval"},
             extra_tools=[_Tool("oracle_retrieval")],
             require_mcp_tool_call_when_referenced=True,
         )
     )
 
     assert captured["require_tool_call"] is True
-    assert captured["stop_after_tool_names"] == {"oracle_retrieval"}
+    assert set(captured) == {
+        "chat_history",
+        "model_id",
+        "tools",
+        "run_config",
+        "require_tool_call",
+    }
 
 
-def test_run_mcp_agent_turn_still_stops_after_retrieval_for_rag_only_question(
+def test_run_mcp_agent_turn_does_not_require_mcp_for_rag_only_question(
     monkeypatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -71,13 +83,20 @@ def test_run_mcp_agent_turn_still_stops_after_retrieval_for_rag_only_question(
         _ = server_keys, run_config
         return [_Tool("Calculator_calculate")]
 
-    async def fake_get_mcp_answer_async(*args: object, **kwargs: object):
+    async def fake_get_mcp_answer_result_async(*args: object, **kwargs: object):
         _ = args
         captured.update(kwargs)
-        return "answer", ["oracle_retrieval"], []
+        return SimpleNamespace(
+            answer="answer",
+            tools_used=["oracle_retrieval"],
+            tool_invocations=[],
+            state_messages=[],
+        )
 
     monkeypatch.setattr(mcp_turn, "load_adapter_tools", fake_load_adapter_tools)
-    monkeypatch.setattr(mcp_turn, "get_mcp_answer_async", fake_get_mcp_answer_async)
+    monkeypatch.setattr(
+        mcp_turn, "get_mcp_answer_result_async", fake_get_mcp_answer_result_async
+    )
 
     asyncio.run(
         mcp_turn.run_mcp_agent_turn(
@@ -90,12 +109,16 @@ def test_run_mcp_agent_turn_still_stops_after_retrieval_for_rag_only_question(
             require_tool_call=False,
             repeated_workflow_enabled=False,
             workflow_checkpoint_path=None,
-            tool_progress_callback=None,
-            stop_after_tool_names={"oracle_retrieval"},
             extra_tools=[_Tool("oracle_retrieval")],
             require_mcp_tool_call_when_referenced=True,
         )
     )
 
     assert captured["require_tool_call"] is False
-    assert captured["stop_after_tool_names"] == {"oracle_retrieval"}
+    assert set(captured) == {
+        "chat_history",
+        "model_id",
+        "tools",
+        "run_config",
+        "require_tool_call",
+    }

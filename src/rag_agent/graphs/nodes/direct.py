@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any, cast
 
-from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.nodes.references import (
@@ -13,11 +11,12 @@ from src.rag_agent.graphs.nodes.references import (
 from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, get_thread_id
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
 from src.rag_agent.infrastructure import oci_models as _oci_models
-from src.rag_agent.runtime.llm_invocation import (
-    invoke_llm_with_optional_config,
-    suppress_llm_streaming,
+from src.rag_agent.runtime.llm_invocation import ainvoke_llm_with_optional_config
+from src.rag_agent.runtime.memory import (
+    langchain_messages_to_dicts,
+    latest_user_message,
+    to_langchain_messages,
 )
-from src.rag_agent.runtime.memory import langchain_messages_to_dicts, latest_user_message
 from src.rag_agent.runtime.observability import emit_usage_observability, extract_usage
 from src.rag_agent.utils.langfuse_tracing import start_langfuse_chat_trace
 
@@ -42,15 +41,8 @@ async def run_direct_node(
             input_payload={"question": latest_user_message(messages)} if messages else None,
         ) as langfuse_trace:
             history: list[Any] = []
-            latest_question = ""
-            for item in messages:
-                role = str(item.get("role") or "").strip().lower()
-                content = str(item.get("content") or "")
-                if role == "user":
-                    history.append(HumanMessage(content=content))
-                    latest_question = content.strip() or latest_question
-                elif role == "assistant":
-                    history.append(AIMessage(content=content))
+            history = to_langchain_messages(messages)
+            latest_question = latest_user_message(messages)
 
             run_cfg = build_run_config(
                 thread_id=thread_id,
@@ -61,8 +53,8 @@ async def run_direct_node(
                 mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
                 trace_context=langfuse_trace.trace_context if langfuse_trace else None,
             )
-            llm = suppress_llm_streaming(get_llm(model_id=cast(str | None, context.get("model_id"))))
-            response = await asyncio.to_thread(invoke_llm_with_optional_config, llm, history, run_cfg)
+            llm = get_llm(model_id=cast(str | None, context.get("model_id")))
+            response = await ainvoke_llm_with_optional_config(llm, history, run_cfg)
             usage = extract_usage(response)
             resolved_model_id = cast(str | None, getattr(llm, "model_id", None)) or cast(
                 str | None, context.get("model_id")
@@ -89,6 +81,10 @@ async def run_direct_node(
             }
             if langfuse_trace is not None and langfuse_trace.trace_id:
                 result["trace_id"] = langfuse_trace.trace_id
+            if langfuse_trace is not None:
+                update_trace_output = getattr(langfuse_trace, "update_output", None)
+                if callable(update_trace_output):
+                    update_trace_output({"answer": result["final_answer"]})
         assistant_message = assistant_message_from_result("direct", result)
     except Exception as exc:
         assistant_message = assistant_message_from_exception("direct", exc)
