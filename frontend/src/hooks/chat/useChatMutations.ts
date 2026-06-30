@@ -12,7 +12,9 @@ export function useChatMutations(collectionName: string) {
   const { jobs, trackJob } = useDocumentIngestionJobs();
 
   const handleUpload = useCallback(async () => {
-    if (!uploadFiles.length || isUploading) return;
+    if (!uploadFiles.length || isUploading) {
+      return;
+    }
     setIsUploading(true);
     setUploadStatus("Uploading documents to the selected collection...");
 
@@ -20,7 +22,9 @@ export function useChatMutations(collectionName: string) {
     uploadFiles.forEach((file) => {
       formData.append("files", file);
     });
-    if (collectionName) formData.append("collection_name", collectionName);
+    if (collectionName) {
+      formData.append("collection_name", collectionName);
+    }
 
     try {
       const res = await fetch(toApiUrl("/api/documents/upload"), {
@@ -52,19 +56,19 @@ export function useChatMutations(collectionName: string) {
           files: Array.isArray(data.files) ? data.files : [],
         });
         setUploadStatus(
-          `Started indexing ${uploadFiles.length} file${uploadFiles.length === 1 ? "" : "s"}. Open Processed sources to watch progress.`,
+          `Started indexing ${uploadFiles.length} file${uploadFiles.length === 1 ? "" : "s"}. Open Processed sources to watch progress.`
         );
         setUploadFiles([]);
         return;
       }
 
       setUploadStatus(
-        `Added ${data.files_processed ?? uploadFiles.length} file(s) to ${data.collection ?? collectionName ?? "the selected collection"} and indexed ${data.chunks_added ?? 0} chunks for retrieval.`,
+        `Added ${data.files_processed ?? uploadFiles.length} file(s) to ${data.collection ?? collectionName ?? "the selected collection"} and indexed ${data.chunks_added ?? 0} chunks for retrieval.`
       );
       setUploadFiles([]);
     } catch {
       setUploadStatus(
-        "We couldn't upload your documents. Try again in a moment.",
+        "We couldn't upload your documents. Try again in a moment."
       );
     } finally {
       setIsUploading(false);

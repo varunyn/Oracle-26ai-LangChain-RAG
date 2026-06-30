@@ -20,13 +20,19 @@ type MessageCollectionSummary = {
 const PREVIEW_LIMIT = 80;
 
 function normalizePreview(content: unknown): string {
-  if (typeof content !== "string") return "";
+  if (typeof content !== "string") {
+    return "";
+  }
   const normalized = content.replace(/\s+/g, " ").trim();
-  if (normalized.length <= PREVIEW_LIMIT) return normalized;
+  if (normalized.length <= PREVIEW_LIMIT) {
+    return normalized;
+  }
   return `${normalized.slice(0, PREVIEW_LIMIT - 3)}...`;
 }
 
-export function summarizeMessages(messages: MessageLike[]): MessageCollectionSummary {
+export function summarizeMessages(
+  messages: MessageLike[]
+): MessageCollectionSummary {
   const idCounts = new Map<string, number>();
   const summaryMessages = messages.map((message, index) => {
     const id = typeof message.id === "string" ? message.id : `message-${index}`;
@@ -48,7 +54,12 @@ export function summarizeMessages(messages: MessageLike[]): MessageCollectionSum
   };
 }
 
-export function debugChatStage(stage: string, details: Record<string, unknown>): void {
-  if (process.env.NODE_ENV === "production") return;
+export function debugChatStage(
+  stage: string,
+  details: Record<string, unknown>
+): void {
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
   console.debug(`[chat-debug] ${stage}`, details);
 }

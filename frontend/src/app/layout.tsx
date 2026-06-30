@@ -18,8 +18,8 @@ export default async function RootLayout({
 }>) {
   const config = await getAppConfig();
   return (
-    <html lang="en" className="h-full overflow-hidden">
-      <body className="antialiased h-full overflow-hidden">
+    <html className="h-full overflow-hidden" lang="en">
+      <body className="h-full overflow-hidden antialiased">
         <TooltipProvider>
           <ConfigProvider initialConfig={config}>
             <ToasterProvider>{children}</ToasterProvider>

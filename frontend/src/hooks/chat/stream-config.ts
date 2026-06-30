@@ -22,25 +22,22 @@ export function resolveLanggraphApiUrl(): string {
   if (typeof window !== "undefined") {
     return "http://localhost:2024";
   }
-  return normalizeBase(process.env.LANGGRAPH_BACKEND_URL || "http://localhost:2024");
+  return normalizeBase(
+    process.env.LANGGRAPH_BACKEND_URL || "http://localhost:2024"
+  );
 }
 
 export function buildLangGraphSubmitPayload(
   text: string,
-  bodyParams: ChatBodyParams,
-  messageId?: string,
+  bodyParams: ChatBodyParams
 ) {
   const message: {
-    id?: string;
-    role: "user";
+    type: "human";
     content: string;
   } = {
-    role: "user",
+    type: "human",
     content: text,
   };
-  if (messageId) {
-    message.id = messageId;
-  }
 
   const configurable: Record<string, unknown> = {
     model_id: bodyParams.model,

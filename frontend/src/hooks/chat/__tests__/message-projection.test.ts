@@ -1,11 +1,7 @@
-import { AIMessage, HumanMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
 
-import {
-  mergeProjectedMessages,
-  projectStreamMessages,
-  selectMessagesForStatus,
-} from "../message-projection";
+import { projectStreamMessages } from "../message-projection";
 
 describe("projectStreamMessages", () => {
   it("drops replayed messages with the same stable id", () => {
@@ -35,7 +31,6 @@ describe("projectStreamMessages", () => {
         firstAnswer,
         secondAnswer,
       ],
-      liveToolProgressEvents: [],
     });
 
     expect(projected.map((message) => message.id)).toEqual([
@@ -43,6 +38,36 @@ describe("projectStreamMessages", () => {
       "assistant-1",
       "user-2",
       "assistant-2",
+    ]);
+  });
+
+  it("keeps distinct messages when ids differ even if content matches", () => {
+    const projected = projectStreamMessages({
+      streamMessages: [
+        new HumanMessage({
+          id: "optimistic-user",
+          content: "Perform a linear regression using tools",
+        }),
+        new HumanMessage({
+          id: "server-user",
+          content: "Perform a linear regression using tools",
+        }),
+      ],
+    });
+
+    expect(projected).toEqual([
+      {
+        id: "optimistic-user",
+        role: "user",
+        content: "Perform a linear regression using tools",
+        references: null,
+      },
+      {
+        id: "server-user",
+        role: "user",
+        content: "Perform a linear regression using tools",
+        references: null,
+      },
     ]);
   });
 
@@ -62,7 +87,6 @@ describe("projectStreamMessages", () => {
 
     const projected = projectStreamMessages({
       streamMessages: [question, partialAnswer, finalAnswer],
-      liveToolProgressEvents: [],
     });
 
     expect(projected.map((message) => message.id)).toEqual([
@@ -93,16 +117,22 @@ describe("projectStreamMessages", () => {
 
     const projected = projectStreamMessages({
       streamMessages: [question, partialAnswer, finalAnswer],
-      liveToolProgressEvents: [],
     });
 
-    expect(projected.map((message) => message.id)).toEqual(["user-1", "assistant-final"]);
-    expect(projected[1]?.content).toBe("Northway Solutions payment terms are Net 30 days.");
+    expect(projected.map((message) => message.id)).toEqual([
+      "user-1",
+      "assistant-final",
+    ]);
+    expect(projected[1]?.content).toBe(
+      "Northway Solutions payment terms are Net 30 days."
+    );
     expect(projected[1]?.references?.citations).toEqual([
       { source: "000-Northway_Solutions.pdf", page: "2" },
     ]);
     expect(projected[1]?.references?.mcp_used).toBe(true);
-    expect(projected[1]?.references?.mcp_tools_used).toEqual(["oracle_retrieval"]);
+    expect(projected[1]?.references?.mcp_tools_used).toEqual([
+      "oracle_retrieval",
+    ]);
   });
 
   it("preserves native tool call ids on the owning assistant message", () => {
@@ -112,7 +142,9 @@ describe("projectStreamMessages", () => {
     });
     const answer = new AIMessage({
       id: "assistant-1",
-      content: [{ type: "text", text: "The best-fit line is y = 1.54x + 0.44." }],
+      content: [
+        { type: "text", text: "The best-fit line is y = 1.54x + 0.44." },
+      ],
       tool_calls: [
         {
           id: "call-1",
@@ -129,7 +161,6 @@ describe("projectStreamMessages", () => {
 
     const projected = projectStreamMessages({
       streamMessages: [question, answer],
-      liveToolProgressEvents: [],
     });
 
     expect(projected).toHaveLength(2);
@@ -144,97 +175,85 @@ describe("projectStreamMessages", () => {
 
     const projected = projectStreamMessages({
       streamMessages: [assistant],
-      liveToolProgressEvents: [],
     });
 
     expect(projected[0]).not.toHaveProperty("toolCallIds");
   });
-});
 
-describe("mergeProjectedMessages", () => {
-  it("preserves finalized assistant references from state snapshots", () => {
-    const liveMessages = projectStreamMessages({
+  it("suppresses placeholder dot content for assistant tool-call messages", () => {
+    const projected = projectStreamMessages({
       streamMessages: [
-        new HumanMessage({
-          id: "user-1",
-          content: "Give me info about payment terms for Northway Solutions",
-        }),
         new AIMessage({
-          id: "assistant-1",
-          content: "Northway Solutions payment terms are Net 30 days.",
+          id: "assistant-tool-call",
+          content: ".",
+          tool_calls: [
+            {
+              id: "call-1",
+              name: "lookup",
+              args: { query: "invoice" },
+            },
+          ],
         }),
       ],
     });
 
-    const finalizedMessages = projectStreamMessages({
-      streamMessages: [
-        new HumanMessage({
-          id: "user-1",
-          content: "Give me info about payment terms for Northway Solutions",
-        }),
-        new AIMessage({
-          id: "assistant-1",
-          content: "Northway Solutions payment terms are Net 30 days.",
-          additional_kwargs: {
-            citations: [{ source: "000-Northway_Solutions.pdf", page: "2" }],
-          },
-        }),
-      ],
-    });
-
-    expect(mergeProjectedMessages(liveMessages, finalizedMessages)).toMatchObject([
+    expect(projected).toEqual([
       {
-        id: "user-1",
-        role: "user",
-        content: "Give me info about payment terms for Northway Solutions",
-      },
-      {
-        id: "assistant-1",
+        id: "assistant-tool-call",
         role: "assistant",
-        content: "Northway Solutions payment terms are Net 30 days.",
-        references: {
-          citations: [{ source: "000-Northway_Solutions.pdf", page: "2" }],
-          reranker_docs: [],
-        },
+        content: "",
+        toolCallIds: ["call-1"],
+        references: null,
       },
     ]);
   });
-});
 
-describe("selectMessagesForStatus", () => {
-  it("uses finalized state at completion so citations from state replace live copies", () => {
-    const liveMessages = projectStreamMessages({
+  it("preserves tool call ids from camelCase stream messages", () => {
+    const projected = projectStreamMessages({
       streamMessages: [
-        new HumanMessage({ id: "user-1", content: "What are the terms?" }),
-        new AIMessage({ id: "live-answer", content: "Answer without references" }),
-      ],
-    });
-    const finalizedMessages = projectStreamMessages({
-      streamMessages: [
-        new HumanMessage({ id: "user-1", content: "What are the terms?" }),
-        new AIMessage({
-          id: "final-answer",
-          content: "Answer with references",
-          additional_kwargs: {
-            citations: [{ source: "terms.pdf", page: "2" }],
-          },
-        }),
+        {
+          type: "ai",
+          id: "assistant-camel",
+          content: ".",
+          toolCalls: [{ id: "call-1" }, { id: "call-2" }],
+        } as never,
       ],
     });
 
-    expect(selectMessagesForStatus(liveMessages, finalizedMessages, "ready")).toEqual(
-      finalizedMessages,
-    );
+    expect(projected).toEqual([
+      {
+        id: "assistant-camel",
+        role: "assistant",
+        content: "",
+        toolCallIds: ["call-1", "call-2"],
+        references: null,
+      },
+    ]);
   });
 
-  it("keeps the live projection while the run is streaming", () => {
-    const liveMessages = [{ id: "live-answer", role: "assistant", content: "Partial" }];
-    const finalizedMessages = [
-      { id: "final-answer", role: "assistant", content: "Complete" },
-    ];
+  it("drops raw tool messages from the visible transcript projection", () => {
+    const projected = projectStreamMessages({
+      streamMessages: [
+        new HumanMessage({ id: "user-1", content: "Use a tool" }),
+        new AIMessage({
+          id: "assistant-tool-call",
+          content: ".",
+          tool_calls: [{ id: "call-1", name: "lookup", args: { q: "x" } }],
+        }),
+        new ToolMessage({
+          id: "tool-1",
+          content: "ok",
+          tool_call_id: "call-1",
+          name: "lookup",
+        }),
+        new AIMessage({ id: "assistant-final", content: "Done." }),
+      ],
+    });
 
-    expect(selectMessagesForStatus(liveMessages, finalizedMessages, "streaming")).toEqual(
-      liveMessages,
-    );
+    expect(projected.map((message) => message.id)).toEqual([
+      "user-1",
+      "assistant-tool-call",
+      "assistant-final",
+    ]);
   });
 });

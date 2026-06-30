@@ -1,5 +1,12 @@
 "use client";
 
+import { cjk } from "@streamdown/cjk";
+import { code } from "@streamdown/code";
+import { math } from "@streamdown/math";
+import { mermaid } from "@streamdown/mermaid";
+import type { ComponentProps, HTMLAttributes } from "react";
+import { memo } from "react";
+import { Streamdown } from "streamdown";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -8,15 +15,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { cjk } from "@streamdown/cjk";
-import { code } from "@streamdown/code";
-import { math } from "@streamdown/math";
-import { mermaid } from "@streamdown/mermaid";
-import type { ComponentProps, HTMLAttributes } from "react";
-import {
-  memo,
-} from "react";
-import { Streamdown } from "streamdown";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: "user" | "assistant" | "system";

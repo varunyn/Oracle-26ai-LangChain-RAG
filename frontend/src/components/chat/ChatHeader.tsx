@@ -1,8 +1,8 @@
 "use client";
 
+import { CheckIcon, PanelLeft, PanelLeftClose, Settings } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { CheckIcon, PanelLeft, PanelLeftClose, Settings } from "lucide-react";
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -55,13 +55,13 @@ export function ChatHeader({
   selectedModelData,
 }: ChatHeaderProps): React.ReactElement {
   return (
-    <header className="flex w-full shrink-0 items-start justify-between gap-3 border-b border-border bg-card px-4 py-3 shadow-sm sm:items-center sm:gap-4 sm:px-6">
+    <header className="flex w-full shrink-0 items-start justify-between gap-3 border-border border-b bg-card px-4 py-3 shadow-sm sm:items-center sm:gap-4 sm:px-6">
       <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
         <button
-          type="button"
-          onClick={onToggleSidebar}
-          className="mt-0.5 rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:mt-0"
           aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+          className="mt-0.5 rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:mt-0"
+          onClick={onToggleSidebar}
+          type="button"
         >
           {sidebarOpen ? (
             <PanelLeftClose className="size-5" />
@@ -71,38 +71,38 @@ export function ChatHeader({
         </button>
         <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
           <Image
-            src="/oracle-logo.png"
             alt="Oracle"
-            width={140}
-            height={32}
             className="h-7 w-auto shrink-0 object-contain sm:h-8"
+            height={32}
             priority
+            src="/oracle-logo.png"
+            width={140}
           />
           <div className="min-w-0 space-y-0.5">
-            <h1 className="truncate text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+            <h1 className="truncate font-semibold text-foreground text-lg tracking-tight sm:text-xl">
               OCI Custom RAG Agent
             </h1>
-            <p className="truncate text-xs text-muted-foreground sm:text-sm">
+            <p className="truncate text-muted-foreground text-xs sm:text-sm">
               Powered by Oracle Cloud Infrastructure Generative AI with RAG
             </p>
           </div>
-          {contextUsage != null ? (
+          {contextUsage == null ? null : (
             <ContextUsageBadge contextUsage={contextUsage} />
-          ) : null}
+          )}
         </div>
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
         <ModelSelector
-          open={modelSelectorOpen}
           onOpenChange={onModelSelectorOpenChange}
+          open={modelSelectorOpen}
         >
-          <ModelSelectorTrigger className="min-w-0 max-w-[12rem] rounded-md border border-input bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring sm:max-w-[15rem] sm:min-w-[12rem]">
+          <ModelSelectorTrigger className="min-w-0 max-w-[12rem] rounded-md border border-input bg-background px-3 py-2 font-medium text-sm transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring sm:min-w-[12rem] sm:max-w-[15rem]">
             <span className="flex min-w-0 items-center gap-2">
               {selectedModelData?.chefSlug ? (
                 <ModelSelectorLogo
-                  provider={selectedModelData.chefSlug}
                   className="shrink-0"
+                  provider={selectedModelData.chefSlug}
                 />
               ) : null}
               <ModelSelectorName>
@@ -141,12 +141,12 @@ export function ChatHeader({
           </ModelSelectorContent>
         </ModelSelector>
         <Link
-          href="/settings"
-          className="inline-flex size-10 items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           aria-label="Open settings"
+          className="inline-flex size-10 items-center justify-center rounded-md border border-input bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          href="/settings"
           title="Settings"
         >
-          <Settings className="size-4" aria-hidden />
+          <Settings aria-hidden className="size-4" />
         </Link>
       </div>
     </header>

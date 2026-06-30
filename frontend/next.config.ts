@@ -1,10 +1,10 @@
 import type { NextConfig } from "next";
 
-const backendUrl = process.env.FASTAPI_BACKEND_URL || "http://localhost:3002";
 const langgraphUrl =
   process.env.LANGGRAPH_BACKEND_URL ||
   process.env.NEXT_PUBLIC_LANGGRAPH_API_BASE ||
   "http://localhost:2024";
+const backendUrl = process.env.FASTAPI_BACKEND_URL || langgraphUrl;
 
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -29,7 +29,7 @@ const nextConfig: NextConfig = {
     ],
   },
   turbopack: {
-    root: __dirname,
+    root: import.meta.dirname,
   },
 };
 

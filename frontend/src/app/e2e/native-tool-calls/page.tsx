@@ -1,7 +1,7 @@
 "use client";
 
-import type { AssembledToolCall } from "@langchain/react";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
+import type { AssembledToolCall } from "@langchain/react";
 import { useSyncExternalStore } from "react";
 import { ChatMessageList } from "@/components/chat/ChatMessageList";
 import { projectStreamMessages } from "@/hooks/chat/message-projection";
@@ -11,13 +11,15 @@ type Phase = "running" | "final";
 const STORAGE_KEY = "native-tool-calls-e2e-phase";
 const PHASE_EVENT = "native-tool-calls-e2e-phase-change";
 
-const PRIOR_USER_MESSAGES = Array.from({ length: 4 }, (_, index) =>
-  new HumanMessage({
-    id: `history-user-${index + 1}`,
-    content: `Historical user context ${index + 1}: Summarize the invoice review notes for batch ${
-      index + 1
-    } and keep the unresolved exceptions visible for finance follow-up.`,
-  }),
+const PRIOR_USER_MESSAGES = Array.from(
+  { length: 4 },
+  (_, index) =>
+    new HumanMessage({
+      id: `history-user-${index + 1}`,
+      content: `Historical user context ${index + 1}: Summarize the invoice review notes for batch ${
+        index + 1
+      } and keep the unresolved exceptions visible for finance follow-up.`,
+    })
 );
 
 const RUNNING_STREAM_MESSAGES = [
@@ -76,7 +78,8 @@ const FINAL_STREAM_MESSAGES = [
   }),
   new AIMessage({
     id: "assistant-2",
-    content: "The vendor lookup failed, so I used the fallback summary instead.",
+    content:
+      "The vendor lookup failed, so I used the fallback summary instead.",
     tool_calls: [
       {
         id: "summary-1",
@@ -154,12 +157,18 @@ const FINAL_TOOL_CALLS = [
 ] satisfies AssembledToolCall[];
 
 function readPhaseSnapshot(): Phase {
-  if (typeof window === "undefined") return "running";
-  return window.localStorage.getItem(STORAGE_KEY) === "final" ? "final" : "running";
+  if (typeof window === "undefined") {
+    return "running";
+  }
+  return window.localStorage.getItem(STORAGE_KEY) === "final"
+    ? "final"
+    : "running";
 }
 
 function subscribeToPhase(onStoreChange: () => void): () => void {
-  if (typeof window === "undefined") return () => {};
+  if (typeof window === "undefined") {
+    return () => {};
+  }
 
   const handleChange = () => {
     onStoreChange();
@@ -184,14 +193,21 @@ function phaseFixture(phase: Phase) {
     messages:
       phase === "final"
         ? projectStreamMessages({ streamMessages: [...FINAL_STREAM_MESSAGES] })
-        : projectStreamMessages({ streamMessages: [...RUNNING_STREAM_MESSAGES] }),
-    toolCalls: phase === "final" ? [...FINAL_TOOL_CALLS] : [...RUNNING_TOOL_CALLS],
+        : projectStreamMessages({
+            streamMessages: [...RUNNING_STREAM_MESSAGES],
+          }),
+    toolCalls:
+      phase === "final" ? [...FINAL_TOOL_CALLS] : [...RUNNING_TOOL_CALLS],
     status: phase === "final" ? "ready" : "streaming",
   };
 }
 
 function useStoredPhase(): Phase {
-  return useSyncExternalStore(subscribeToPhase, readPhaseSnapshot, () => "running");
+  return useSyncExternalStore(
+    subscribeToPhase,
+    readPhaseSnapshot,
+    () => "running"
+  );
 }
 
 export default function NativeToolCallsE2EPage(): React.ReactElement {
@@ -199,33 +215,36 @@ export default function NativeToolCallsE2EPage(): React.ReactElement {
   const fixture = phaseFixture(phase);
 
   return (
-    <main className="min-h-screen bg-background px-6 py-8" data-testid="native-tool-calls-e2e">
+    <main
+      className="min-h-screen bg-background px-6 py-8"
+      data-testid="native-tool-calls-e2e"
+    >
       <div className="mx-auto flex max-w-5xl flex-col gap-4">
         <div className="flex flex-wrap gap-3">
           <button
-            type="button"
+            className="rounded border px-3 py-2 text-sm"
             onClick={() => {
               setStoredPhase("running");
             }}
-            className="rounded border px-3 py-2 text-sm"
+            type="button"
           >
             Reset Running
           </button>
           <button
-            type="button"
+            className="rounded border px-3 py-2 text-sm"
             onClick={() => {
               setStoredPhase("final");
             }}
-            className="rounded border px-3 py-2 text-sm"
+            type="button"
           >
             Advance Final
           </button>
           <button
-            type="button"
+            className="rounded border px-3 py-2 text-sm"
             onClick={() => {
               setStoredPhase("final");
             }}
-            className="rounded border px-3 py-2 text-sm"
+            type="button"
           >
             Replay Final Snapshot
           </button>
@@ -233,16 +252,16 @@ export default function NativeToolCallsE2EPage(): React.ReactElement {
 
         <div className="flex h-[260px] min-h-0 rounded-xl border bg-card">
           <ChatMessageList
-            messages={fixture.messages}
-            toolCalls={fixture.toolCalls}
-            status={fixture.status}
+            enableUserFeedback={false}
+            feedbackSubmittedMessageIndexes={new Set<number>()}
             maxCitationsToShow={10}
-            onRetry={() => {}}
+            messages={fixture.messages}
+            onFeedback={() => {}}
             onRecoverDirect={() => {}}
             onRecoverRagOnly={() => {}}
-            onFeedback={() => {}}
-            feedbackSubmittedMessageIndexes={new Set<number>()}
-            enableUserFeedback={false}
+            onRetry={() => {}}
+            status={fixture.status}
+            toolCalls={fixture.toolCalls}
           />
         </div>
       </div>

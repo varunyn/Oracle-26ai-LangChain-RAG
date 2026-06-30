@@ -23,14 +23,17 @@ export function useProcessedSources(collectionName: string) {
       }
       const query = params.toString();
       const response = await fetch(
-        `${toApiUrl("/api/documents/sources")}${query ? `?${query}` : ""}`,
+        `${toApiUrl("/api/documents/sources")}${query ? `?${query}` : ""}`
       );
       const data = (await response.json()) as {
         error?: string;
         sources?: ProcessedSource[];
       };
 
-      if (!response.ok || (typeof data.error === "string" && data.error.length > 0)) {
+      if (
+        !response.ok ||
+        (typeof data.error === "string" && data.error.length > 0)
+      ) {
         setError(data.error ?? "We couldn't load processed sources.");
         setSources([]);
         return;
@@ -58,11 +61,17 @@ export function useProcessedSources(collectionName: string) {
         if (collectionName) {
           params.set("collection_name", collectionName);
         }
-        const response = await fetch(`${toApiUrl("/api/documents/source")}?${params.toString()}`, {
-          method: "DELETE",
-        });
+        const response = await fetch(
+          `${toApiUrl("/api/documents/source")}?${params.toString()}`,
+          {
+            method: "DELETE",
+          }
+        );
         const data = (await response.json()) as { error?: string };
-        if (!response.ok || (typeof data.error === "string" && data.error.length > 0)) {
+        if (
+          !response.ok ||
+          (typeof data.error === "string" && data.error.length > 0)
+        ) {
           setError(data.error ?? "We couldn't delete that source.");
           return false;
         }
@@ -75,7 +84,7 @@ export function useProcessedSources(collectionName: string) {
         setDeletingSource(null);
       }
     },
-    [collectionName, refresh],
+    [collectionName, refresh]
   );
 
   return {

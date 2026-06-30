@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   ArrowLeft,
   BarChart3,
@@ -14,24 +13,25 @@ import {
   SquareActivity,
   Trash2,
 } from "lucide-react";
+import Link from "next/link";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/toaster";
 import {
-  fetchAppConfig,
   type AppConfig,
+  fetchAppConfig,
   type ObservabilityLink,
 } from "@/lib/config";
 import {
   deleteMcpServer,
   fetchMcpServers,
-  saveMcpServer,
-  setMcpServerEnabled,
-  testMcpServerConnection,
   type McpAuthType,
   type McpConnectionTestResponse,
   type McpServerAuthConfig,
   type McpServerConfig,
+  saveMcpServer,
+  setMcpServerEnabled,
+  testMcpServerConnection,
 } from "@/lib/mcp-config";
 
 type DraftServer = McpServerConfig & {
@@ -72,7 +72,9 @@ function cloneServer(server: McpServerConfig): DraftServer {
   };
 }
 
-function normalizeDraftAuth(auth: Partial<McpServerAuthConfig>): McpServerAuthConfig {
+function normalizeDraftAuth(
+  auth: Partial<McpServerAuthConfig>
+): McpServerAuthConfig {
   return {
     type: auth.type ?? "none",
     grant_type: auth.grant_type ?? "client_credentials",
@@ -118,17 +120,17 @@ const ServerListItem = memo(function ServerListItem({
     <div
       className={`grid grid-cols-[minmax(0,1fr)_3.25rem] items-center gap-3 px-3 py-3 ${
         active
-          ? "bg-primary/[0.08] ring-1 ring-inset ring-primary/25"
+          ? "bg-primary/[0.08] ring-1 ring-primary/25 ring-inset"
           : "bg-card"
       }`}
     >
       <button
-        type="button"
-        onClick={() => onSelect(server)}
         aria-current={active ? "true" : undefined}
         className={`flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-ring ${
           active ? "hover:bg-primary/[0.08]" : "hover:bg-muted"
         }`}
+        onClick={() => onSelect(server)}
+        type="button"
       >
         <span
           className={`inline-flex size-8 shrink-0 items-center justify-center rounded-md border ${
@@ -137,29 +139,31 @@ const ServerListItem = memo(function ServerListItem({
               : "border-border bg-background text-muted-foreground"
           }`}
         >
-          <Server className="size-4" aria-hidden />
+          <Server aria-hidden className="size-4" />
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-sm font-medium text-foreground">
+          <span className="block truncate font-medium text-foreground text-sm">
             {server.key}
           </span>
-          <span className="block truncate text-xs text-muted-foreground">
+          <span className="block truncate text-muted-foreground text-xs">
             {server.url}
           </span>
         </span>
       </button>
       <button
-        type="button"
-        onClick={() => void onToggle(server)}
-        disabled={pending}
-        className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
-          server.enabled ? "border-foreground bg-foreground" : "border-border bg-muted"
-        }`}
         aria-label={server.enabled ? "Disable MCP server" : "Enable MCP server"}
+        className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+          server.enabled
+            ? "border-foreground bg-foreground"
+            : "border-border bg-muted"
+        }`}
+        disabled={pending}
+        onClick={() => void onToggle(server)}
         title={server.enabled ? "Disable" : "Enable"}
+        type="button"
       >
         <span
-          className={`absolute left-0.5 top-1/2 size-5 -translate-y-1/2 rounded-full bg-background shadow-sm transition-transform ${
+          className={`absolute top-1/2 left-0.5 size-5 -translate-y-1/2 rounded-full bg-background shadow-sm transition-transform ${
             server.enabled ? "translate-x-6" : "translate-x-0"
           }`}
         />
@@ -180,35 +184,37 @@ const ObservabilityLinkItem = memo(function ObservabilityLinkItem({
     <div className="grid min-h-[11rem] content-between gap-4 px-5 py-5">
       <div className="flex min-w-0 items-start gap-3">
         <span className={observabilityIconClass}>
-          <Icon className="size-4" aria-hidden />
+          <Icon aria-hidden className="size-4" />
         </span>
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold text-foreground">
+          <h3 className="truncate font-semibold text-foreground text-sm">
             {link.label}
           </h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{link.details}</p>
+          <p className="mt-1 text-muted-foreground text-xs leading-5">
+            {link.details}
+          </p>
         </div>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span
-          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${observabilityStatusClass(
-            link,
+          className={`inline-flex items-center rounded-full border px-2.5 py-1 font-medium text-xs ${observabilityStatusClass(
+            link
           )}`}
         >
           {link.status}
         </span>
         {link.url ? (
           <a
+            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 font-medium text-foreground text-sm transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
             href={link.url}
-            target="_blank"
             rel="noreferrer"
-            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+            target="_blank"
           >
             Open
-            <ExternalLink className="size-4" aria-hidden />
+            <ExternalLink aria-hidden className="size-4" />
           </a>
         ) : (
-          <span className="text-xs text-muted-foreground">No link</span>
+          <span className="text-muted-foreground text-xs">No link</span>
         )}
       </div>
     </div>
@@ -226,14 +232,15 @@ export default function SettingsPage(): React.ReactElement {
   const [configLoading, setConfigLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<McpConnectionTestResponse | null>(null);
+  const [testResult, setTestResult] =
+    useState<McpConnectionTestResponse | null>(null);
   const [pendingToggleKeys, setPendingToggleKeys] = useState<Set<string>>(
-    () => new Set(),
+    () => new Set()
   );
 
   const selectedServer = useMemo(
     () => servers.find((server) => server.key === selectedKey),
-    [selectedKey, servers],
+    [selectedKey, servers]
   );
 
   const loadServers = useCallback(async () => {
@@ -304,7 +311,7 @@ export default function SettingsPage(): React.ReactElement {
     (type: McpAuthType) => {
       updateDraftAuth({ type });
     },
-    [updateDraftAuth],
+    [updateDraftAuth]
   );
 
   const handleSave = useCallback(async () => {
@@ -314,7 +321,7 @@ export default function SettingsPage(): React.ReactElement {
     }
     const key = draft.key.trim();
     const url = draft.url.trim();
-    if (!key || !url) {
+    if (!(key && url)) {
       toast.error("Server key and URL are required");
       return;
     }
@@ -323,8 +330,12 @@ export default function SettingsPage(): React.ReactElement {
       const saved = await saveMcpServer({ ...draft, key, url });
       setServers((current) => {
         const exists = current.some((server) => server.key === saved.key);
-        if (!exists) return [...current, saved];
-        return current.map((server) => (server.key === saved.key ? saved : server));
+        if (!exists) {
+          return [...current, saved];
+        }
+        return current.map((server) =>
+          server.key === saved.key ? saved : server
+        );
       });
       setSelectedKey(saved.key);
       setDraft(cloneServer(saved));
@@ -344,9 +355,11 @@ export default function SettingsPage(): React.ReactElement {
       try {
         const updated = await setMcpServerEnabled(server.key, !server.enabled);
         setServers((current) =>
-          current.map((item) => (item.key === updated.key ? updated : item)),
+          current.map((item) => (item.key === updated.key ? updated : item))
         );
-        setDraft((current) => (current.key === updated.key ? cloneServer(updated) : current));
+        setDraft((current) =>
+          current.key === updated.key ? cloneServer(updated) : current
+        );
         setTestResult(null);
       } catch (error) {
         console.error(error);
@@ -359,7 +372,7 @@ export default function SettingsPage(): React.ReactElement {
         });
       }
     },
-    [toast],
+    [toast]
   );
 
   const handleDelete = useCallback(
@@ -383,13 +396,13 @@ export default function SettingsPage(): React.ReactElement {
         toast.error("Could not delete MCP server");
       }
     },
-    [servers, toast],
+    [servers, toast]
   );
 
   const handleTestConnection = useCallback(async () => {
     const key = draft.key.trim();
     const url = draft.url.trim();
-    if (!key || !url) {
+    if (!(key && url)) {
       toast.error("Server key and URL are required before testing");
       return;
     }
@@ -415,32 +428,32 @@ export default function SettingsPage(): React.ReactElement {
 
   return (
     <main className="flex h-screen min-h-0 flex-col overflow-hidden bg-muted/20">
-      <header className="shrink-0 border-b border-border bg-card px-5 py-4 shadow-sm sm:px-8">
+      <header className="shrink-0 border-border border-b bg-card px-5 py-4 shadow-sm sm:px-8">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
             <Link
-              href="/"
-              className="inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               aria-label="Back to chat"
+              className="inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              href="/"
               title="Back to chat"
             >
-              <ArrowLeft className="size-4" aria-hidden />
+              <ArrowLeft aria-hidden className="size-4" />
             </Link>
             <div className="min-w-0">
-              <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">
+              <h1 className="truncate font-semibold text-foreground text-xl tracking-tight">
                 Settings
               </h1>
-              <p className="truncate text-sm text-muted-foreground">
+              <p className="truncate text-muted-foreground text-sm">
                 MCP servers and observability
               </p>
             </div>
           </div>
           <button
-            type="button"
+            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 font-medium text-foreground text-sm transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
             onClick={() => void loadServers()}
-            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+            type="button"
           >
-            <RefreshCw className="size-4" aria-hidden />
+            <RefreshCw aria-hidden className="size-4" />
             Refresh
           </button>
         </div>
@@ -449,28 +462,32 @@ export default function SettingsPage(): React.ReactElement {
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8">
         <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[minmax(18rem,24rem)_1fr]">
           <section className="min-h-[28rem] rounded-lg border border-border bg-card">
-            <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+            <div className="flex items-center justify-between gap-3 border-border border-b px-4 py-3">
               <div>
-                <h2 className="text-sm font-semibold text-foreground">MCP servers</h2>
-                <p className="text-xs text-muted-foreground">
-                  {mcpGloballyEnabled ? "MCP tools are enabled" : "MCP tools are disabled"}
+                <h2 className="font-semibold text-foreground text-sm">
+                  MCP servers
+                </h2>
+                <p className="text-muted-foreground text-xs">
+                  {mcpGloballyEnabled
+                    ? "MCP tools are enabled"
+                    : "MCP tools are disabled"}
                 </p>
               </div>
               <button
-                type="button"
-                onClick={startNewServer}
-                className="inline-flex size-10 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 aria-label="Add MCP server"
+                className="inline-flex size-10 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                onClick={startNewServer}
                 title="Add MCP server"
+                type="button"
               >
-                <Plus className="size-4" aria-hidden />
+                <Plus aria-hidden className="size-4" />
               </button>
             </div>
             <div className="divide-y divide-border">
               {loading ? (
-                <div className="grid gap-3 px-4 py-5" aria-busy="true">
+                <div aria-busy="true" className="grid gap-3 px-4 py-5">
                   {[0, 1, 2].map((item) => (
-                    <div key={item} className="flex items-center gap-3">
+                    <div className="flex items-center gap-3" key={item}>
                       <span className="size-8 rounded-md bg-muted" />
                       <span className="min-w-0 flex-1">
                         <span className="mb-2 block h-3 w-24 rounded bg-muted" />
@@ -480,7 +497,7 @@ export default function SettingsPage(): React.ReactElement {
                   ))}
                 </div>
               ) : servers.length === 0 ? (
-                <div className="px-4 py-8 text-sm text-muted-foreground">
+                <div className="px-4 py-8 text-muted-foreground text-sm">
                   No MCP servers configured.
                 </div>
               ) : (
@@ -488,12 +505,12 @@ export default function SettingsPage(): React.ReactElement {
                   const active = server.key === selectedKey;
                   return (
                     <ServerListItem
-                      key={server.key}
-                      server={server}
                       active={active}
-                      pending={pendingToggleKeys.has(server.key)}
+                      key={server.key}
                       onSelect={selectServer}
                       onToggle={handleToggle}
+                      pending={pendingToggleKeys.has(server.key)}
+                      server={server}
                     />
                   );
                 })
@@ -502,32 +519,35 @@ export default function SettingsPage(): React.ReactElement {
           </section>
 
           <section className="rounded-lg border border-border bg-card">
-            <div className="border-b border-border px-5 py-4">
-              <h2 className="text-sm font-semibold text-foreground">
+            <div className="border-border border-b px-5 py-4">
+              <h2 className="font-semibold text-foreground text-sm">
                 {selectedServer ? "Edit server" : "Add server"}
               </h2>
             </div>
             <div className="grid gap-5 px-5 py-5">
               <label className="grid gap-1.5">
-                <span className="text-sm font-medium text-foreground">Key</span>
+                <span className="font-medium text-foreground text-sm">Key</span>
                 <input
+                  className="rounded-md border border-input bg-background px-3 py-2 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  onChange={(event) => updateDraft({ key: event.target.value })}
+                  placeholder="default"
                   type="text"
                   value={draft.key}
-                  onChange={(event) => updateDraft({ key: event.target.value })}
-                  className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="default"
                 />
               </label>
               <label className="grid gap-1.5">
-                <span className="text-sm font-medium text-foreground">Transport</span>
+                <span className="font-medium text-foreground text-sm">
+                  Transport
+                </span>
                 <select
-                  value={draft.transport}
+                  className="rounded-md border border-input bg-background px-3 py-2 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   onChange={(event) =>
                     updateDraft({
-                      transport: event.target.value as McpServerConfig["transport"],
+                      transport: event.target
+                        .value as McpServerConfig["transport"],
                     })
                   }
-                  className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft.transport}
                 >
                   <option value="streamable-http">streamable-http</option>
                   <option value="sse">sse</option>
@@ -535,22 +555,26 @@ export default function SettingsPage(): React.ReactElement {
                 </select>
               </label>
               <label className="grid gap-1.5">
-                <span className="text-sm font-medium text-foreground">URL</span>
+                <span className="font-medium text-foreground text-sm">URL</span>
                 <input
+                  className="rounded-md border border-input bg-background px-3 py-2 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  onChange={(event) => updateDraft({ url: event.target.value })}
+                  placeholder="http://localhost:9000/mcp"
                   type="text"
                   value={draft.url}
-                  onChange={(event) => updateDraft({ url: event.target.value })}
-                  className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="http://localhost:9000/mcp"
                 />
               </label>
               <div className="grid gap-4 rounded-md border border-border bg-muted/20 px-3 py-3">
                 <label className="grid gap-1.5">
-                  <span className="text-sm font-medium text-foreground">Auth mechanism</span>
+                  <span className="font-medium text-foreground text-sm">
+                    Auth mechanism
+                  </span>
                   <select
+                    className="rounded-md border border-input bg-background px-3 py-2 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    onChange={(event) =>
+                      updateAuthType(event.target.value as McpAuthType)
+                    }
                     value={draft.auth.type}
-                    onChange={(event) => updateAuthType(event.target.value as McpAuthType)}
-                    className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   >
                     <option value="none">None</option>
                     <option value="bearer">Bearer token</option>
@@ -562,22 +586,22 @@ export default function SettingsPage(): React.ReactElement {
 
                 {draft.auth.type === "bearer" ? (
                   <label className="grid gap-1.5">
-                    <span className="text-sm font-medium text-foreground">
+                    <span className="font-medium text-foreground text-sm">
                       Bearer token
                     </span>
                     <input
-                      type="password"
-                      value={draft.auth.bearer_token ?? ""}
+                      autoComplete="off"
+                      className="rounded-md border border-input bg-background px-3 py-2 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       onChange={(event) =>
                         updateDraftAuth({ bearer_token: event.target.value })
                       }
-                      className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       placeholder={
                         draft.auth.bearer_token_set
                           ? "Stored token unchanged"
                           : "Paste bearer token"
                       }
-                      autoComplete="off"
+                      type="password"
+                      value={draft.auth.bearer_token ?? ""}
                     />
                   </label>
                 ) : null}
@@ -585,112 +609,115 @@ export default function SettingsPage(): React.ReactElement {
                 {draft.auth.type === "oauth_client_credentials" ? (
                   <div className="grid gap-4">
                     <label className="grid gap-1.5">
-                      <span className="text-sm font-medium text-foreground">
+                      <span className="font-medium text-foreground text-sm">
                         Token URL
                       </span>
                       <input
-                        type="text"
-                        value={draft.auth.token_url ?? ""}
+                        className="rounded-md border border-input bg-background px-3 py-2 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                         onChange={(event) =>
                           updateDraftAuth({ token_url: event.target.value })
                         }
-                        className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                         placeholder="https://auth.example.com/oauth/token"
+                        type="text"
+                        value={draft.auth.token_url ?? ""}
                       />
                     </label>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="grid gap-1.5">
-                        <span className="text-sm font-medium text-foreground">
+                        <span className="font-medium text-foreground text-sm">
                           Client ID
                         </span>
                         <input
-                          type="text"
-                          value={draft.auth.client_id ?? ""}
+                          autoComplete="off"
+                          className="rounded-md border border-input bg-background px-3 py-2 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                           onChange={(event) =>
                             updateDraftAuth({ client_id: event.target.value })
                           }
-                          className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                          autoComplete="off"
+                          type="text"
+                          value={draft.auth.client_id ?? ""}
                         />
                       </label>
                       <label className="grid gap-1.5">
-                        <span className="text-sm font-medium text-foreground">
+                        <span className="font-medium text-foreground text-sm">
                           Client secret
                         </span>
                         <input
-                          type="password"
-                          value={draft.auth.client_secret ?? ""}
+                          autoComplete="off"
+                          className="rounded-md border border-input bg-background px-3 py-2 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                           onChange={(event) =>
-                            updateDraftAuth({ client_secret: event.target.value })
+                            updateDraftAuth({
+                              client_secret: event.target.value,
+                            })
                           }
-                          className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                           placeholder={
                             draft.auth.client_secret_set
                               ? "Stored secret unchanged"
                               : "Client secret"
                           }
-                          autoComplete="off"
+                          type="password"
+                          value={draft.auth.client_secret ?? ""}
                         />
                       </label>
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="grid gap-1.5">
-                        <span className="text-sm font-medium text-foreground">
+                        <span className="font-medium text-foreground text-sm">
                           Scope
                         </span>
                         <input
-                          type="text"
-                          value={draft.auth.scope ?? ""}
+                          className="rounded-md border border-input bg-background px-3 py-2 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                           onChange={(event) =>
                             updateDraftAuth({ scope: event.target.value })
                           }
-                          className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                           placeholder="read:mcp"
+                          type="text"
+                          value={draft.auth.scope ?? ""}
                         />
                       </label>
                       <label className="grid gap-1.5">
-                        <span className="text-sm font-medium text-foreground">
+                        <span className="font-medium text-foreground text-sm">
                           Audience
                         </span>
                         <input
-                          type="text"
-                          value={draft.auth.audience ?? ""}
+                          className="rounded-md border border-input bg-background px-3 py-2 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                           onChange={(event) =>
                             updateDraftAuth({ audience: event.target.value })
                           }
-                          className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                           placeholder="Optional"
+                          type="text"
+                          value={draft.auth.audience ?? ""}
                         />
                       </label>
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="grid gap-1.5">
-                        <span className="text-sm font-medium text-foreground">
+                        <span className="font-medium text-foreground text-sm">
                           Grant type
                         </span>
                         <input
-                          type="text"
-                          value={draft.auth.grant_type ?? "client_credentials"}
+                          className="rounded-md border border-input bg-background px-3 py-2 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                           onChange={(event) =>
                             updateDraftAuth({ grant_type: event.target.value })
                           }
-                          className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          type="text"
+                          value={draft.auth.grant_type ?? "client_credentials"}
                         />
                       </label>
                       <label className="grid gap-1.5">
-                        <span className="text-sm font-medium text-foreground">
+                        <span className="font-medium text-foreground text-sm">
                           Refresh skew seconds
                         </span>
                         <input
-                          type="number"
+                          className="rounded-md border border-input bg-background px-3 py-2 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                           min={1}
-                          value={draft.auth.refresh_skew_seconds ?? 30}
                           onChange={(event) =>
                             updateDraftAuth({
-                              refresh_skew_seconds: Number(event.target.value) || 30,
+                              refresh_skew_seconds:
+                                Number(event.target.value) || 30,
                             })
                           }
-                          className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          type="number"
+                          value={draft.auth.refresh_skew_seconds ?? 30}
                         />
                       </label>
                     </div>
@@ -699,16 +726,21 @@ export default function SettingsPage(): React.ReactElement {
               </div>
               <label className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/30 px-3 py-3">
                 <span>
-                  <span className="block text-sm font-medium text-foreground">Enabled</span>
-                  <span className="block text-xs text-muted-foreground">
-                    Disabled servers remain saved but are excluded from chat runtime.
+                  <span className="block font-medium text-foreground text-sm">
+                    Enabled
+                  </span>
+                  <span className="block text-muted-foreground text-xs">
+                    Disabled servers remain saved but are excluded from chat
+                    runtime.
                   </span>
                 </span>
                 <input
-                  type="checkbox"
                   checked={draft.enabled}
-                  onChange={(event) => updateDraft({ enabled: event.target.checked })}
                   className="size-4 rounded border-input text-primary focus:ring-ring"
+                  onChange={(event) =>
+                    updateDraft({ enabled: event.target.checked })
+                  }
+                  type="checkbox"
                 />
               </label>
             </div>
@@ -722,9 +754,12 @@ export default function SettingsPage(): React.ReactElement {
               >
                 <div className="flex items-start gap-2">
                   {testResult.ok ? (
-                    <CircleCheck className="mt-0.5 size-4 shrink-0" aria-hidden />
+                    <CircleCheck
+                      aria-hidden
+                      className="mt-0.5 size-4 shrink-0"
+                    />
                   ) : (
-                    <CircleX className="mt-0.5 size-4 shrink-0" aria-hidden />
+                    <CircleX aria-hidden className="mt-0.5 size-4 shrink-0" />
                   )}
                   <div className="min-w-0">
                     <p className="font-medium">
@@ -733,14 +768,18 @@ export default function SettingsPage(): React.ReactElement {
                         : "Connection failed"}
                     </p>
                     {testResult.error ? (
-                      <p className="mt-1 break-words text-xs">{testResult.error}</p>
+                      <p className="mt-1 break-words text-xs">
+                        {testResult.error}
+                      </p>
                     ) : null}
                     {testResult.tools.length > 0 ? (
                       <ul className="mt-2 grid gap-1 text-xs">
                         {testResult.tools.slice(0, 6).map((toolItem) => (
-                          <li key={toolItem.name} className="truncate">
+                          <li className="truncate" key={toolItem.name}>
                             <span className="font-medium">{toolItem.name}</span>
-                            {toolItem.description ? ` - ${toolItem.description}` : ""}
+                            {toolItem.description
+                              ? ` - ${toolItem.description}`
+                              : ""}
                           </li>
                         ))}
                       </ul>
@@ -749,33 +788,33 @@ export default function SettingsPage(): React.ReactElement {
                 </div>
               </div>
             ) : null}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-border border-t px-5 py-4">
               <button
-                type="button"
-                onClick={() => void handleDelete(draft.key)}
+                className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 font-medium text-muted-foreground text-sm transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
                 disabled={!selectedServer}
-                className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                onClick={() => void handleDelete(draft.key)}
+                type="button"
               >
-                <Trash2 className="size-4" aria-hidden />
+                <Trash2 aria-hidden className="size-4" />
                 Delete
               </button>
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  type="button"
-                  onClick={() => void handleTestConnection()}
+                  className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 font-medium text-foreground text-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={testing || saving}
-                  className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => void handleTestConnection()}
+                  type="button"
                 >
-                  <SquareActivity className="size-4" aria-hidden />
+                  <SquareActivity aria-hidden className="size-4" />
                   {testing ? "Testing..." : "Test connection"}
                 </button>
                 <button
-                  type="button"
-                  onClick={() => void handleSave()}
+                  className="inline-flex min-h-10 items-center gap-2 rounded-md bg-primary px-3 py-2 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={saving || pendingToggleKeys.size > 0}
-                  className="inline-flex min-h-10 items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => void handleSave()}
+                  type="button"
                 >
-                  <Save className="size-4" aria-hidden />
+                  <Save aria-hidden className="size-4" />
                   {saving ? "Saving..." : "Save server"}
                 </button>
               </div>
@@ -783,19 +822,27 @@ export default function SettingsPage(): React.ReactElement {
           </section>
 
           <section className="rounded-lg border border-border bg-card lg:col-span-2">
-            <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+            <div className="flex items-center justify-between gap-3 border-border border-b px-5 py-4">
               <div>
-                <h2 className="text-sm font-semibold text-foreground">Observability</h2>
-                <p className="text-xs text-muted-foreground">
+                <h2 className="font-semibold text-foreground text-sm">
+                  Observability
+                </h2>
+                <p className="text-muted-foreground text-xs">
                   Links are shown only from non-secret runtime configuration.
                 </p>
               </div>
-              <BarChart3 className="size-5 text-muted-foreground" aria-hidden />
+              <BarChart3 aria-hidden className="size-5 text-muted-foreground" />
             </div>
             {configLoading ? (
-              <div className="grid gap-0 divide-y divide-border lg:grid-cols-3 lg:divide-x lg:divide-y-0" aria-busy="true">
+              <div
+                aria-busy="true"
+                className="grid gap-0 divide-y divide-border lg:grid-cols-3 lg:divide-x lg:divide-y-0"
+              >
                 {[0, 1, 2].map((item) => (
-                  <div key={item} className="grid min-h-[11rem] content-between gap-4 px-5 py-5">
+                  <div
+                    className="grid min-h-[11rem] content-between gap-4 px-5 py-5"
+                    key={item}
+                  >
                     <div className="flex items-start gap-3">
                       <span className="size-9 rounded-md bg-muted" />
                       <span className="min-w-0 flex-1">
@@ -812,7 +859,7 @@ export default function SettingsPage(): React.ReactElement {
                 ))}
               </div>
             ) : observabilityLinks.length === 0 ? (
-              <div className="px-5 py-8 text-sm text-muted-foreground">
+              <div className="px-5 py-8 text-muted-foreground text-sm">
                 No observability destinations configured.
               </div>
             ) : (

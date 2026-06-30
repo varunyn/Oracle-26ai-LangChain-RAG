@@ -33,15 +33,15 @@ export function SourcesTrigger({
   return (
     <CollapsibleTrigger
       className={cn(
-        "group inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
-        className,
+        "group inline-flex items-center gap-1.5 font-medium text-muted-foreground text-xs transition-colors hover:text-foreground",
+        className
       )}
       {...props}
     >
       {children ?? `Used ${count} source${count === 1 ? "" : "s"}`}
       <ChevronDownIcon
-        className="size-3.5 transition-transform group-data-[state=open]:rotate-180"
         aria-hidden
+        className="size-3.5 transition-transform group-data-[state=open]:rotate-180"
       />
     </CollapsibleTrigger>
   );
@@ -49,10 +49,7 @@ export function SourcesTrigger({
 
 export type SourcesContentProps = ComponentProps<typeof CollapsibleContent>;
 
-export function SourcesContent({
-  className,
-  ...props
-}: SourcesContentProps) {
+export function SourcesContent({ className, ...props }: SourcesContentProps) {
   return (
     <CollapsibleContent
       className={cn("space-y-1.5 overflow-hidden", className)}
@@ -78,10 +75,10 @@ export function Source({
   return (
     <a
       className={cn(
-        "block rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 text-xs text-foreground transition-colors",
+        "block rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 text-foreground text-xs transition-colors",
         isLink && "hover:border-border hover:bg-muted/35",
         !isLink && "pointer-events-none",
-        className,
+        className
       )}
       href={href}
       rel={isLink ? "noreferrer" : undefined}

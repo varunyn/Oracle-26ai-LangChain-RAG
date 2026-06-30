@@ -50,7 +50,9 @@ export async function fetchMcpServers(): Promise<McpServersResponse> {
   return (await response.json()) as McpServersResponse;
 }
 
-export async function saveMcpServer(server: McpServerConfig): Promise<McpServerConfig> {
+export async function saveMcpServer(
+  server: McpServerConfig
+): Promise<McpServerConfig> {
   const response = await fetch(
     toApiUrl(`/api/config/mcp-servers/${encodeURIComponent(server.key)}`),
     {
@@ -62,7 +64,7 @@ export async function saveMcpServer(server: McpServerConfig): Promise<McpServerC
         enabled: server.enabled,
         auth: server.auth,
       }),
-    },
+    }
   );
   if (!response.ok) {
     throw new Error("Failed to save MCP server");
@@ -72,7 +74,7 @@ export async function saveMcpServer(server: McpServerConfig): Promise<McpServerC
 
 export async function setMcpServerEnabled(
   key: string,
-  enabled: boolean,
+  enabled: boolean
 ): Promise<McpServerConfig> {
   const response = await fetch(
     toApiUrl(`/api/config/mcp-servers/${encodeURIComponent(key)}/enabled`),
@@ -80,7 +82,7 @@ export async function setMcpServerEnabled(
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled }),
-    },
+    }
   );
   if (!response.ok) {
     throw new Error("Failed to update MCP server");
@@ -93,7 +95,7 @@ export async function deleteMcpServer(key: string): Promise<void> {
     toApiUrl(`/api/config/mcp-servers/${encodeURIComponent(key)}`),
     {
       method: "DELETE",
-    },
+    }
   );
   if (!response.ok) {
     throw new Error("Failed to delete MCP server");
@@ -101,7 +103,7 @@ export async function deleteMcpServer(key: string): Promise<void> {
 }
 
 export async function testMcpServerConnection(
-  server: McpServerConfig,
+  server: McpServerConfig
 ): Promise<McpConnectionTestResponse> {
   const response = await fetch(
     toApiUrl(`/api/config/mcp-servers/${encodeURIComponent(server.key)}/test`),
@@ -114,7 +116,7 @@ export async function testMcpServerConnection(
         enabled: server.enabled,
         auth: server.auth,
       }),
-    },
+    }
   );
   if (!response.ok) {
     throw new Error("Failed to test MCP server");

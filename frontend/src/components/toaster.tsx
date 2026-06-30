@@ -3,12 +3,12 @@
 import * as React from "react";
 
 import {
+  ToastClose,
+  ToastDescription,
   ToastProvider,
-  ToastViewport,
   ToastRoot,
   ToastTitle,
-  ToastDescription,
-  ToastClose,
+  ToastViewport,
   toastVariants,
 } from "@/components/ui/toast";
 
@@ -28,21 +28,18 @@ type ToastContextValue = {
 
 const ToastContext = React.createContext<ToastContextValue | null>(null);
 
-const TOAST_DURATION = 8_000;
+const TOAST_DURATION = 8000;
 
 export function useToast() {
   const ctx = React.useContext(ToastContext);
   if (!ctx) {
     return {
       toast: {
-        error: (
-          description: string,
-          title = "Response unavailable",
-        ) => {
+        error: (description: string, title = "Response unavailable") => {
           if (typeof console !== "undefined" && console.error) {
             console.error(
               "[Toast] useToast must be used within ToasterProvider:",
-              `${title}: ${description}`,
+              `${title}: ${description}`
             );
           }
         },
@@ -80,7 +77,7 @@ export function ToasterProvider({ children }: { children: React.ReactNode }) {
         });
       },
     }),
-    [],
+    []
   );
 
   return (
@@ -89,12 +86,12 @@ export function ToasterProvider({ children }: { children: React.ReactNode }) {
         {children}
         <ToastViewport />
         <ToastRoot
-          open={state.open}
+          className={toastVariants[state.variant]}
+          duration={TOAST_DURATION}
           onOpenChange={(open) =>
             setState((prev) => (prev.open === open ? prev : { ...prev, open }))
           }
-          duration={TOAST_DURATION}
-          className={toastVariants[state.variant]}
+          open={state.open}
           type="foreground"
         >
           <ToastTitle>{state.title}</ToastTitle>

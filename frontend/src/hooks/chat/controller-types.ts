@@ -24,10 +24,15 @@ export type SendOverrides = {
 
 export type ClearSessionChat = (helpers: {
   threadId?: string | null;
-  setMessages?: (value: MessageLike[] | ((prev: MessageLike[]) => MessageLike[])) => void;
+  setMessages?: (
+    value: MessageLike[] | ((prev: MessageLike[]) => MessageLike[])
+  ) => void;
   setFeedbackSubmitted: (value: boolean | ((prev: boolean) => boolean)) => void;
   setContextUsage: (
-    value: ContextUsage | null | ((prev: ContextUsage | null) => ContextUsage | null),
+    value:
+      | ContextUsage
+      | null
+      | ((prev: ContextUsage | null) => ContextUsage | null)
   ) => void;
 }) => void;
 

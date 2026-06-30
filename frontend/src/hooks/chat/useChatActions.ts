@@ -1,9 +1,6 @@
+import type { useStream } from "@langchain/react";
 import type { Dispatch, SetStateAction, SyntheticEvent } from "react";
 import { useCallback } from "react";
-import { useStream } from "@langchain/react";
-import type { ContextUsage } from "@/lib/types/chat";
-import { toApiUrl } from "@/lib/api-base";
-import { getMessageContent } from "@/lib/chat/messages";
 import type {
   ClearSessionChat,
   MessageLike,
@@ -11,19 +8,18 @@ import type {
   ToastApi,
 } from "@/hooks/chat/controller-types";
 import { debugChatStage, summarizeMessages } from "@/hooks/chat/debug";
-import { buildLangGraphSubmitPayload, type ChatBodyParams } from "@/hooks/chat/stream-config";
 import { getLastUserMessageText } from "@/hooks/chat/message-projection";
 import { traceIdFromMessage } from "@/hooks/chat/references";
+import {
+  buildLangGraphSubmitPayload,
+  type ChatBodyParams,
+} from "@/hooks/chat/stream-config";
+import { toApiUrl } from "@/lib/api-base";
+import { getMessageContent } from "@/lib/chat/messages";
+import type { ContextUsage } from "@/lib/types/chat";
 
 type StreamType = ReturnType<typeof useStream>;
 type SubmitOptions = Parameters<StreamType["submit"]>[1];
-
-function createClientMessageId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
 
 export function useChatActions(args: {
   bodyParams: ChatBodyParams;
@@ -69,72 +65,91 @@ export function useChatActions(args: {
   const sendUserMessage = useCallback(
     (text: string, overrides?: SendOverrides) => {
       const trimmedText = text.trim();
-      if (!trimmedText) return;
+      if (!trimmedText) {
+        return;
+      }
 
       const effectiveMode = overrides?.mode ?? bodyParams.mode;
-      const userMessageId = createClientMessageId();
-      const payload = buildLangGraphSubmitPayload(
-        trimmedText,
-        { ...bodyParams, mode: effectiveMode },
-        userMessageId,
-      );
+      const payload = buildLangGraphSubmitPayload(trimmedText, {
+        ...bodyParams,
+        mode: effectiveMode,
+      });
       debugChatStage("sendUserMessage", {
         threadId,
         effectiveMode,
-        userMessageId,
         inputPreview: trimmedText.slice(0, 120),
         visibleMessages: summarizeMessages(messages),
-        payloadInputCount: Array.isArray(payload.input.messages) ? payload.input.messages.length : 0,
+        payloadInputCount: Array.isArray(payload.input.messages)
+          ? payload.input.messages.length
+          : 0,
       });
       const submitOptions: SubmitOptions = {
         config: payload.config,
       };
       setSubmitError(null);
-      void Promise.resolve(
-        stream.submit(payload.input, submitOptions),
-      ).catch((error: unknown) => {
-        setSubmitError(error instanceof Error ? error : new Error(String(error)));
-      });
+      void Promise.resolve(stream.submit(payload.input, submitOptions)).catch(
+        (error: unknown) => {
+          setSubmitError(
+            error instanceof Error ? error : new Error(String(error))
+          );
+        }
+      );
     },
-    [bodyParams, messages, setSubmitError, stream, threadId],
+    [bodyParams, messages, setSubmitError, stream, threadId]
   );
 
   const handleSubmit = useCallback(
     (e: SyntheticEvent<HTMLFormElement>) => {
       e.preventDefault();
-      if (!input.trim()) return;
+      if (!input.trim()) {
+        return;
+      }
       setFeedbackSubmitted(false);
       sendUserMessage(input);
       setInput("");
       setMaxCitationsToShow(10);
     },
-    [input, sendUserMessage, setFeedbackSubmitted, setInput, setMaxCitationsToShow],
+    [
+      input,
+      sendUserMessage,
+      setFeedbackSubmitted,
+      setInput,
+      setMaxCitationsToShow,
+    ]
   );
 
   const handleRetry = useCallback(() => {
     const text = getLastUserMessageText(messages);
-    if (!text) return;
+    if (!text) {
+      return;
+    }
     setFeedbackSubmitted(false);
     sendUserMessage(text);
   }, [messages, sendUserMessage, setFeedbackSubmitted]);
 
   const handleRecoverDirect = useCallback(() => {
     const text = getLastUserMessageText(messages);
-    if (!text) return;
+    if (!text) {
+      return;
+    }
     setFeedbackSubmitted(false);
     sendUserMessage(text, { mode: "direct" });
   }, [messages, sendUserMessage, setFeedbackSubmitted]);
 
   const handleRecoverRagOnly = useCallback(() => {
     const text = getLastUserMessageText(messages);
-    if (!text) return;
+    if (!text) {
+      return;
+    }
     setFeedbackSubmitted(false);
     sendUserMessage(text, { mode: "rag" });
   }, [messages, sendUserMessage, setFeedbackSubmitted]);
 
   const handleResumeTurn = useCallback(() => {
     const text = getLastUserMessageText(messages);
-    if (!text) return;
+    if (!text) {
+      return;
+    }
     setFeedbackSubmitted(false);
     sendUserMessage(text);
   }, [messages, sendUserMessage, setFeedbackSubmitted]);
@@ -147,11 +162,15 @@ export function useChatActions(args: {
   const handleFeedback = useCallback(
     async (stars: number, messageIndex: number) => {
       const lastAssistant = messages[messageIndex] as MessageLike | undefined;
-      if (lastAssistant?.role !== "assistant") return;
+      if (lastAssistant?.role !== "assistant") {
+        return;
+      }
       const lastUser = [...messages.slice(0, messageIndex)]
         .reverse()
         .find((message) => message.role === "user");
-      if (!lastUser) return;
+      if (!lastUser) {
+        return;
+      }
 
       const question = getMessageContent(lastUser);
       const answer = getMessageContent(lastAssistant);
@@ -161,7 +180,12 @@ export function useChatActions(args: {
         const res = await fetch(toApiUrl("/api/feedback"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question, answer, feedback: stars, trace_id: traceId }),
+          body: JSON.stringify({
+            question,
+            answer,
+            feedback: stars,
+            trace_id: traceId,
+          }),
         });
         if (res.ok) {
           setFeedbackSubmitted(true);
@@ -176,7 +200,7 @@ export function useChatActions(args: {
         toast.error("Failed to submit feedback");
       }
     },
-    [messages, setFeedbackSubmitted, setFeedbackSubmittedMessageIndexes, toast],
+    [messages, setFeedbackSubmitted, setFeedbackSubmittedMessageIndexes, toast]
   );
 
   const handleClearChat = useCallback(async () => {

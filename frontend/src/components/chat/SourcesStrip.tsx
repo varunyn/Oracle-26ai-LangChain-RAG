@@ -8,7 +8,11 @@ import {
   SourcesTrigger,
 } from "@/components/ai-elements/sources";
 
-type CitationRef = { source: string; page: string | null; link?: string | null };
+type CitationRef = {
+  source: string;
+  page: string | null;
+  link?: string | null;
+};
 
 interface SourcesStripProps {
   citations: CitationRef[];
@@ -29,12 +33,12 @@ function sourceHref(citation: CitationRef): string | undefined {
   if (href.startsWith("http://") || href.startsWith("https://")) {
     return href;
   }
-  return undefined;
+  return;
 }
 
 function uniqueSourcesWithCount(
   citations: CitationRef[],
-  maxToShow: number,
+  maxToShow: number
 ): {
   count: number;
   firstIndex: number;
@@ -55,7 +59,9 @@ function uniqueSourcesWithCount(
 
   citations.forEach((citation, index) => {
     const source = citation.source?.trim();
-    if (!source) return;
+    if (!source) {
+      return;
+    }
 
     const existing = bySource.get(source);
     if (existing) {
@@ -80,10 +86,12 @@ export const SourcesStrip = memo(function SourcesStrip({
   maxToShow = 10,
 }: SourcesStripProps) {
   const sources = uniqueSourcesWithCount(citations, maxToShow);
-  if (sources.length === 0) return null;
+  if (sources.length === 0) {
+    return null;
+  }
 
   return (
-    <Sources className="mt-3 border-t border-border/60 pt-2">
+    <Sources className="mt-3 border-border/60 border-t pt-2">
       <SourcesTrigger count={sources.length} />
       <SourcesContent>
         {sources.map((source) => {

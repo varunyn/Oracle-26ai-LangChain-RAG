@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { getMessageContent, type SupportedContent } from "@/lib/chat/messages";
 import { toApiUrl } from "@/lib/api-base";
+import { getMessageContent, type SupportedContent } from "@/lib/chat/messages";
 
 type MessageLike = {
   id?: string;
@@ -13,7 +13,7 @@ function fetchSuggestions(
   lastUserMessage: string | null,
   selectedModel: string,
   onResult: (suggestions: string[]) => void,
-  onDone: () => void,
+  onDone: () => void
 ): void {
   fetch(toApiUrl("/api/suggestions"), {
     method: "POST",
@@ -47,8 +47,12 @@ export function useSuggestions({
   selectedModel: string;
   setFeedbackSubmitted: (v: boolean) => void;
 }) {
-  const [dynamicSuggestions, setDynamicSuggestions] = useState<string[] | null>(null);
-  const [pendingSuggestion, setPendingSuggestion] = useState<string | null>(null);
+  const [dynamicSuggestions, setDynamicSuggestions] = useState<string[] | null>(
+    null
+  );
+  const [pendingSuggestion, setPendingSuggestion] = useState<string | null>(
+    null
+  );
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const lastSuggestionsMessageIdRef = useRef<string | null>(null);
 
@@ -59,9 +63,13 @@ export function useSuggestions({
   };
 
   useEffect(() => {
-    if (!pendingSuggestion || messages.length === 0) return;
+    if (!pendingSuggestion || messages.length === 0) {
+      return;
+    }
     const hasMatchingUserMessage = messages.some((message) => {
-      if (message?.role !== "user") return false;
+      if (message?.role !== "user") {
+        return false;
+      }
       const text = getMessageContent(message);
       return text.trim() === pendingSuggestion.trim();
     });
@@ -77,13 +85,21 @@ export function useSuggestions({
   }, [status]);
 
   useEffect(() => {
-    if (status !== "ready" || messages.length === 0 || !selectedModel) return;
+    if (status !== "ready" || messages.length === 0 || !selectedModel) {
+      return;
+    }
     const last = messages[messages.length - 1];
-    if (last?.role !== "assistant") return;
+    if (last?.role !== "assistant") {
+      return;
+    }
     const text = getMessageContent(last);
-    if (!text?.trim()) return;
+    if (!text?.trim()) {
+      return;
+    }
     const messageKey = last.id ?? `${messages.length}:${text}`;
-    if (lastSuggestionsMessageIdRef.current === messageKey) return;
+    if (lastSuggestionsMessageIdRef.current === messageKey) {
+      return;
+    }
     lastSuggestionsMessageIdRef.current = messageKey;
     queueMicrotask(() => setSuggestionsLoading(true));
     const previousUser = [...messages]
@@ -92,20 +108,29 @@ export function useSuggestions({
     const previousUserText = previousUser
       ? getMessageContent(previousUser).trim()
       : "";
-    fetchSuggestions(text, previousUserText || null, selectedModel, setDynamicSuggestions, () =>
-      setSuggestionsLoading(false),
+    fetchSuggestions(
+      text,
+      previousUserText || null,
+      selectedModel,
+      setDynamicSuggestions,
+      () => setSuggestionsLoading(false)
     );
   }, [status, messages, selectedModel]);
 
-  const fetchSuggestionsForText = (lastMessageText: string, lastUserMessage?: string) => {
-    if (!lastMessageText?.trim() || !selectedModel) return;
+  const fetchSuggestionsForText = (
+    lastMessageText: string,
+    lastUserMessage?: string
+  ) => {
+    if (!(lastMessageText?.trim() && selectedModel)) {
+      return;
+    }
     setSuggestionsLoading(true);
     fetchSuggestions(
       lastMessageText,
       (lastUserMessage || "").trim() || null,
       selectedModel,
       setDynamicSuggestions,
-      () => setSuggestionsLoading(false),
+      () => setSuggestionsLoading(false)
     );
   };
 

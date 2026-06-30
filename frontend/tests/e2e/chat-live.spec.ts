@@ -1,136 +1,172 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, type Page, test } from "@playwright/test";
 
-const PROMPT = 'Give me info about payment terms for the northway solutions'
-const DUPLICATE_PROMPT = 'Tell me about policy for Summit technologies'
-const LIVE_COLLECTION = 'ORACLE_WEB_EMBEDDINGS'
+const PROMPT = "Give me info about payment terms for the northway solutions";
+const DUPLICATE_PROMPT = "Tell me about policy for Summit technologies";
+const LIVE_COLLECTION = "ORACLE_WEB_EMBEDDINGS";
 
 async function selectCollection(page: Page, collectionName: string) {
-  const select = page.getByRole('combobox', { name: 'Collection' })
-  await expect(select).toBeVisible()
-  await select.selectOption({ label: collectionName })
-  await expect(select).toHaveValue(collectionName)
+  const select = page.getByRole("combobox", { name: "Collection" });
+  await expect(select).toBeVisible();
+  await select.selectOption({ label: collectionName });
+  await expect(select).toHaveValue(collectionName);
 }
 
 async function selectFlowMode(page: Page, label: string) {
-  const select = page.getByRole('combobox', { name: 'Flow mode' })
-  await expect(select).toBeVisible()
-  await select.selectOption({ label })
+  const select = page.getByRole("combobox", { name: "Flow mode" });
+  await expect(select).toBeVisible();
+  await select.selectOption({ label });
 }
 
 async function askQuestion(page: Page, prompt: string) {
-  const input = page.getByRole('textbox', { name: 'Message' })
-  const send = page.getByRole('button', { name: 'Ask' })
+  const input = page.getByRole("textbox", { name: "Message" });
+  const send = page.getByRole("button", { name: "Ask" });
 
-  await expect(input).toBeVisible()
-  await expect(send).toHaveAccessibleName('Ask')
-  await input.fill(prompt)
-  await expect(send).toBeEnabled()
+  await expect(input).toBeVisible();
+  await expect(send).toHaveAccessibleName("Ask");
+  await input.fill(prompt);
+  await expect(send).toBeEnabled();
 
   const commandResponsePromise = page.waitForResponse(
     (response) =>
-      response.url().includes('/threads/') &&
-      response.url().endsWith('/commands') &&
-      response.request().method() === 'POST',
-  )
+      response.url().includes("/threads/") &&
+      response.url().endsWith("/commands") &&
+      response.request().method() === "POST"
+  );
   const streamResponsePromise = page.waitForResponse(
     (response) =>
-      response.url().includes('/threads/') &&
-      response.url().endsWith('/stream/events') &&
-      response.request().method() === 'POST',
-  )
+      response.url().includes("/threads/") &&
+      response.url().endsWith("/stream/events") &&
+      response.request().method() === "POST"
+  );
 
-  await send.click()
+  await send.click();
 
-  return { input, commandResponsePromise, streamResponsePromise }
+  return { input, commandResponsePromise, streamResponsePromise };
 }
 
 async function expectAssistantAnswer(page: Page) {
-  const sourcesLabel = page.getByRole('button', { name: /Used \d+ sources?/ }).last()
-  await expect(sourcesLabel).toBeVisible({ timeout: 30_000 })
+  const sourcesLabel = page
+    .getByRole("button", { name: /Used \d+ sources?/ })
+    .last();
+  await expect(sourcesLabel).toBeVisible({ timeout: 30_000 });
 
-  const contentBlock = sourcesLabel.locator('..').locator('..').first()
+  const contentBlock = sourcesLabel.locator("..").locator("..").first();
   await expect
-    .poll(async () => (await contentBlock.innerText()).trim().length, { timeout: 30_000 })
-    .toBeGreaterThan(0)
+    .poll(async () => (await contentBlock.innerText()).trim().length, {
+      timeout: 30_000,
+    })
+    .toBeGreaterThan(0);
 }
 
-async function expectSubmittedQuestionBeforeAssistant(page: Page, prompt: string) {
-  const messageList = page.getByTestId('chat-message-list')
-  const submittedQuestion = messageList.getByText(prompt, { exact: true })
-  const sourcesLabel = page.getByRole('button', { name: /Used \d+ sources?/ }).last()
+async function expectSubmittedQuestionBeforeAssistant(
+  page: Page,
+  prompt: string
+) {
+  const messageList = page.getByTestId("chat-message-list");
+  const submittedQuestion = messageList.getByText(prompt, { exact: true });
+  const sourcesLabel = page
+    .getByRole("button", { name: /Used \d+ sources?/ })
+    .last();
 
-  await expect(submittedQuestion).toHaveCount(1)
-  await expect(sourcesLabel).toBeVisible()
+  await expect(submittedQuestion).toHaveCount(1);
+  await expect(sourcesLabel).toBeVisible();
   await expect
     .poll(
       async () => {
-        const questionBox = await submittedQuestion.boundingBox()
-        const sourcesBox = await sourcesLabel.boundingBox()
-        if (!questionBox || !sourcesBox) {
-          return false
+        const questionBox = await submittedQuestion.boundingBox();
+        const sourcesBox = await sourcesLabel.boundingBox();
+        if (!(questionBox && sourcesBox)) {
+          return false;
         }
-        return questionBox.y < sourcesBox.y
+        return questionBox.y < sourcesBox.y;
       },
-      { timeout: 5_000 },
+      { timeout: 5000 }
     )
-    .toBe(true)
+    .toBe(true);
 }
 
-test.describe('chat live backend', () => {
-  test('streams responses and renders citations in RAG mode', async ({ page }) => {
-    await page.goto('/')
-    await selectCollection(page, LIVE_COLLECTION)
-    await selectFlowMode(page, 'RAG only')
+test.describe("chat live backend", () => {
+  test("streams responses and renders citations in RAG mode", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await selectCollection(page, LIVE_COLLECTION);
+    await selectFlowMode(page, "RAG only");
 
-    const { input, commandResponsePromise, streamResponsePromise } = await askQuestion(page, PROMPT)
+    const { input, commandResponsePromise, streamResponsePromise } =
+      await askQuestion(page, PROMPT);
 
-    await expect(input).toBeDisabled({ timeout: 5_000 })
-    await expect(page.getByTestId('chat-streaming-indicator')).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByText(/Opening answer stream|Preparing response/)).toBeVisible({
-      timeout: 5_000,
-    })
-    await expect(page.getByTestId('chat-message-list').getByText(PROMPT)).toBeVisible()
-    await expect(page.getByText('Ask a question about your documents')).toHaveCount(0)
+    await expect(input).toBeDisabled({ timeout: 5000 });
+    await expect(page.getByTestId("chat-streaming-indicator")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(
+      page.getByText(/Opening answer stream|Preparing response/)
+    ).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(
+      page.getByTestId("chat-message-list").getByText(PROMPT)
+    ).toBeVisible();
+    await expect(
+      page.getByText("Ask a question about your documents")
+    ).toHaveCount(0);
 
-    const commandResponse = await commandResponsePromise
-    expect(commandResponse.ok()).toBe(true)
+    const commandResponse = await commandResponsePromise;
+    expect(commandResponse.ok()).toBe(true);
 
-    const streamResponse = await streamResponsePromise
-    expect(streamResponse.headers()['content-type']).toContain('text/event-stream')
+    const streamResponse = await streamResponsePromise;
+    expect(streamResponse.headers()["content-type"]).toContain(
+      "text/event-stream"
+    );
 
-    await expect(input).toBeEnabled({ timeout: 120_000 })
-    await expectAssistantAnswer(page)
-    await expect(page.getByRole('button', { name: /Used \d+ sources?/ })).toBeVisible()
-  })
+    await expect(input).toBeEnabled({ timeout: 120_000 });
+    await expectAssistantAnswer(page);
+    await expect(
+      page.getByRole("button", { name: /Used \d+ sources?/ })
+    ).toBeVisible();
+  });
 
-  test('does not render the submitted user question twice in RAG mode', async ({ page }) => {
-    await page.goto('/')
-    await selectCollection(page, LIVE_COLLECTION)
-    await selectFlowMode(page, 'RAG only')
+  test("does not render the submitted user question twice in RAG mode", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await selectCollection(page, LIVE_COLLECTION);
+    await selectFlowMode(page, "RAG only");
 
-    const { input } = await askQuestion(page, DUPLICATE_PROMPT)
+    const { input } = await askQuestion(page, DUPLICATE_PROMPT);
 
-    await expect(input).toBeEnabled({ timeout: 120_000 })
-    await expectAssistantAnswer(page)
-    await expectSubmittedQuestionBeforeAssistant(page, DUPLICATE_PROMPT)
+    await expect(input).toBeEnabled({ timeout: 120_000 });
+    await expectAssistantAnswer(page);
+    await expectSubmittedQuestionBeforeAssistant(page, DUPLICATE_PROMPT);
 
-    await page.reload()
-    await expect(page.getByTestId('chat-message-list').getByText(DUPLICATE_PROMPT, { exact: true })).toHaveCount(1)
-  })
+    await page.reload();
+    await expect(
+      page
+        .getByTestId("chat-message-list")
+        .getByText(DUPLICATE_PROMPT, { exact: true })
+    ).toHaveCount(1);
+  });
 
-  test('clear chat resets the visible conversation in RAG mode', async ({ page }) => {
-    await page.goto('/')
-    await selectCollection(page, LIVE_COLLECTION)
-    await selectFlowMode(page, 'RAG only')
+  test("clear chat resets the visible conversation in RAG mode", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await selectCollection(page, LIVE_COLLECTION);
+    await selectFlowMode(page, "RAG only");
 
-    const { input } = await askQuestion(page, PROMPT)
+    const { input } = await askQuestion(page, PROMPT);
 
-    await expect(input).toBeEnabled({ timeout: 120_000 })
-    await expectAssistantAnswer(page)
+    await expect(input).toBeEnabled({ timeout: 120_000 });
+    await expectAssistantAnswer(page);
 
-    await page.getByRole('button', { name: 'Clear Chat History' }).click()
+    await page.getByRole("button", { name: "Clear Chat History" }).click();
 
-    await expect(page.getByText('Ask a question about your documents')).toBeVisible()
-    await expect(page.getByRole('button', { name: /Used \d+ sources?/ })).toHaveCount(0)
-  })
-})
+    await expect(
+      page.getByText("Ask a question about your documents")
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Used \d+ sources?/ })
+    ).toHaveCount(0);
+  });
+});

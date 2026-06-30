@@ -5,16 +5,18 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import {
-  DEFAULT_MODEL_STORAGE_KEY,
-  DEFAULT_MODELS,
-} from "@/constants/chat";
+import { DEFAULT_MODEL_STORAGE_KEY, DEFAULT_MODELS } from "@/constants/chat";
 import type { AppConfig } from "@/lib/config";
 
 type FlowMode = "rag" | "mcp" | "mixed" | "direct";
 
 function isValidFlowMode(value: unknown): value is FlowMode {
-  return value === "rag" || value === "mcp" || value === "mixed" || value === "direct";
+  return (
+    value === "rag" ||
+    value === "mcp" ||
+    value === "mixed" ||
+    value === "direct"
+  );
 }
 
 function getInitialFlowMode(): FlowMode {
@@ -24,7 +26,7 @@ function getInitialFlowMode(): FlowMode {
 
 export function deriveCollectionState(
   appConfig: AppConfig | null,
-  currentCollectionName: string,
+  currentCollectionName: string
 ) {
   const collectionList = appConfig?.collection_list ?? [];
   const collectionName = collectionList.includes(currentCollectionName)
@@ -41,7 +43,7 @@ export function useSessionUIState(appConfig: AppConfig | null) {
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [requestedCollectionName, setCollectionName] = useState(
-    () => appConfig?.collection_list?.[0] ?? "",
+    () => appConfig?.collection_list?.[0] ?? ""
   );
   const [enableReranker, setEnableReranker] = useState(false);
   const [enableTracing, setEnableTracing] = useState(true);
@@ -50,7 +52,7 @@ export function useSessionUIState(appConfig: AppConfig | null) {
   const hydrated = useSyncExternalStore(
     () => () => undefined,
     () => true,
-    () => false,
+    () => false
   );
 
   const modelList = useMemo(
@@ -64,25 +66,31 @@ export function useSessionUIState(appConfig: AppConfig | null) {
             providers: ["oci"],
           }))
         : DEFAULT_MODELS) as typeof DEFAULT_MODELS,
-    [appConfig],
+    [appConfig]
   );
 
   const { collectionList, collectionName: resolvedCollectionName } = useMemo(
     () => deriveCollectionState(appConfig, requestedCollectionName),
-    [appConfig, requestedCollectionName],
+    [appConfig, requestedCollectionName]
   );
 
   const persistedSelectedModel = useMemo(() => {
-    if (!hydrated || typeof window === "undefined") return "";
+    if (!hydrated || typeof window === "undefined") {
+      return "";
+    }
 
     const stored = localStorage.getItem(DEFAULT_MODEL_STORAGE_KEY);
     return typeof stored === "string" ? stored : "";
   }, [hydrated]);
 
   const effectiveSelectedModel = useMemo(() => {
-    if (!modelList.length) return "";
+    if (!modelList.length) {
+      return "";
+    }
     const ids = modelList.map((m) => m.id);
-    if (selectedModel && ids.includes(selectedModel)) return selectedModel;
+    if (selectedModel && ids.includes(selectedModel)) {
+      return selectedModel;
+    }
     if (persistedSelectedModel && ids.includes(persistedSelectedModel)) {
       return persistedSelectedModel;
     }
@@ -90,7 +98,9 @@ export function useSessionUIState(appConfig: AppConfig | null) {
   }, [modelList, persistedSelectedModel, selectedModel]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !effectiveSelectedModel) return;
+    if (typeof window === "undefined" || !effectiveSelectedModel) {
+      return;
+    }
     localStorage.setItem(DEFAULT_MODEL_STORAGE_KEY, effectiveSelectedModel);
   }, [effectiveSelectedModel]);
 
@@ -108,13 +118,11 @@ export function useSessionUIState(appConfig: AppConfig | null) {
   const selectedModelData =
     modelList.find((m) => m.id === effectiveSelectedModel) ?? modelList[0];
 
-  const stableSelectedModelData = hydrated
-    ? selectedModelData
-    : modelList[0];
+  const stableSelectedModelData = hydrated ? selectedModelData : modelList[0];
 
   const stableSelectedModel = hydrated
     ? effectiveSelectedModel
-    : modelList[0]?.id ?? "";
+    : (modelList[0]?.id ?? "");
 
   return {
     modelSelectorOpen,

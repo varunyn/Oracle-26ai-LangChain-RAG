@@ -62,8 +62,7 @@ const TOOL_STATE_CLASS: Record<ToolState, string> = {
 
 /** Compact status pill (keeps success visible without coloring the whole card) */
 const TOOL_BADGE_CLASS: Record<ToolState, string> = {
-  "input-streaming":
-    "border-border bg-background/80 text-muted-foreground",
+  "input-streaming": "border-border bg-background/80 text-muted-foreground",
   "input-available":
     "border-sky-500/40 bg-sky-500/12 text-sky-950 dark:text-sky-100",
   "output-available":
@@ -78,7 +77,9 @@ type ToolProps = React.HTMLAttributes<HTMLDivElement> & {
 };
 
 function humanizeToolType(type: string | undefined): string {
-  if (!type) return "Tool";
+  if (!type) {
+    return "Tool";
+  }
   const normalized = type.startsWith("tool-") ? type.slice(5) : type;
   return normalized
     .split(/[_-]+/)
@@ -101,11 +102,11 @@ export function Tool({
       className={cn(
         "flex flex-col gap-1.5 rounded-lg border px-2.5 py-2",
         TOOL_STATE_CLASS[state],
-        className,
+        className
       )}
+      data-tool-open={defaultOpen ? "true" : "false"}
       data-tool-state={state}
       data-tool-type={type ?? ""}
-      data-tool-open={defaultOpen ? "true" : "false"}
       {...props}
     >
       {children}
@@ -127,7 +128,7 @@ export function ToolHeader({
       className={cn("flex items-center justify-between gap-2", className)}
       {...props}
     >
-      <span className="min-w-0 truncate text-xs font-medium text-current">
+      <span className="min-w-0 truncate font-medium text-current text-xs">
         {humanizeToolType(type)}
       </span>
       <ToolStatusBadge state={state} />
@@ -160,8 +161,8 @@ export function ToolOutput({
     return (
       <div
         className={cn(
-          "rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[11px] leading-5 text-destructive",
-          className,
+          "rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[11px] text-destructive leading-5",
+          className
         )}
         {...props}
       >
@@ -215,9 +216,9 @@ export function ToolStatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex h-4 shrink-0 items-center rounded border px-1 text-[9px] font-semibold uppercase tracking-wide",
+        "inline-flex h-4 shrink-0 items-center rounded border px-1 font-semibold text-[9px] uppercase tracking-wide",
         TOOL_BADGE_CLASS[state],
-        className,
+        className
       )}
     >
       {TOOL_STATE_LABEL[state]}

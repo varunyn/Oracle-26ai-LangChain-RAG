@@ -1,4 +1,5 @@
 import Image from "next/image";
+import type { ComponentProps, ReactNode } from "react";
 import {
   Command,
   CommandEmpty,
@@ -14,7 +15,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type { ComponentProps, ReactNode } from "react";
 
 export type ModelSelectorProps = ComponentProps<typeof Dialog>;
 
@@ -147,9 +147,9 @@ export const ModelSelectorLogo = ({
 }: ModelSelectorLogoProps) => (
   <Image
     {...props}
-    data-slot="model-selector-logo"
     alt={`${provider} logo`}
     className={cn("size-3 dark:invert", className)}
+    data-slot="model-selector-logo"
     height={12}
     loading="lazy"
     src={`https://models.dev/logos/${provider}.svg`}
@@ -165,7 +165,7 @@ export const ModelSelectorLogoGroup = ({
 }: ModelSelectorLogoGroupProps) => (
   <div
     className={cn(
-      "-space-x-1 flex shrink-0 items-center [&_[data-slot=model-selector-logo]]:rounded-full [&_[data-slot=model-selector-logo]]:bg-background [&_[data-slot=model-selector-logo]]:p-px [&_[data-slot=model-selector-logo]]:ring-1 dark:[&_[data-slot=model-selector-logo]]:bg-foreground",
+      "flex shrink-0 items-center -space-x-1 [&_[data-slot=model-selector-logo]]:rounded-full [&_[data-slot=model-selector-logo]]:bg-background [&_[data-slot=model-selector-logo]]:p-px [&_[data-slot=model-selector-logo]]:ring-1 dark:[&_[data-slot=model-selector-logo]]:bg-foreground",
       className
     )}
     {...props}

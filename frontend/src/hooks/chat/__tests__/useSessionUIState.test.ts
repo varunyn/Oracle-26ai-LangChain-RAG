@@ -12,10 +12,7 @@ describe("deriveCollectionState", () => {
 
   it("uses the configured collection when the current selection is empty", () => {
     expect(
-      deriveCollectionState(
-        { collection_list: ["ORACLE_WEB_EMBEDDINGS"] },
-        "",
-      ),
+      deriveCollectionState({ collection_list: ["ORACLE_WEB_EMBEDDINGS"] }, "")
     ).toEqual({
       collectionList: ["ORACLE_WEB_EMBEDDINGS"],
       collectionName: "ORACLE_WEB_EMBEDDINGS",
@@ -26,8 +23,8 @@ describe("deriveCollectionState", () => {
     expect(
       deriveCollectionState(
         { collection_list: ["ORACLE_WEB_EMBEDDINGS", "SECONDARY"] },
-        "SECONDARY",
-      ),
+        "SECONDARY"
+      )
     ).toEqual({
       collectionList: ["ORACLE_WEB_EMBEDDINGS", "SECONDARY"],
       collectionName: "SECONDARY",

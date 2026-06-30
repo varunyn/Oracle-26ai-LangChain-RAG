@@ -46,9 +46,11 @@ const TERMINAL_JOB_STATUSES = new Set<DocumentIngestionJobStatus>([
 
 function mergeJob(
   currentJobs: DocumentIngestionJob[],
-  nextJob: DocumentIngestionJob,
+  nextJob: DocumentIngestionJob
 ): DocumentIngestionJob[] {
-  const remainingJobs = currentJobs.filter((job) => job.job_id !== nextJob.job_id);
+  const remainingJobs = currentJobs.filter(
+    (job) => job.job_id !== nextJob.job_id
+  );
   return [nextJob, ...remainingJobs].slice(0, 12);
 }
 
@@ -65,11 +67,13 @@ export function useDocumentIngestionJobs() {
         .filter((job) => !TERMINAL_JOB_STATUSES.has(job.status))
         .map((job) => job.job_id)
         .join("|"),
-    [jobs],
+    [jobs]
   );
 
   useEffect(() => {
-    if (!activeJobIdsKey) return;
+    if (!activeJobIdsKey) {
+      return;
+    }
 
     let cancelled = false;
     const activeJobIds = activeJobIdsKey.split("|");
@@ -78,27 +82,33 @@ export function useDocumentIngestionJobs() {
         activeJobIds.map(async (jobId) => {
           try {
             const response = await fetch(
-              toApiUrl(`/api/documents/jobs/${encodeURIComponent(jobId)}`),
+              toApiUrl(`/api/documents/jobs/${encodeURIComponent(jobId)}`)
             );
-            if (!response.ok) return null;
+            if (!response.ok) {
+              return null;
+            }
             return (await response.json()) as DocumentIngestionJob;
           } catch {
             return null;
           }
-        }),
+        })
       );
 
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       const validUpdates = updates.filter(
-        (job): job is DocumentIngestionJob => job !== null,
+        (job): job is DocumentIngestionJob => job !== null
       );
-      if (validUpdates.length === 0) return;
+      if (validUpdates.length === 0) {
+        return;
+      }
 
       setJobs((currentJobs) =>
         validUpdates.reduce(
           (mergedJobs, job) => mergeJob(mergedJobs, job),
-          currentJobs,
-        ),
+          currentJobs
+        )
       );
     };
 

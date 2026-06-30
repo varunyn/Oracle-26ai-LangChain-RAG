@@ -49,7 +49,9 @@ const fileStatusLabel: Record<DocumentIngestionFileStatus, string> = {
   interrupted: "Interrupted",
 };
 
-function statusClassName(status: DocumentIngestionJobStatus | DocumentIngestionFileStatus) {
+function statusClassName(
+  status: DocumentIngestionJobStatus | DocumentIngestionFileStatus
+) {
   if (status === "completed" || status === "indexed") {
     return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
   }
@@ -68,24 +70,28 @@ function StatusIcon({
   status: DocumentIngestionJobStatus | DocumentIngestionFileStatus;
 }) {
   if (status === "completed" || status === "indexed") {
-    return <CheckCircle2 className="size-3.5" aria-hidden />;
+    return <CheckCircle2 aria-hidden className="size-3.5" />;
   }
   if (status === "failed") {
-    return <XCircle className="size-3.5" aria-hidden />;
+    return <XCircle aria-hidden className="size-3.5" />;
   }
   if (status === "interrupted") {
-    return <AlertTriangle className="size-3.5" aria-hidden />;
+    return <AlertTriangle aria-hidden className="size-3.5" />;
   }
   if (status === "embedding" || status === "parsing" || status === "running") {
-    return <Loader2 className="size-3.5 animate-spin" aria-hidden />;
+    return <Loader2 aria-hidden className="size-3.5 animate-spin" />;
   }
-  return <CircleDashed className="size-3.5" aria-hidden />;
+  return <CircleDashed aria-hidden className="size-3.5" />;
 }
 
 function formatTimestamp(value: string | undefined) {
-  if (!value) return "Waiting";
+  if (!value) {
+    return "Waiting";
+  }
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Updated";
+  if (Number.isNaN(date.getTime())) {
+    return "Updated";
+  }
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
@@ -94,44 +100,51 @@ function IngestionActivity({
 }: {
   jobs: DocumentIngestionJob[];
 }): React.ReactElement | null {
-  if (jobs.length === 0) return null;
+  if (jobs.length === 0) {
+    return null;
+  }
 
   return (
     <div className="mb-4 overflow-hidden rounded-lg border border-border bg-card">
-      <div className="flex flex-col gap-1 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-1 border-border border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">Ingestion activity</h3>
-          <p className="text-xs text-muted-foreground">
+          <h3 className="font-semibold text-foreground text-sm">
+            Ingestion activity
+          </h3>
+          <p className="text-muted-foreground text-xs">
             File-level indexing status for recent uploads in this collection.
           </p>
         </div>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-muted-foreground text-xs">
           {jobs.length} recent job{jobs.length === 1 ? "" : "s"}
         </span>
       </div>
       <div className="divide-y divide-border">
         {jobs.map((job) => (
-          <div key={job.job_id} className="px-4 py-3">
+          <div className="px-4 py-3" key={job.job_id}>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${statusClassName(job.status)}`}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-medium text-xs ${statusClassName(job.status)}`}
                   >
                     <StatusIcon status={job.status} />
                     {jobStatusLabel[job.status]}
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    {job.files_processed} file{job.files_processed === 1 ? "" : "s"} indexed
+                  <span className="text-muted-foreground text-xs">
+                    {job.files_processed} file
+                    {job.files_processed === 1 ? "" : "s"} indexed
                     {" - "}
                     {job.chunks_added.toLocaleString()} chunks
                   </span>
                 </div>
                 {job.error ? (
-                  <p className="mt-1 text-xs leading-5 text-destructive">{job.error}</p>
+                  <p className="mt-1 text-destructive text-xs leading-5">
+                    {job.error}
+                  </p>
                 ) : null}
               </div>
-              <span className="shrink-0 text-xs text-muted-foreground">
+              <span className="shrink-0 text-muted-foreground text-xs">
                 {formatTimestamp(job.updated_at)}
               </span>
             </div>
@@ -157,8 +170,14 @@ function IngestionActivity({
                         {file.chunks_added.toLocaleString()} chunks
                       </td>
                       <td className="max-w-[18rem] py-2 pl-3 text-right text-muted-foreground">
-                        <span className="block truncate" title={file.message ?? undefined}>
-                          {file.message ?? formatTimestamp(file.completed_at ?? file.started_at ?? undefined)}
+                        <span
+                          className="block truncate"
+                          title={file.message ?? undefined}
+                        >
+                          {file.message ??
+                            formatTimestamp(
+                              file.completed_at ?? file.started_at ?? undefined
+                            )}
                         </span>
                       </td>
                     </tr>
@@ -179,15 +198,17 @@ export function ProcessedSourcesPanel({
 }: ProcessedSourcesPanelProps): React.ReactElement {
   const { sources, isLoading, error, deletingSource, refresh, deleteSource } =
     useProcessedSources(collectionName);
-  const [pendingDeleteSource, setPendingDeleteSource] = useState<string | null>(null);
+  const [pendingDeleteSource, setPendingDeleteSource] = useState<string | null>(
+    null
+  );
 
   const totalChunks = useMemo(
     () => sources.reduce((sum, item) => sum + item.chunk_count, 0),
-    [sources],
+    [sources]
   );
   const collectionJobs = useMemo(
     () => ingestionJobs.filter((job) => job.collection === collectionName),
-    [collectionName, ingestionJobs],
+    [collectionName, ingestionJobs]
   );
   const completedJobKey = useMemo(
     () =>
@@ -195,44 +216,54 @@ export function ProcessedSourcesPanel({
         .filter((job) => job.status === "completed")
         .map((job) => `${job.job_id}:${job.updated_at ?? ""}`)
         .join("|"),
-    [collectionJobs],
+    [collectionJobs]
   );
 
   useEffect(() => {
-    if (!completedJobKey) return;
+    if (!completedJobKey) {
+      return;
+    }
     void refresh();
   }, [completedJobKey, refresh]);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/10">
-      <div className="border-b border-border bg-card px-4 py-4 sm:px-6">
+      <div className="border-border border-b bg-card px-4 py-4 sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold text-foreground sm:text-xl">
+            <h2 className="font-semibold text-foreground text-lg sm:text-xl">
               Processed sources
             </h2>
-            <p className="text-sm text-muted-foreground">
-              Review indexed sources for the selected collection and delete all related chunks when needed.
+            <p className="text-muted-foreground text-sm">
+              Review indexed sources for the selected collection and delete all
+              related chunks when needed.
             </p>
           </div>
           <button
-            type="button"
+            className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 font-medium text-foreground text-sm transition-colors hover:bg-muted/50"
             onClick={() => void refresh()}
-            className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/50"
+            type="button"
           >
             <RefreshCcw className="size-4" />
             Refresh
           </button>
         </div>
-        <div className="mt-4 flex flex-wrap gap-3 text-xs text-muted-foreground">
+        <div className="mt-4 flex flex-wrap gap-3 text-muted-foreground text-xs">
           <span className="rounded-full border border-border bg-muted/60 px-3 py-1">
-            Collection: <span className="font-semibold text-foreground">{collectionName}</span>
+            Collection:{" "}
+            <span className="font-semibold text-foreground">
+              {collectionName}
+            </span>
           </span>
           <span className="rounded-full border border-border bg-muted/60 px-3 py-1">
-            Sources: <span className="font-semibold text-foreground">{sources.length}</span>
+            Sources:{" "}
+            <span className="font-semibold text-foreground">
+              {sources.length}
+            </span>
           </span>
           <span className="rounded-full border border-border bg-muted/60 px-3 py-1">
-            Indexed chunks: <span className="font-semibold text-foreground">{totalChunks}</span>
+            Indexed chunks:{" "}
+            <span className="font-semibold text-foreground">{totalChunks}</span>
           </span>
         </div>
       </div>
@@ -242,17 +273,17 @@ export function ProcessedSourcesPanel({
 
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           {error ? (
-            <div className="border-b border-border bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <div className="border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm">
               {error}
             </div>
           ) : null}
 
           {isLoading ? (
-            <div className="px-4 py-10 text-sm text-muted-foreground">
+            <div className="px-4 py-10 text-muted-foreground text-sm">
               Loading processed sources...
             </div>
           ) : sources.length === 0 ? (
-            <div className="px-4 py-10 text-sm text-muted-foreground">
+            <div className="px-4 py-10 text-muted-foreground text-sm">
               No processed sources found for this collection yet.
             </div>
           ) : (
@@ -260,10 +291,18 @@ export function ProcessedSourcesPanel({
               <table className="min-w-full divide-y divide-border text-sm">
                 <thead className="bg-muted/40">
                   <tr>
-                    <th className="px-4 py-3 text-left font-medium text-foreground">Type</th>
-                    <th className="px-4 py-3 text-left font-medium text-foreground">Source</th>
-                    <th className="px-4 py-3 text-right font-medium text-foreground">Chunks</th>
-                    <th className="px-4 py-3 text-right font-medium text-foreground">Actions</th>
+                    <th className="px-4 py-3 text-left font-medium text-foreground">
+                      Type
+                    </th>
+                    <th className="px-4 py-3 text-left font-medium text-foreground">
+                      Source
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium text-foreground">
+                      Chunks
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium text-foreground">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border bg-card">
@@ -273,9 +312,9 @@ export function ProcessedSourcesPanel({
                     const isDeleting = deletingSource === item.source;
 
                     return (
-                      <tr key={item.source} className="align-top">
+                      <tr className="align-top" key={item.source}>
                         <td className="px-4 py-4 text-muted-foreground">
-                          <span className="inline-flex rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs font-medium text-foreground">
+                          <span className="inline-flex rounded-full border border-border bg-muted/40 px-2.5 py-1 font-medium text-foreground text-xs">
                             {formatted.kind}
                           </span>
                         </td>
@@ -290,28 +329,31 @@ export function ProcessedSourcesPanel({
                         <td className="px-4 py-4 text-right">
                           {isPendingDelete ? (
                             <div className="ml-auto flex max-w-sm flex-col items-end gap-2">
-                              <p className="text-xs leading-relaxed text-muted-foreground">
-                                Delete this source and all related chunks from the collection? This action cannot be undone.
+                              <p className="text-muted-foreground text-xs leading-relaxed">
+                                Delete this source and all related chunks from
+                                the collection? This action cannot be undone.
                               </p>
                               <div className="flex items-center gap-2">
                                 <button
-                                  type="button"
-                                  onClick={() => setPendingDeleteSource(null)}
+                                  className="rounded-md border border-input bg-background px-3 py-2 font-medium text-foreground text-xs transition-colors hover:bg-muted/50 disabled:opacity-60"
                                   disabled={isDeleting}
-                                  className="rounded-md border border-input bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted/50 disabled:opacity-60"
+                                  onClick={() => setPendingDeleteSource(null)}
+                                  type="button"
                                 >
                                   Cancel
                                 </button>
                                 <button
-                                  type="button"
+                                  className="inline-flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 font-medium text-destructive text-xs transition-colors hover:bg-destructive/15 disabled:opacity-60"
+                                  disabled={isDeleting}
                                   onClick={async () => {
-                                    const deleted = await deleteSource(item.source);
+                                    const deleted = await deleteSource(
+                                      item.source
+                                    );
                                     if (deleted) {
                                       setPendingDeleteSource(null);
                                     }
                                   }}
-                                  disabled={isDeleting}
-                                  className="inline-flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/15 disabled:opacity-60"
+                                  type="button"
                                 >
                                   <Trash2 className="size-3.5" />
                                   {isDeleting ? "Deleting..." : "Delete source"}
@@ -320,10 +362,12 @@ export function ProcessedSourcesPanel({
                             </div>
                           ) : (
                             <button
-                              type="button"
-                              onClick={() => setPendingDeleteSource(item.source)}
+                              className="inline-flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 font-medium text-destructive text-xs transition-colors hover:bg-destructive/15 disabled:opacity-60"
                               disabled={Boolean(deletingSource)}
-                              className="inline-flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/15 disabled:opacity-60"
+                              onClick={() =>
+                                setPendingDeleteSource(item.source)
+                              }
+                              type="button"
                             >
                               <Trash2 className="size-3.5" />
                               Delete

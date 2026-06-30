@@ -4,7 +4,9 @@ import { getMessageContent } from "../messages";
 
 describe("getMessageContent", () => {
   it("returns string content unchanged", () => {
-    const content = getMessageContent({ content: "Northway terms are net 30." });
+    const content = getMessageContent({
+      content: "Northway terms are net 30.",
+    });
 
     expect(content).toBe("Northway terms are net 30.");
   });
@@ -28,7 +30,10 @@ describe("getMessageContent", () => {
 
   it("returns an empty string when the content array has no text blocks", () => {
     const content = getMessageContent({
-      content: [{ type: "image_url", text: "ignored" }, { type: "tool_result" }],
+      content: [
+        { type: "image_url", text: "ignored" },
+        { type: "tool_result" },
+      ],
     });
 
     expect(content).toBe("");

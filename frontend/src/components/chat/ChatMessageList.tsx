@@ -1,6 +1,5 @@
 "use client";
 
-import type { AssembledToolCall } from "@langchain/react";
 import { useEffect } from "react";
 import {
   Conversation,
@@ -8,54 +7,65 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent } from "@/components/ai-elements/message";
+import { ChatMessageItem } from "@/components/chat/ChatMessageItem";
+import { StreamingIndicator } from "@/components/chat/StreamingIndicator";
 import { debugChatStage, summarizeMessages } from "@/hooks/chat/debug";
-import { toolCallsForMessage } from "@/hooks/chat/tool-call-mapping";
+import {
+  type NativeToolCall,
+  toolCallsForMessage,
+} from "@/hooks/chat/tool-call-mapping";
 import { getMessageContent, type SupportedContent } from "@/lib/chat/messages";
 import type { MessageReferences } from "@/lib/types/chat";
-import { StreamingIndicator } from "@/components/chat/StreamingIndicator";
-import { ChatMessageItem } from "@/components/chat/ChatMessageItem";
 
-type MessageLike = {
-  id?: string;
-  role?: string;
+interface MessageLike {
   content?: SupportedContent;
-  toolCallIds?: string[];
+  id?: string;
   references?: MessageReferences | null;
-};
+  role?: string;
+  toolCallIds?: string[];
+}
 
-type ChatMessageListProps = {
-  messages: MessageLike[];
-  toolCalls: AssembledToolCall[];
-  status: string;
+interface ChatMessageListProps {
+  enableUserFeedback?: boolean;
+  feedbackSubmittedMessageIndexes: ReadonlySet<number>;
   maxCitationsToShow: number;
-  onRetry: () => void;
+  messages: MessageLike[];
+  onFeedback: (stars: number, messageIndex: number) => void;
   onRecoverDirect: () => void;
   onRecoverRagOnly: () => void;
-  onFeedback: (stars: number, messageIndex: number) => void;
-  feedbackSubmittedMessageIndexes: ReadonlySet<number>;
-  enableUserFeedback?: boolean;
-};
+  onRetry: () => void;
+  progress?: string;
+  status: string;
+  toolCalls: NativeToolCall[];
+}
 
 function hasAssistantToolCalls(
   message: MessageLike,
-  toolCalls: readonly AssembledToolCall[],
+  toolCalls: readonly NativeToolCall[]
 ): boolean {
-  if (message.role !== "assistant") return false;
+  if (message.role !== "assistant") {
+    return false;
+  }
   return toolCallsForMessage(message.toolCallIds, toolCalls).length > 0;
 }
 
 function hasActiveAssistantOutput(
   messages: MessageLike[],
-  toolCalls: readonly AssembledToolCall[],
+  toolCalls: readonly NativeToolCall[]
 ): boolean {
-  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
-  if (!lastAssistant) return false;
+  const lastAssistant = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  if (!lastAssistant) {
+    return false;
+  }
   const text = getMessageContent(lastAssistant).trim();
   return text.length > 0 || hasAssistantToolCalls(lastAssistant, toolCalls);
 }
 
 export function ChatMessageList({
   messages,
+  progress,
   toolCalls,
   status,
   maxCitationsToShow,
@@ -76,24 +86,25 @@ export function ChatMessageList({
       status,
       showStreamingIndicator,
       showEmptyState,
+      toolCallCount: toolCalls.length,
       messages: summarizeMessages(messages),
     });
-  }, [messages, showEmptyState, showStreamingIndicator, status]);
+  }, [messages, showEmptyState, showStreamingIndicator, status, toolCalls]);
 
   return (
     <Conversation
-      className="mx-auto flex w-full max-w-4xl flex-1 min-h-0"
-      data-testid="chat-message-list"
+      className="mx-auto flex min-h-0 w-full max-w-4xl flex-1"
       data-chat-status={status}
+      data-testid="chat-message-list"
     >
-      <ConversationContent className="overflow-x-hidden px-4 py-6 sm:px-6 sm:py-7">
+      <ConversationContent className="px-4 py-6 sm:px-6 sm:py-7">
         {showEmptyState ? (
           <div className="flex flex-1 items-center px-2 py-16 sm:px-4">
             <div className="max-w-xl space-y-3">
-              <div className="text-foreground text-xl font-medium">
+              <div className="font-medium text-foreground text-xl">
                 Ask a question about your documents
               </div>
-              <p className="max-w-md text-sm leading-6 text-muted-foreground">
+              <p className="max-w-md text-muted-foreground text-sm leading-6">
                 Get Oracle-powered answers grounded in your collection, with
                 citations you can review as you work.
               </p>
@@ -106,16 +117,23 @@ export function ChatMessageList({
             const textContent = getMessageContent(message);
             const isLastMessage = index === messages.length - 1;
             const isStreaming =
-              isLastMessage && (status === "submitted" || status === "streaming");
+              isLastMessage &&
+              (status === "submitted" || status === "streaming");
             const displayContent = textContent;
             const messageReferences: MessageReferences | null =
-              message.role === "assistant" ? (message.references ?? null) : null;
+              message.role === "assistant"
+                ? (message.references ?? null)
+                : null;
             const matchedToolCalls =
               message.role === "assistant"
                 ? toolCallsForMessage(message.toolCallIds, toolCalls)
                 : [];
 
-            if (!displayContent && matchedToolCalls.length === 0 && !messageReferences?.error) {
+            if (
+              !displayContent &&
+              matchedToolCalls.length === 0 &&
+              !messageReferences?.error
+            ) {
               return null;
             }
 
@@ -124,28 +142,28 @@ export function ChatMessageList({
 
             return (
               <ChatMessageItem
-                key={message.id ?? `message-${index}`}
-                message={message}
                 displayContent={displayContent}
-                toolCalls={matchedToolCalls}
+                enableUserFeedback={enableUserFeedback}
+                feedbackSubmitted={feedbackSubmittedMessageIndexes.has(index)}
                 isLastMessage={isLastMessage}
                 isStreaming={isStreaming}
-                showActions={showActions}
-                messageReferences={messageReferences}
+                key={message.id ?? `message-${index}`}
                 maxCitationsToShow={maxCitationsToShow}
-                onRetry={onRetry}
+                message={message}
+                messageReferences={messageReferences}
+                onFeedback={(stars) => onFeedback(stars, index)}
                 onRecoverDirect={onRecoverDirect}
                 onRecoverRagOnly={onRecoverRagOnly}
-                onFeedback={(stars) => onFeedback(stars, index)}
-                feedbackSubmitted={feedbackSubmittedMessageIndexes.has(index)}
-                enableUserFeedback={enableUserFeedback}
+                onRetry={onRetry}
+                showActions={showActions}
+                toolCalls={matchedToolCalls}
               />
             );
           })}
           {showStreamingIndicator ? (
             <Message from="assistant">
               <MessageContent>
-                <StreamingIndicator status={status} />
+                <StreamingIndicator progress={progress} status={status} />
               </MessageContent>
             </Message>
           ) : null}

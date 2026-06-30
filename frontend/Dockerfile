@@ -20,9 +20,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ARG NEXT_PUBLIC_DEFAULT_FLOW_MODE=mixed
-ARG NEXT_PUBLIC_API_BASE=http://localhost:3002
+ARG NEXT_PUBLIC_API_BASE=http://localhost:2024
 ARG NEXT_PUBLIC_LANGGRAPH_API_BASE=http://localhost:2024
-ARG FASTAPI_BACKEND_URL=http://localhost:3002
+ARG FASTAPI_BACKEND_URL=http://localhost:2024
 ARG LANGGRAPH_BACKEND_URL=http://langgraph:2024
 
 # Next.js collects completely anonymous telemetry data about general usage.
@@ -45,9 +45,9 @@ ENV NODE_ENV production
 # Uncomment the following line in case you want to disable telemetry during runtime.
 ENV NEXT_TELEMETRY_DISABLED 1
 ENV NEXT_PUBLIC_DEFAULT_FLOW_MODE mixed
-ENV NEXT_PUBLIC_API_BASE http://localhost:3002
+ENV NEXT_PUBLIC_API_BASE http://localhost:2024
 ENV NEXT_PUBLIC_LANGGRAPH_API_BASE http://localhost:2024
-ENV FASTAPI_BACKEND_URL http://localhost:3002
+ENV FASTAPI_BACKEND_URL http://localhost:2024
 ENV LANGGRAPH_BACKEND_URL http://langgraph:2024
 
 # Don't run as root

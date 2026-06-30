@@ -3,9 +3,9 @@
 import { useState } from "react";
 
 interface ContextUsage {
-  tokens: number;
   max: number;
   percent: number;
+  tokens: number;
 }
 
 interface ContextUsageBadgeProps {
@@ -22,14 +22,16 @@ export function ContextUsageBadge({ contextUsage }: ContextUsageBadgeProps) {
     Number.isFinite(contextUsage.tokens) &&
     Number.isFinite(contextUsage.max) &&
     Number.isFinite(contextUsage.percent);
-  if (!hasNumbers) return null;
+  if (!hasNumbers) {
+    return null;
+  }
 
   return (
     <span
-      className="shrink-0 text-xs text-muted-foreground px-2 py-1 rounded bg-muted/60 border border-border cursor-default"
-      title={`Tokens used: ${contextUsage.tokens.toLocaleString()} / ${contextUsage.max.toLocaleString()}`}
+      className="shrink-0 cursor-default rounded border border-border bg-muted/60 px-2 py-1 text-muted-foreground text-xs"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      title={`Tokens used: ${contextUsage.tokens.toLocaleString()} / ${contextUsage.max.toLocaleString()}`}
     >
       {hover
         ? `${contextUsage.tokens.toLocaleString()} / ${contextUsage.max.toLocaleString()}`

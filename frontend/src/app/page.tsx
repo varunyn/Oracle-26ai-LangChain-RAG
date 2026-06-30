@@ -1,31 +1,33 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { Database, MessagesSquare } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import { ChatInputBar } from "@/components/chat/ChatInputBar";
-import { useChatSession } from "@/hooks/useChatSession";
+import { ProcessedSourcesPanel } from "@/components/chat/ProcessedSourcesPanel";
+import { useAppConfig } from "@/components/config-provider";
+import { useToast } from "@/components/toaster";
 import { useChatController } from "@/hooks/chat/useChatController";
 import { useChatMutations } from "@/hooks/chat/useChatMutations";
 import { useSessionUIState } from "@/hooks/chat/useSessionUIState";
-import { useAppConfig } from "@/components/config-provider";
-import { useToast } from "@/components/toaster";
-import { ProcessedSourcesPanel } from "@/components/chat/ProcessedSourcesPanel";
-import { LangGraphStreamProvider } from "@/providers/langgraph-stream-provider";
-import { useLangGraphStream } from "@/providers/langgraph-stream-provider";
+import { useChatSession } from "@/hooks/useChatSession";
+import {
+  LangGraphStreamProvider,
+  useLangGraphStream,
+} from "@/providers/langgraph-stream-provider";
 
 const ChatSidebar = dynamic(
   () => import("@/components/chat/ChatSidebar").then((mod) => mod.ChatSidebar),
-  { ssr: false },
+  { ssr: false }
 );
 
 const ChatMessageList = dynamic(
   () =>
     import("@/components/chat/ChatMessageList").then(
-      (mod) => mod.ChatMessageList,
+      (mod) => mod.ChatMessageList
     ),
-  { ssr: false },
+  { ssr: false }
 );
 
 type MainView = "chat" | "sources";
@@ -45,20 +47,20 @@ export default function Chat() {
     isReady,
   } = chatSession;
   if (!isReady) {
-    return <div className="h-screen bg-muted/20" aria-hidden />;
+    return <div aria-hidden className="h-screen bg-muted/20" />;
   }
   return (
-    <LangGraphStreamProvider threadId={threadId} setThreadId={setThreadId}>
+    <LangGraphStreamProvider setThreadId={setThreadId} threadId={threadId}>
       <ChatPageContent
         appConfig={appConfig}
-        threadId={threadId}
-        sessionId={sessionId}
         clearChat={clearChat}
-        threadHistory={threadHistory}
-        onSelectThread={setThreadId}
         onNewChat={startNewChat}
-        onUpdateThreadTitle={updateThreadTitle}
         onRefreshThreadHistory={refreshThreadHistory}
+        onSelectThread={setThreadId}
+        onUpdateThreadTitle={updateThreadTitle}
+        sessionId={sessionId}
+        threadHistory={threadHistory}
+        threadId={threadId}
       />
     </LangGraphStreamProvider>
   );
@@ -73,7 +75,9 @@ type ChatPageContentProps = {
   onSelectThread: ReturnType<typeof useChatSession>["setThreadId"];
   onNewChat: ReturnType<typeof useChatSession>["startNewChat"];
   onUpdateThreadTitle: ReturnType<typeof useChatSession>["updateThreadTitle"];
-  onRefreshThreadHistory: ReturnType<typeof useChatSession>["refreshThreadHistory"];
+  onRefreshThreadHistory: ReturnType<
+    typeof useChatSession
+  >["refreshThreadHistory"];
 };
 
 type ChatMessageLike = {
@@ -85,7 +89,9 @@ function deriveThreadTitle(messages: ChatMessageLike[]): string | null {
   const firstUserMessage = messages.find((message) => message.role === "user");
   const content = firstUserMessage?.content || "";
   const normalized = content.replace(/\s+/g, " ").trim();
-  if (!normalized) return null;
+  if (!normalized) {
+    return null;
+  }
   return normalized.length > 56 ? `${normalized.slice(0, 53)}...` : normalized;
 }
 
@@ -119,79 +125,83 @@ function ChatPageContent({
 
   useEffect(() => {
     const title = deriveThreadTitle(chat.messages as ChatMessageLike[]);
-    if (threadId && title) onUpdateThreadTitle(threadId, title);
+    if (threadId && title) {
+      onUpdateThreadTitle(threadId, title);
+    }
   }, [chat.messages, onUpdateThreadTitle, threadId]);
 
   useEffect(() => {
-    if (chat.status !== "ready") return;
+    if (chat.status !== "ready") {
+      return;
+    }
     void onRefreshThreadHistory(stream.client).catch(() => undefined);
   }, [chat.status, onRefreshThreadHistory, stream.client, threadId]);
 
   return (
     <div
       className="flex h-screen overflow-hidden bg-muted/20"
+      data-chat-status={chat.status}
+      data-main-view={mainView}
       data-testid="chat-root"
       data-thread-id={threadId}
-      data-main-view={mainView}
-      data-chat-status={chat.status}
     >
       <ChatSidebar
-        open={sessionUI.sidebarOpen}
+        activeThreadId={threadId}
         appConfig={appConfig}
         collectionList={sessionUI.collectionList}
         collectionName={sessionUI.collectionName}
-        setCollectionName={sessionUI.setCollectionName}
-        flowMode={sessionUI.flowMode}
-        setFlowMode={sessionUI.setFlowMode}
         enableReranker={sessionUI.enableReranker}
-        setEnableReranker={sessionUI.setEnableReranker}
         enableTracing={sessionUI.enableTracing}
-        setEnableTracing={sessionUI.setEnableTracing}
-        onClearChat={chat.handleClearChat}
-        uploadFiles={mutations.uploadFiles}
-        setUploadFiles={mutations.setUploadFiles}
-        uploadStatus={mutations.uploadStatus}
+        flowMode={sessionUI.flowMode}
         isUploading={mutations.isUploading}
-        onUpload={mutations.handleUpload}
-        threadHistory={threadHistory}
-        activeThreadId={threadId}
-        onSelectThread={onSelectThread}
+        onClearChat={chat.handleClearChat}
         onNewChat={onNewChat}
+        onSelectThread={onSelectThread}
+        onUpload={mutations.handleUpload}
+        open={sessionUI.sidebarOpen}
+        setCollectionName={sessionUI.setCollectionName}
+        setEnableReranker={sessionUI.setEnableReranker}
+        setEnableTracing={sessionUI.setEnableTracing}
+        setFlowMode={sessionUI.setFlowMode}
+        setUploadFiles={mutations.setUploadFiles}
+        threadHistory={threadHistory}
+        uploadFiles={mutations.uploadFiles}
+        uploadStatus={mutations.uploadStatus}
       />
-      <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
         <ChatHeader
-          sidebarOpen={sessionUI.sidebarOpen}
-          onToggleSidebar={sessionUI.toggleSidebar}
+          contextUsage={chat.contextUsage}
           modelList={sessionUI.modelList}
-          selectedModel={sessionUI.effectiveSelectedModel}
-          onSelectModel={sessionUI.handleSelectModel}
           modelSelectorOpen={sessionUI.modelSelectorOpen}
           onModelSelectorOpenChange={sessionUI.setModelSelectorOpen}
-          contextUsage={chat.contextUsage}
+          onSelectModel={sessionUI.handleSelectModel}
+          onToggleSidebar={sessionUI.toggleSidebar}
+          selectedModel={sessionUI.effectiveSelectedModel}
           selectedModelData={sessionUI.selectedModelData}
+          sidebarOpen={sessionUI.sidebarOpen}
         />
-        <div className="border-b border-border bg-card/70 px-4 py-3 sm:px-6">
+        <div className="border-border border-b bg-card/70 px-4 py-3 sm:px-6">
           <div className="inline-flex rounded-lg border border-border bg-background p-1 shadow-sm">
             <button
-              type="button"
-              onClick={() => setMainView("chat")}
-              className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              className={`inline-flex items-center gap-2 rounded-md px-3 py-2 font-medium text-sm transition-colors ${
                 mainView === "chat"
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
               }`}
+              onClick={() => setMainView("chat")}
+              type="button"
             >
               <MessagesSquare className="size-4" />
               Chat
             </button>
             <button
-              type="button"
-              onClick={() => setMainView("sources")}
-              className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              className={`inline-flex items-center gap-2 rounded-md px-3 py-2 font-medium text-sm transition-colors ${
                 mainView === "sources"
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
               }`}
+              onClick={() => setMainView("sources")}
+              type="button"
             >
               <Database className="size-4" />
               Processed sources
@@ -201,30 +211,33 @@ function ChatPageContent({
         {mainView === "chat" ? (
           <>
             <ChatMessageList
-              messages={chat.messages}
-              toolCalls={chat.toolCalls}
-              status={chat.status}
+              enableUserFeedback={appConfig?.enable_user_feedback}
+              feedbackSubmittedMessageIndexes={
+                chat.feedbackSubmittedMessageIndexes
+              }
               maxCitationsToShow={chat.maxCitationsToShow}
-              onRetry={chat.handleRetry}
+              messages={chat.messages}
+              onFeedback={chat.handleFeedback}
               onRecoverDirect={chat.handleRecoverDirect}
               onRecoverRagOnly={chat.handleRecoverRagOnly}
-              onFeedback={chat.handleFeedback}
-              feedbackSubmittedMessageIndexes={chat.feedbackSubmittedMessageIndexes}
-              enableUserFeedback={appConfig?.enable_user_feedback}
+              onRetry={chat.handleRetry}
+              progress={chat.progress}
+              status={chat.status}
+              toolCalls={chat.toolCalls}
             />
             <ChatInputBar
-              input={chat.input}
-              setInput={chat.setInput}
-              onSubmit={chat.handleSubmit}
-              status={chat.status}
-              canStopStream={chat.canStopStream}
               canResumeTurn={chat.canResumeTurn}
-              onStopStream={chat.handleStopStream}
-              onResumeTurn={chat.handleResumeTurn}
+              canStopStream={chat.canStopStream}
               dynamicSuggestions={chat.dynamicSuggestions}
-              suggestionsLoading={chat.suggestionsLoading}
-              pendingSuggestion={chat.pendingSuggestion}
+              input={chat.input}
+              onResumeTurn={chat.handleResumeTurn}
+              onStopStream={chat.handleStopStream}
+              onSubmit={chat.handleSubmit}
               onSuggestionClick={chat.handleSuggestionClick}
+              pendingSuggestion={chat.pendingSuggestion}
+              setInput={chat.setInput}
+              status={chat.status}
+              suggestionsLoading={chat.suggestionsLoading}
             />
           </>
         ) : (

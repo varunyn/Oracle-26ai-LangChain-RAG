@@ -13,12 +13,15 @@ type ConversationContextValue = {
   scrollToBottom: (behavior?: ScrollBehavior) => void;
 };
 
-const ConversationContext = React.createContext<ConversationContextValue | null>(null);
+const ConversationContext =
+  React.createContext<ConversationContextValue | null>(null);
 
 function useConversationContext(): ConversationContextValue {
   const context = React.useContext(ConversationContext);
   if (context == null) {
-    throw new Error("Conversation components must be used within <Conversation>.");
+    throw new Error(
+      "Conversation components must be used within <Conversation>."
+    );
   }
   return context;
 }
@@ -49,7 +52,9 @@ export const Conversation = React.forwardRef<
 
   const updateScrollState = React.useCallback(() => {
     const viewport = viewportRef.current;
-    if (viewport == null) return;
+    if (viewport == null) {
+      return;
+    }
 
     const distanceFromBottom =
       viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
@@ -63,17 +68,21 @@ export const Conversation = React.forwardRef<
   const scrollToBottom = React.useCallback(
     (behavior: ScrollBehavior = "auto") => {
       const viewport = viewportRef.current;
-      if (viewport == null) return;
+      if (viewport == null) {
+        return;
+      }
       viewport.scrollTo({ top: viewport.scrollHeight, behavior });
       isAtBottomRef.current = true;
       setShowScrollButton(false);
     },
-    [],
+    []
   );
 
   React.useEffect(() => {
     const viewport = viewportRef.current;
-    if (viewport == null) return;
+    if (viewport == null) {
+      return;
+    }
 
     const handleScroll = () => {
       updateScrollState();
@@ -90,7 +99,9 @@ export const Conversation = React.forwardRef<
   React.useEffect(() => {
     const viewport = viewportRef.current;
     const content = contentRef.current;
-    if (viewport == null || content == null) return;
+    if (viewport == null || content == null) {
+      return;
+    }
 
     const syncAfterContentChange = () => {
       const shouldStickToBottom =
@@ -131,11 +142,11 @@ export const Conversation = React.forwardRef<
       value={{ contentRef, showScrollButton, scrollToBottom }}
     >
       <div
-        ref={composeRefs(forwardedRef, viewportRef)}
         className={cn(
-          "relative flex min-h-0 w-full flex-1 flex-col overflow-y-auto overscroll-contain",
-          className,
+          "relative flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain",
+          className
         )}
+        ref={composeRefs(forwardedRef, viewportRef)}
         {...props}
       >
         {children}
@@ -147,13 +158,16 @@ export const Conversation = React.forwardRef<
 export const ConversationContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
->(function ConversationContent({ children, className, ...props }, forwardedRef) {
+>(function ConversationContent(
+  { children, className, ...props },
+  forwardedRef
+) {
   const { contentRef } = useConversationContext();
 
   return (
     <div
-      ref={composeRefs(forwardedRef, contentRef)}
       className={cn("flex w-full flex-col", className)}
+      ref={composeRefs(forwardedRef, contentRef)}
       {...props}
     >
       {children}
@@ -166,29 +180,29 @@ export const ConversationScrollButton = React.forwardRef<
   React.ComponentProps<typeof Button>
 >(function ConversationScrollButton(
   { className, onClick, type = "button", ...props },
-  forwardedRef,
+  forwardedRef
 ) {
   const { scrollToBottom, showScrollButton } = useConversationContext();
 
   return (
     <Button
-      ref={forwardedRef}
-      type={type}
-      size="icon"
-      variant="secondary"
       aria-label="Scroll to latest"
+      className={cn(
+        "absolute right-4 bottom-4 z-10 rounded-full border shadow-sm",
+        className
+      )}
       data-testid="chat-scroll-to-bottom"
       hidden={!showScrollButton}
-      className={cn(
-        "absolute bottom-4 right-4 z-10 rounded-full border shadow-sm",
-        className,
-      )}
       onClick={(event) => {
         onClick?.(event);
         if (!event.defaultPrevented) {
           scrollToBottom();
         }
       }}
+      ref={forwardedRef}
+      size="icon"
+      type={type}
+      variant="secondary"
       {...props}
     >
       <ChevronDown className="size-4" />

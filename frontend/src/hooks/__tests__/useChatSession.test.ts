@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { THREAD_ID_STORAGE_KEY } from "@/constants/chat";
-import {
-  createInitialState,
-  loadThreadHistory,
-} from "../useChatSession";
+import { createInitialState, loadThreadHistory } from "../useChatSession";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -28,7 +25,10 @@ describe("loadThreadHistory", () => {
             updated_at: "2026-06-26T10:00:00Z",
             values: {
               messages: [
-                { type: "human", content: "Can you tell me about net payment terms?" },
+                {
+                  type: "human",
+                  content: "Can you tell me about net payment terms?",
+                },
               ],
             },
           },
@@ -57,7 +57,6 @@ describe("loadThreadHistory", () => {
       },
     ]);
   });
-
 });
 
 describe("createInitialState", () => {

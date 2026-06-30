@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { buildLangGraphSubmitPayload, resolveLanggraphApiUrl } from "../stream-config";
+import {
+  buildLangGraphSubmitPayload,
+  resolveLanggraphApiUrl,
+} from "../stream-config";
 
 describe("resolveLanggraphApiUrl", () => {
   afterEach(() => {
@@ -35,21 +38,18 @@ describe("resolveLanggraphApiUrl", () => {
 describe("buildLangGraphSubmitPayload", () => {
   test("splits graph input messages from LangGraph run config", () => {
     expect(
-      buildLangGraphSubmitPayload(
-        "hello",
-        {
-          model: "test-model",
-          thread_id: "thread-1",
-          session_id: "session-1",
-          collection_name: "default",
-          enable_reranker: true,
-          enable_tracing: true,
-          mode: "rag",
-        },
-      ),
+      buildLangGraphSubmitPayload("hello", {
+        model: "test-model",
+        thread_id: "thread-1",
+        session_id: "session-1",
+        collection_name: "default",
+        enable_reranker: true,
+        enable_tracing: true,
+        mode: "rag",
+      })
     ).toEqual({
       input: {
-        messages: [{ role: "user", content: "hello" }],
+        messages: [{ type: "human", content: "hello" }],
       },
       config: {
         configurable: {
