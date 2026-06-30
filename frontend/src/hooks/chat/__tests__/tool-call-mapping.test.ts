@@ -2,11 +2,42 @@ import { describe, expect, it } from "vitest";
 
 import {
   type NativeToolCall,
+  filterToolCallsForChatStatus,
   mergeToolCalls,
   toolCallStateForStatus,
   toolCallsFromMessages,
   toolCallsForMessage,
 } from "../tool-call-mapping";
+
+describe("filterToolCallsForChatStatus", () => {
+  const running: NativeToolCall = {
+    callId: "running-1",
+    id: "running-1",
+    name: "WorkflowIntentDecision",
+    input: { intent: "calculator" },
+    status: "running",
+  };
+  const finished: NativeToolCall = {
+    callId: "finished-1",
+    id: "finished-1",
+    name: "Calculator_linear_regression",
+    input: { data: [[1, 2]] },
+    output: { slope: 1, intercept: 1 },
+    status: "finished",
+  };
+
+  it("keeps running calls while a turn is active", () => {
+    expect(filterToolCallsForChatStatus([running], "streaming")).toEqual([
+      running,
+    ]);
+  });
+
+  it("removes unfinished calls after the turn is ready", () => {
+    expect(filterToolCallsForChatStatus([running, finished], "ready")).toEqual([
+      finished,
+    ]);
+  });
+});
 
 describe("toolCallsForMessage", () => {
   it("reconstructs completed calls from persisted assistant and tool messages", () => {

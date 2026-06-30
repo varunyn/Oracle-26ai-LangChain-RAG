@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toApiUrl } from "@/lib/api-base";
 import { getMessageContent, type SupportedContent } from "@/lib/chat/messages";
 
@@ -12,16 +12,20 @@ function fetchSuggestions(
   lastMessage: string,
   lastUserMessage: string | null,
   selectedModel: string,
+  threadId: string | null,
+  signal: AbortSignal,
   onResult: (suggestions: string[]) => void,
   onDone: () => void
 ): void {
   fetch(toApiUrl("/api/suggestions"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    signal,
     body: JSON.stringify({
       last_message: lastMessage.slice(-4000),
       last_user_message: lastUserMessage?.slice(-2000) ?? undefined,
       model: selectedModel,
+      thread_id: threadId || undefined,
     }),
   })
     .then((r) => r.json())
@@ -39,12 +43,14 @@ export function useSuggestions({
   status,
   sendMessage,
   selectedModel,
+  threadId,
   setFeedbackSubmitted,
 }: {
   messages: MessageLike[];
   status: string;
   sendMessage: (text: string) => void;
   selectedModel: string;
+  threadId: string | null;
   setFeedbackSubmitted: (v: boolean) => void;
 }) {
   const [dynamicSuggestions, setDynamicSuggestions] = useState<string[] | null>(
@@ -55,6 +61,50 @@ export function useSuggestions({
   );
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const lastSuggestionsMessageIdRef = useRef<string | null>(null);
+  const nextRequestIdRef = useRef(0);
+  const activeRequestRef = useRef<{
+    controller: AbortController;
+    id: number;
+  } | null>(null);
+
+  const invalidateSuggestionsRequest = useCallback(() => {
+    activeRequestRef.current?.controller.abort();
+    activeRequestRef.current = null;
+    setSuggestionsLoading(false);
+  }, []);
+
+  const requestSuggestions = useCallback(
+    (lastMessage: string, lastUserMessage: string | null) => {
+      invalidateSuggestionsRequest();
+      const request = {
+        controller: new AbortController(),
+        id: ++nextRequestIdRef.current,
+      };
+      activeRequestRef.current = request;
+      setDynamicSuggestions(null);
+      setSuggestionsLoading(true);
+
+      fetchSuggestions(
+        lastMessage,
+        lastUserMessage,
+        selectedModel,
+        threadId,
+        request.controller.signal,
+        (suggestions) => {
+          if (activeRequestRef.current?.id === request.id) {
+            setDynamicSuggestions(suggestions);
+          }
+        },
+        () => {
+          if (activeRequestRef.current?.id === request.id) {
+            activeRequestRef.current = null;
+            setSuggestionsLoading(false);
+          }
+        }
+      );
+    },
+    [invalidateSuggestionsRequest, selectedModel, threadId]
+  );
 
   const handleSuggestionClick = (suggestion: string) => {
     setFeedbackSubmitted(false);
@@ -79,43 +129,51 @@ export function useSuggestions({
   }, [messages, pendingSuggestion]);
 
   useEffect(() => {
-    if (status === "error") {
+    if (status === "submitted" || status === "streaming") {
+      activeRequestRef.current?.controller.abort();
+      activeRequestRef.current = null;
+      queueMicrotask(() => {
+        setSuggestionsLoading(false);
+        setDynamicSuggestions(null);
+      });
+    } else if (status === "error") {
       queueMicrotask(() => setPendingSuggestion(null));
     }
   }, [status]);
 
   useEffect(() => {
-    if (status !== "ready" || messages.length === 0 || !selectedModel) {
+    if (
+      status !== "ready" ||
+      messages.length === 0 ||
+      !selectedModel ||
+      !threadId
+    ) {
       return;
     }
-    const last = messages[messages.length - 1];
-    if (last?.role !== "assistant") {
+    const last = [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          getMessageContent(message).trim().length > 0
+      );
+    if (!last) {
       return;
     }
-    const text = getMessageContent(last);
-    if (!text?.trim()) {
-      return;
-    }
-    const messageKey = last.id ?? `${messages.length}:${text}`;
+    const text = getMessageContent(last).trim();
+    const messageKey = `${threadId}:${last.id ?? "no-message-id"}:${text}`;
     if (lastSuggestionsMessageIdRef.current === messageKey) {
       return;
     }
     lastSuggestionsMessageIdRef.current = messageKey;
-    queueMicrotask(() => setSuggestionsLoading(true));
     const previousUser = [...messages]
       .reverse()
       .find((msg) => msg.role === "user");
     const previousUserText = previousUser
       ? getMessageContent(previousUser).trim()
       : "";
-    fetchSuggestions(
-      text,
-      previousUserText || null,
-      selectedModel,
-      setDynamicSuggestions,
-      () => setSuggestionsLoading(false)
-    );
-  }, [status, messages, selectedModel]);
+    requestSuggestions(text, previousUserText || null);
+  }, [messages, requestSuggestions, selectedModel, status, threadId]);
 
   const fetchSuggestionsForText = (
     lastMessageText: string,
@@ -124,15 +182,10 @@ export function useSuggestions({
     if (!(lastMessageText?.trim() && selectedModel)) {
       return;
     }
-    setSuggestionsLoading(true);
-    fetchSuggestions(
-      lastMessageText,
-      (lastUserMessage || "").trim() || null,
-      selectedModel,
-      setDynamicSuggestions,
-      () => setSuggestionsLoading(false)
-    );
+    requestSuggestions(lastMessageText, (lastUserMessage || "").trim() || null);
   };
+
+  useEffect(() => invalidateSuggestionsRequest, [invalidateSuggestionsRequest]);
 
   return {
     dynamicSuggestions,

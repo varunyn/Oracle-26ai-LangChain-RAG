@@ -12,6 +12,7 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from src.rag_agent.infrastructure.oci_models import get_llm
 from src.rag_agent.utils.langfuse_tracing import add_langfuse_callbacks, start_langfuse_chat_trace
+from src.rag_agent.utils.logging_config import REQUEST_ID_CTX
 
 router = APIRouter(tags=["suggestions"])
 logger = logging.getLogger(__name__)
@@ -44,6 +45,11 @@ class SuggestionsRequest(BaseModel):
         description="Latest user question to keep suggestions on-topic",
     )
     model: str | None = Field(default=None, description="Model ID; uses default if omitted")
+    thread_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("thread_id", "threadId"),
+        description="Chat thread ID used to group suggestions in Langfuse",
+    )
 
 
 class SuggestionsResponse(BaseModel):
@@ -103,13 +109,40 @@ def _extract_structured_suggestions(result: object) -> list[str]:
     return []
 
 
+def _has_length_finish_reason(value: object) -> bool:
+    """Return whether a provider response contains a length finish reason."""
+    pending = [value]
+    visited: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in visited:
+            continue
+        visited.add(id(current))
+        if isinstance(current, dict):
+            if current.get("finish_reason") == "length":
+                return True
+            pending.extend(current.values())
+            continue
+        for attribute in ("response_metadata", "additional_kwargs"):
+            nested = getattr(current, attribute, None)
+            if nested is not None:
+                pending.append(nested)
+        if isinstance(current, (list, tuple)):
+            pending.extend(current)
+    return False
+
+
 async def _generate_suggestions_async(
     *,
     last_message: str,
     last_user_message: str | None,
     model_id: str | None,
+    thread_id: str | None,
 ) -> list[str]:
     user_context = (last_user_message or "").strip()
+    normalized_thread_id = (thread_id or "").strip() or None
+    request_id = REQUEST_ID_CTX.get()
+    normalized_request_id = request_id if request_id and request_id != "-" else None
     prompt_payload = (
         f"Latest user question:\n{user_context[:2000] or '(none)'}\n\n"
         f"Latest assistant answer:\n{last_message[:4000]}"
@@ -117,7 +150,8 @@ async def _generate_suggestions_async(
     trace_tags = [
         tag
         for tag in (
-            "suggestions",
+            "feature:suggestions",
+            "mode:suggestions",
             f"model:{model_id}" if model_id else None,
         )
         if tag is not None
@@ -125,17 +159,35 @@ async def _generate_suggestions_async(
     llm = get_llm(
         model_id=model_id,
         temperature=0.2,
-        max_tokens=300,
+        max_tokens=128,
     )
     run_config: dict[str, object] = {
-        "configurable": {"mode": "suggestions", "model_id": model_id or ""}
+        "configurable": {"mode": "suggestions", "model_id": model_id or ""},
+        "metadata": {
+            key: value
+            for key, value in {
+                "request_id": normalized_request_id,
+                "thread_id": normalized_thread_id,
+                "mode": "suggestions",
+                "model_id": model_id,
+            }.items()
+            if value
+        },
     }
     with start_langfuse_chat_trace(
         enabled=True,
         mode="suggestions",
         model_id=model_id,
-        session_id=None,
-        thread_id=None,
+        session_id=normalized_thread_id,
+        thread_id=normalized_thread_id,
+        metadata={
+            key: value
+            for key, value in {
+                "request_id": normalized_request_id,
+                "thread_id": normalized_thread_id,
+            }.items()
+            if value
+        },
         input_payload={
             "last_user_message": user_context[:2000] or None,
             "last_message": last_message[:4000],
@@ -145,7 +197,7 @@ async def _generate_suggestions_async(
     ) as langfuse_trace:
         add_langfuse_callbacks(
             run_config,
-            session_id=None,
+            session_id=normalized_thread_id,
             user_id=None,
             trace_context=langfuse_trace.trace_context,
             trace_name="suggestions",
@@ -167,9 +219,26 @@ async def _generate_suggestions_async(
                 config=cast(Any, run_config),
             )
 
-        result = await asyncio.to_thread(_invoke)
+        try:
+            result = await asyncio.to_thread(_invoke)
+        except Exception:
+            langfuse_trace.update_output({"suggestion_count": 0, "outcome": "error"})
+            langfuse_trace.update_metadata({"suggestion_count": "0", "outcome": "error"})
+            raise
         suggestions = _extract_structured_suggestions(result)
-        langfuse_trace.update_output({"suggestion_count": len(suggestions)})
+        outcome = (
+            "truncated"
+            if _has_length_finish_reason(result)
+            else "success"
+            if suggestions
+            else "empty"
+        )
+        langfuse_trace.update_output(
+            {"suggestion_count": len(suggestions), "outcome": outcome}
+        )
+        langfuse_trace.update_metadata(
+            {"suggestion_count": str(len(suggestions)), "outcome": outcome}
+        )
         return suggestions
 
 
@@ -183,6 +252,7 @@ async def post_suggestions(request: SuggestionsRequest) -> SuggestionsResponse:
             last_message=request.last_message.strip(),
             last_user_message=(request.last_user_message or "").strip() or None,
             model_id=request.model,
+            thread_id=request.thread_id,
         )
         return SuggestionsResponse(suggestions=suggestions)
     except Exception as e:  # noqa: BLE001

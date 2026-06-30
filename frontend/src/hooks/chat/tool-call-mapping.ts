@@ -255,6 +255,19 @@ export function mergeToolCalls(
   return [...merged.values()];
 }
 
+export function filterToolCallsForChatStatus(
+  toolCalls: readonly NativeToolCall[],
+  chatStatus: string
+): NativeToolCall[] {
+  if (chatStatus === "submitted" || chatStatus === "streaming") {
+    return [...toolCalls];
+  }
+  return toolCalls.filter((toolCall) => {
+    const renderable = toRenderableToolCall(toolCall);
+    return renderable != null && renderable.status !== "running";
+  });
+}
+
 export function toolCallStateForStatus(
   status: RenderableToolCall["status"] | undefined
 ): ToolState {

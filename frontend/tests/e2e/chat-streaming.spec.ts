@@ -175,6 +175,8 @@ test.describe("chat streaming", () => {
       });
     });
     await page.route("**/api/suggestions", (route) => {
+      const body = route.request().postDataJSON() as { thread_id?: string };
+      expect(body.thread_id).toBe(HISTORY_THREAD_ID);
       route.fulfill({
         status: 200,
         contentType: "application/json",

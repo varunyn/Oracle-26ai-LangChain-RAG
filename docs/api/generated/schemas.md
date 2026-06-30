@@ -180,6 +180,7 @@ Do not edit manually.
 - `last_message`: `string` Last assistant message text to base suggestions on
 - `last_user_message`: `complex` Latest user question to keep suggestions on-topic
 - `model`: `complex` Model ID; uses default if omitted
+- `thread_id`: `complex` Chat thread ID used to group suggestions in Langfuse
 
 ## `SuggestionsResponse`
 

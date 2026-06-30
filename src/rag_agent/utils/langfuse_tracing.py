@@ -179,6 +179,16 @@ class LangfuseChatTrace:
         except Exception as exc:
             logger.debug("Langfuse root trace output update failed: %s", exc)
 
+    def update_metadata(self, metadata: dict[str, str]) -> None:
+        if self._observation is None:
+            return
+        update = getattr(self._observation, "update", None)
+        try:
+            if callable(update):
+                update(metadata=metadata)
+        except Exception as exc:
+            logger.debug("Langfuse root trace metadata update failed: %s", exc)
+
     def update_error(self, exc: BaseException) -> None:
         if self._observation is None:
             return
@@ -317,6 +327,7 @@ def start_langfuse_chat_trace(
     input_payload: object | None = None,
     trace_name: str | None = None,
     tags: list[str] | None = None,
+    metadata: dict[str, str] | None = None,
 ) -> LangfuseChatTrace:
     if enabled is not True:
         return LangfuseChatTrace()
@@ -333,7 +344,7 @@ def start_langfuse_chat_trace(
         )
         if tag is not None
     ]
-    metadata = {
+    trace_metadata = {
         key: value
         for key, value in {
             "mode": mode,
@@ -342,12 +353,14 @@ def start_langfuse_chat_trace(
         }.items()
         if isinstance(value, str) and value
     }
+    if metadata:
+        trace_metadata.update({key: value for key, value in metadata.items() if value})
     try:
         manager = client.start_as_current_observation(
             name=resolved_trace_name,
             as_type="chain",
             input=input_payload,
-            metadata=metadata or None,
+            metadata=trace_metadata or None,
         )
     except Exception as exc:
         _disable(f"root trace setup failed: {exc}")
@@ -355,7 +368,7 @@ def start_langfuse_chat_trace(
     return LangfuseChatTrace(
         trace_name=resolved_trace_name,
         session_id=session_id,
-        metadata=metadata or None,
+        metadata=trace_metadata or None,
         tags=resolved_tags,
         input_payload=input_payload,
         _manager=manager,

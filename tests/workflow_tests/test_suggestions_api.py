@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 import httpx
 from httpx import ASGITransport
@@ -10,6 +11,7 @@ from api.routes import suggestions as suggestions_route
 
 def test_suggestions_endpoint_uses_structured_agent_response(monkeypatch) -> None:
     captured: dict[str, object] = {}
+    llm_kwargs: dict[str, object] = {}
 
     class FakeLLM:
         pass
@@ -37,7 +39,11 @@ def test_suggestions_endpoint_uses_structured_agent_response(monkeypatch) -> Non
         return FakeAgent()
 
     fake_llm = FakeLLM()
-    monkeypatch.setattr(suggestions_route, "get_llm", lambda **kwargs: fake_llm)
+    def fake_get_llm(**kwargs: object) -> FakeLLM:
+        llm_kwargs.update(kwargs)
+        return fake_llm
+
+    monkeypatch.setattr(suggestions_route, "get_llm", fake_get_llm)
     monkeypatch.setattr(suggestions_route, "create_agent", fake_create_agent, raising=False)
 
     async def run() -> None:
@@ -57,6 +63,7 @@ def test_suggestions_endpoint_uses_structured_agent_response(monkeypatch) -> Non
 
     asyncio.run(run())
     assert captured["model"] is fake_llm
+    assert llm_kwargs["max_tokens"] == 128
     assert captured["tools"] == []
     assert isinstance(captured["response_format"], ToolStrategy)
     assert captured["response_format"].schema.__name__ == "FollowUpSuggestions"
@@ -192,3 +199,84 @@ def test_suggestions_endpoint_uses_tool_strategy_without_default_model_retry(
     asyncio.run(run())
     assert llm_calls == ["xai.grok-4"]
     assert agent_models == ["xai.grok-4"]
+
+
+def test_suggestions_trace_carries_thread_request_and_outcome_metadata(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeTrace:
+        trace_context = {"trace_id": "trace-1", "parent_span_id": "span-1"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def update_output(self, output: object) -> None:
+            captured["output"] = output
+
+        def update_metadata(self, metadata: dict[str, str]) -> None:
+            captured["metadata_update"] = metadata
+
+    class FakeAgent:
+        def invoke(self, payload: dict[str, object], config: dict[str, object] | None = None):
+            assert payload
+            assert config
+            return {"structured_response": {"suggestions": ["What comes next?"]}}
+
+    monkeypatch.setattr(suggestions_route, "get_llm", lambda **kwargs: object())
+    monkeypatch.setattr(suggestions_route, "create_agent", lambda **kwargs: FakeAgent())
+    def fake_start_trace(**kwargs):
+        captured["trace"] = kwargs
+        return FakeTrace()
+
+    monkeypatch.setattr(suggestions_route, "start_langfuse_chat_trace", fake_start_trace)
+    monkeypatch.setattr(
+        suggestions_route,
+        "add_langfuse_callbacks",
+        lambda run_config, **kwargs: (
+            captured.setdefault("run_config", run_config),
+            captured.setdefault("callbacks", kwargs),
+        ),
+    )
+    monkeypatch.setattr(
+        suggestions_route,
+        "REQUEST_ID_CTX",
+        SimpleNamespace(get=lambda: "request-1"),
+        raising=False,
+    )
+
+    async def run() -> None:
+        payload = {
+            "last_user_message": "What is the payment policy?",
+            "last_message": "Payment is due within 30 days.",
+            "model": "xai.grok-4",
+            "thread_id": "thread-1",
+        }
+        async with httpx.AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            response = await client.post("/api/suggestions", json=payload)
+            assert response.status_code == 200
+            assert response.json()["suggestions"] == ["What comes next?"]
+
+    asyncio.run(run())
+    trace_kwargs = captured["trace"]
+    callback_kwargs = captured["callbacks"]
+    assert trace_kwargs["session_id"] == "thread-1"
+    assert trace_kwargs["thread_id"] == "thread-1"
+    assert callback_kwargs["session_id"] == "thread-1"
+    assert callback_kwargs["tags"] == [
+        "feature:suggestions",
+        "mode:suggestions",
+        "model:xai.grok-4",
+    ]
+    assert captured["run_config"]["metadata"] == {
+        "request_id": "request-1",
+        "thread_id": "thread-1",
+        "mode": "suggestions",
+        "model_id": "xai.grok-4",
+    }
+    assert captured["output"] == {"suggestion_count": 1, "outcome": "success"}
+    assert captured["metadata_update"] == {"suggestion_count": "1", "outcome": "success"}

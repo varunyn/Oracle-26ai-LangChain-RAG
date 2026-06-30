@@ -10,6 +10,7 @@ import {
   isSameContextUsage,
 } from "@/hooks/chat/references";
 import {
+  filterToolCallsForChatStatus,
   mergeToolCalls,
   toolCallsFromMessages,
   type NativeToolCall,
@@ -59,6 +60,7 @@ export function useChatController({
     stream,
     transportError,
   } = useLangGraphStream();
+  const effectiveThreadId = threadId ?? stream.threadId ?? null;
 
   const streamMessages = stream.messages;
   const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
@@ -66,7 +68,7 @@ export function useChatController({
     () => toolCallsFromMessages(streamMessages as readonly unknown[] | undefined),
     [streamMessages]
   );
-  const visibleToolCalls = useMemo(
+  const mergedToolCalls = useMemo(
     () => mergeToolCalls(replayedToolCalls, streamToolCalls),
     [replayedToolCalls, streamToolCalls]
   );
@@ -81,6 +83,10 @@ export function useChatController({
     rawStreamStatus,
     stream.isLoading,
     stream.error != null || submitError != null || transportError != null
+  );
+  const visibleToolCalls = useMemo(
+    () => filterToolCallsForChatStatus(mergedToolCalls, status),
+    [mergedToolCalls, status]
   );
 
   const messages = useMemo(() => {
@@ -235,6 +241,7 @@ export function useChatController({
     status,
     sendMessage: (text) => sendUserMessage(text),
     selectedModel,
+    threadId: effectiveThreadId,
     setFeedbackSubmitted,
   });
 

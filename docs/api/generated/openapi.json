@@ -541,6 +541,18 @@
             ],
             "description": "Model ID; uses default if omitted",
             "title": "Model"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Chat thread ID used to group suggestions in Langfuse",
+            "title": "Thread Id"
           }
         },
         "required": [

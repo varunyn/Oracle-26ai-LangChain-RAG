@@ -2,6 +2,10 @@
 
 ## 2026-06-30
 
+- Linked suggestions traces to chat sessions and added request/outcome metadata for Langfuse debugging.
+- Fixed suggestions generation for tool-backed responses whose final stream item is not the assistant message.
+- Linked suggestions to the effective LangGraph stream thread for newly created conversations.
+- Reduced the suggestions completion budget to improve follow-up chip latency.
 - Reduced local Langfuse ClickHouse CPU and disk churn by cleaning accumulated system logs and disabling remaining system-log tables.
 
 - Reduced backend Docker build overhead by excluding local/tooling artifacts from the build context, sharing the uv cache across concurrent builds, avoiding recursive ownership conversion for the read-only virtualenv, and removing the redundant post-source dependency sync.
