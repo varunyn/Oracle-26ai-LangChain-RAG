@@ -63,7 +63,7 @@ uv run python scripts/ingest_documents.py --dir ./documents
 
 1. **CLI wrapper**: `scripts/ingest_documents.py` parses command-line arguments and delegates to `src/rag_agent/ingestion.py`.
 2. **Load**: For each supported file, Docling converts the content to Markdown; the file is copied to `uploaded_files/` and metadata (`source_url`, `file_name`, and related fields) is set on each `Document`.
-3. **Prepare chunking**: The app creates RecursiveCharacterTextSplitter (chunk_size=800, chunk_overlap=150) and passes it to OracleVS.
+3. **Prepare chunking**: The app creates a `RecursiveCharacterTextSplitter` using `CHUNK_SIZE` and `CHUNK_OVERLAP` from settings (defaults 4000 and 100) and passes it to OracleVS.
 4. **Store**: A DB connection is opened, the embedding model is obtained via `get_embedding_model()` (same as the RAG app), and `OracleVS.add_documents(..., text_splitter=..., ids=...)` handles stable chunk IDs, chunking, embedding, and insertion into `RAG_KNOWLEDGE_BASE` with COSINE distance.
 
 ## Output

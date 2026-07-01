@@ -17,6 +17,16 @@ def reset_logging_state():
     except Exception:
         pass
 
+    # Shut down any OpenTelemetry logger provider so background export threads stop
+    try:
+        from opentelemetry._logs import get_logger_provider
+
+        provider = get_logger_provider()
+        if hasattr(provider, "shutdown"):
+            provider.shutdown()
+    except Exception:
+        pass
+
     # Remove our handlers/filters from root to avoid cross-test interference
     root = logging.getLogger()
     # Keep a copy to avoid modifying while iterating
@@ -43,7 +53,9 @@ def _isolate_logging():
     reset_logging_state()
 
 
-def test_otlp_handler_installed_and_idempotent():
+def test_otlp_handler_installed_and_idempotent(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(lc, "_is_otel_tracing_enabled", lambda: True)
+
     # First setup
     lc.setup_logging(console=False)
     root = logging.getLogger()
@@ -60,7 +72,21 @@ def test_otlp_handler_installed_and_idempotent():
     assert len(handlers2) == 1
 
 
+def test_no_otlp_handler_when_otel_disabled(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(lc, "_is_otel_tracing_enabled", lambda: False)
+
+    lc.setup_logging(console=False)
+    root = logging.getLogger()
+
+    from opentelemetry.instrumentation.logging.handler import LoggingHandler
+
+    handlers = [h for h in root.handlers if isinstance(h, LoggingHandler)]
+    assert len(handlers) == 0
+
+
 def test_batch_log_record_processor_uses_configured_delay(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(lc, "_is_otel_tracing_enabled", lambda: True)
+
     captured_delays: list[int | None] = []
     original_processor = lc.BatchLogRecordProcessor
 
@@ -78,7 +104,9 @@ def test_batch_log_record_processor_uses_configured_delay(monkeypatch: pytest.Mo
     assert all(delay == 2500 for delay in captured_delays)
 
 
-def test_request_id_injection(caplog: pytest.LogCaptureFixture):
+def test_request_id_injection(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(lc, "_is_otel_tracing_enabled", lambda: True)
+
     lc.setup_logging(console=False)
     lc.set_request_id("req-abc123")
 

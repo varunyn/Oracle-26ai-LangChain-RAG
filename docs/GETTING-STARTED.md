@@ -65,9 +65,9 @@ From the `frontend/` directory:
 cp env.example .env.local
 ```
 
-Set `NEXT_PUBLIC_API_BASE` if your API is not on `http://localhost:2024`.
+Set `NEXT_PUBLIC_API_BASE` and `NEXT_PUBLIC_LANGGRAPH_API_BASE` if your API is not on `http://localhost:2024`.
 
-Docker Compose injects `FASTAPI_BACKEND_URL=http://langgraph:2024` for the frontend container. Local `.env.local` normally only needs the browser-visible `NEXT_PUBLIC_*` settings.
+Docker Compose injects `LANGGRAPH_BACKEND_URL=http://langgraph:2024` for the frontend container. Local `.env.local` normally only needs the browser-visible `NEXT_PUBLIC_*` settings.
 
 ## 4. Create the vector table (once)
 

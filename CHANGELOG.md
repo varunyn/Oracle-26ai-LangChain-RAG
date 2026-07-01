@@ -2,6 +2,13 @@
 
 ## 2026-07-01
 
+- Aligned `.env.example` with `api/settings.py`: updated stale `MODEL_LIST` / `MODEL_DISPLAY_NAMES` examples to the current region-derived defaults, removed non-existent `ENABLE_PERSISTENT_MEMORY` and `MCP_AGENT_MODEL_TIMEOUT_SECONDS`, and added missing `RAG_RETRIEVAL_TOP_K`.
+- Fixed frontend environment documentation: added `FASTAPI_BACKEND_URL` to `frontend/env.example`, documented `NEXT_PUBLIC_LANGGRAPH_API_BASE` / `LANGGRAPH_BACKEND_URL` in `docs/CONFIGURATION.md`, and corrected the Docker Compose server-side URL variable in `docs/GETTING-STARTED.md`.
+- Corrected `docs/DOCUMENT-POPULATION.md` to reference the actual `CHUNK_SIZE` / `CHUNK_OVERLAP` defaults from settings instead of hard-coded outdated values.
+- Removed the stale `MAX_MSGS_IN_HISTORY` reference from `README.md` and corrected the MCP `semantic_search` mode description to match the code (only `vector` is supported).
+- Documented the `LOGGING_ANALYTICS_MIN_LEVEL` setting in `docs/CONFIGURATION.md`.
+- Stopped OTEL export errors in the LangGraph Docker container when observability is disabled by gating OTLP log export on `ENABLE_OTEL_TRACING` in `src/rag_agent/utils/logging_config.py` and defaulting `OTEL_ENABLED=false` for the `langgraph` service in `docker-compose.yml`, since LangGraph auto-enables OTEL when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is present.
+- Fixed the MCP Docker Compose startup failure by auto-creating the shared external `mcp-net` network in `mcp/run-mcp.sh` when it is missing, matching the existing base-image bootstrap behavior.
 - Removed the obsolete `src.rag_agent.core.config` compatibility facade and routed Langfuse, OTEL tracing, and OTEL logging configuration through canonical `api.settings` values and standard environment variables.
 - Simplified chat memory around native LangChain messages by removing the custom dictionary conversion, legacy content repair, and unused message merge helpers.
 - Removed the unused `runtime.agent.normalize_messages` request-shape helper and its obsolete export/tests.

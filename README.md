@@ -312,7 +312,6 @@ uv run python scripts/ingest_documents.py --dir ./documents
 
 - Maintains conversation context (`chat_history` in state)
 - Rewrites retrieval-oriented follow-up questions when needed
-- Configurable history length (`MAX_MSGS_IN_HISTORY`)
 - Thread state is persisted per `thread_id` in the SQLite file configured by
   `LANGGRAPH_SQLITE_PATH`
 
@@ -376,7 +375,7 @@ sequenceDiagram
 The MCP server exposes three main tools:
 
 1. **`semantic_search`** - Search for relevant documents
-   - Parameters: `query`, `top_k`, `collection_name` (optional), `search_mode` (optional: `vector`/`hybrid`/`text`)
+   - Parameters: `query`, `top_k`, `collection_name` (optional), `search_mode` (optional; only `vector` is currently supported)
    - Returns: Relevant document chunks with metadata
 
 2. **`get_collections`** - List available collections

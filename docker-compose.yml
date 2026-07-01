@@ -20,6 +20,10 @@ services:
     environment:
       - VECTOR_WALLET_DIR=/app/wallet
       - OCI_KEY_FILE=/run/secrets/oci_api_key
+      # Centralized OTEL switch for the LangGraph Agent Server runtime. Defaults to false
+      # unless explicitly set, to avoid spamming the logs with failed exports when the
+      # observability stack is not running. Override via .env or set ENABLE_OTEL_TRACING=true.
+      - OTEL_ENABLED=${OTEL_ENABLED:-${ENABLE_OTEL_TRACING:-false}}
       - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://otel-collector:4318/v1/logs
       - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://otel-collector:4318/v1/traces
       - LANGFUSE_HOST=http://langfuse-web:3000

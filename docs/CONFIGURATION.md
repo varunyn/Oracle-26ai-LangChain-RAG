@@ -173,9 +173,12 @@ The frontend gets most config from the backend via `GET /api/config`. These opti
 | Variable                        | Default                 | Description                                                          |
 | ------------------------------- | ----------------------- | -------------------------------------------------------------------- |
 | `NEXT_PUBLIC_API_BASE`          | `http://localhost:2024` | Browser-visible product API base URL for direct frontend API calls.  |
+| `NEXT_PUBLIC_LANGGRAPH_API_BASE`| `http://localhost:2024` | Browser-visible LangGraph Agent Server base URL for chat streams.    |
+| `LANGGRAPH_BACKEND_URL`         | `http://localhost:2024` | Server-side LangGraph Agent Server base used by Next.js rewrites and SSR fallbacks. |
+| `FASTAPI_BACKEND_URL`           | `http://localhost:2024` | Server-side product API base used by Next.js `/api/*` rewrites and server-side bootstrap calls. |
 | `NEXT_PUBLIC_DEFAULT_FLOW_MODE` | `mixed`                 | Default flow when the app loads: `rag`, `mcp`, `mixed`, or `direct`. |
 
-`FASTAPI_BACKEND_URL` is still supported for server-side config/bootstrap fetches when the Next.js server cannot use the browser-visible API base. The Docker Compose frontend service sets it to `http://langgraph:2024`; local `frontend/.env.local` usually does not need it.
+In Docker, `LANGGRAPH_BACKEND_URL` is typically set to `http://langgraph:2024` so server-side rewrites reach the LangGraph service, while `NEXT_PUBLIC_*` values remain browser-visible `localhost:2024` URLs. Local `frontend/.env.local` usually only needs the `NEXT_PUBLIC_*` settings.
 
 ### Default model (browser)
 
@@ -301,6 +304,7 @@ See [OBSERVABILITY.md](OBSERVABILITY.md) and [OBSERVABILITY_ROUTING.md](OBSERVAB
 | `LOGGING_ANALYTICS_RESOURCE_CATEGORY` | `rag-api` | Resource category metadata.         |
 | `LOGGING_ANALYTICS_META_PROPERTIES`   | —         | Optional extra metadata properties. |
 | `LOGGING_ANALYTICS_CONSOLE_URL`       | —         | Optional console link shown on the Settings page. |
+| `LOGGING_ANALYTICS_MIN_LEVEL`         | `WARNING` | Minimum log level sent to OCI Logging Analytics when level-based filtering is used. |
 
 ---
 

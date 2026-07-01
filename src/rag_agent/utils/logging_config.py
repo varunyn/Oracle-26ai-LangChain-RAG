@@ -317,6 +317,13 @@ def _load_settings_bool(name: str) -> bool:
         return False
 
 
+def _is_otel_tracing_enabled() -> bool:
+    """Return True when OTLP tracing/logging export is enabled via settings or env."""
+    return _load_settings_bool("ENABLE_OTEL_TRACING") or _is_truthy(
+        os.getenv("ENABLE_OTEL_TRACING")
+    )
+
+
 def _min_severity_from_level_name(name: str) -> int:
     """Map level name to OTel severity_number (DEBUG=5, INFO=9, WARNING=13, ERROR=17)."""
     level_map = {
@@ -581,10 +588,12 @@ def _compute_logs_batch_delay_millis() -> int:
 
 def setup_logging(console: bool = True) -> None:
     """
-    Configure application logging to export via OTLP HTTP Logs and optional console stream.
+    Configure application logging.
 
-    - Adds a single OpenTelemetry logging instrumentation handler bound to a LoggerProvider with a
-      BatchLogRecordProcessor + OTLP HTTP exporter
+    When ENABLE_OTEL_TRACING is true, logs are exported via OTLP HTTP Logs to the
+    configured collector endpoint. Otherwise, only console logging (if requested)
+    and request-id injection are set up.
+
     - Adds RequestIdFilter at root-logger level so every record carries request_id
     - Ensures uvicorn loggers propagate to root and don't attach their own handlers
     - Safe to call multiple times; only first call applies
@@ -592,6 +601,8 @@ def setup_logging(console: bool = True) -> None:
     global _configured
     if _configured:
         return
+
+    otel_enabled = _is_otel_tracing_enabled()
 
     # Suppress OCI SDK and urllib3 so their HTTP/DEBUG logs are not captured and re-exported to OCI.
     for _logger_name in (
@@ -605,78 +616,6 @@ def setup_logging(console: bool = True) -> None:
     ):
         logging.getLogger(_logger_name).setLevel(logging.WARNING)
 
-    # Build resource (service.name can be overridden via env)
-    service_name = os.getenv("OTEL_SERVICE_NAME", "rag-api")
-    attribute_mapping = [
-        {"attributeName": "event_type", "laFieldName": "Event Type"},
-        {"attributeName": "route", "laFieldName": "Route"},
-        {"attributeName": "answer_source", "laFieldName": "Answer Source"},
-        {"attributeName": "answer_len", "laFieldName": "Answer Length"},
-        {"attributeName": "standalone_len", "laFieldName": "Standalone Length"},
-        {"attributeName": "mcp_used", "laFieldName": "MCP Used"},
-        {"attributeName": "mcp_tool_count", "laFieldName": "MCP Tool Count"},
-        {"attributeName": "mcp_tool_names", "laFieldName": "MCP Tool Names"},
-        {"attributeName": "mode", "laFieldName": "Mode"},
-        {"attributeName": "model_id", "laFieldName": "Model ID"},
-        {"attributeName": "session_id", "laFieldName": "Session ID"},
-        {"attributeName": "thread_id", "laFieldName": "Thread ID"},
-        {"attributeName": "input_tokens", "laFieldName": "Input Tokens"},
-        {"attributeName": "output_tokens", "laFieldName": "Output Tokens"},
-        {"attributeName": "total_tokens", "laFieldName": "Total Tokens"},
-        {"attributeName": "cost_usd", "laFieldName": "Cost USD"},
-        {"attributeName": "pricing_basis", "laFieldName": "Pricing Basis"},
-        {"attributeName": "node_name", "laFieldName": "Node Name"},
-        {"attributeName": "duration_ms", "laFieldName": "Duration MS"},
-        {"attributeName": "error", "laFieldName": "Error"},
-    ]
-    resource = Resource.create(
-        {
-            "service.name": service_name,
-            "oci_la_attribute_mapping": json.dumps(attribute_mapping),
-        }
-    )
-
-    # Create logger provider and exporter (fail-open if exporter init fails)
-    provider = SDKLoggerProvider(resource=resource)
-
-    exporters: list[LogRecordExporter] = []
-    exporter_descriptions: list[str] = []
-    logs_endpoint = _compute_logs_endpoint()
-    # Default endpoint: use 30s timeout so collector→Loki pipeline can complete (Loki can respond in ~15s); when no collector runs, fail after 30s.
-    default_logs = "http://localhost:4318/v1/logs"
-    otlp_timeout = 30.0 if logs_endpoint == default_logs else None
-    try:
-        exporters.append(OTLPLogExporter(endpoint=logs_endpoint, timeout=otlp_timeout))
-        desc = f"OTLP ({logs_endpoint}"
-        if otlp_timeout is not None:
-            desc += f", timeout={otlp_timeout}s"
-        desc += ")"
-        exporter_descriptions.append(desc)
-    except Exception as exc:  # Fail-open: continue without OTLP exporter
-        logger.warning("OTLP log exporter init failed: %s", exc)
-
-    la_settings = _get_logging_analytics_settings()
-    if la_settings:
-        try:
-            exporters.append(LoggingAnalyticsExporter(la_settings, service_name))
-            exporter_descriptions.append(
-                f"OCI Logging Analytics (namespace={la_settings.namespace})"
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to enable Logging Analytics exporter: %s", exc)
-
-    if not exporters:
-        logger.warning("No log exporters configured; console-only logging active")
-
-    batch_delay_millis = _compute_logs_batch_delay_millis()
-    for exp in exporters:
-        provider.add_log_record_processor(
-            BatchLogRecordProcessor(exp, schedule_delay_millis=batch_delay_millis)
-        )
-
-    # Register provider globally so OpenTelemetry-aware libs can find it
-    set_logger_provider(provider)
-
     # Root logger configuration
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
@@ -686,17 +625,91 @@ def setup_logging(console: bool = True) -> None:
     if not any(isinstance(f, RequestIdFilter) for f in getattr(root_logger, "filters", [])):
         root_logger.addFilter(RequestIdFilter())
 
-    # Add a single LoggingHandler (bridges stdlib logging -> OTel Logs)
-    if not any(isinstance(h, LoggingHandler) for h in root_logger.handlers):
-        LoggingInstrumentor().instrument(
-            set_logging_format=False,
-            log_level=logging.NOTSET,
-            logger_provider=provider,
+    exporters: list[LogRecordExporter] = []
+    exporter_descriptions: list[str] = []
+
+    if otel_enabled:
+        # Build resource (service.name can be overridden via env)
+        service_name = os.getenv("OTEL_SERVICE_NAME", "rag-api")
+        attribute_mapping = [
+            {"attributeName": "event_type", "laFieldName": "Event Type"},
+            {"attributeName": "route", "laFieldName": "Route"},
+            {"attributeName": "answer_source", "laFieldName": "Answer Source"},
+            {"attributeName": "answer_len", "laFieldName": "Answer Length"},
+            {"attributeName": "standalone_len", "laFieldName": "Standalone Length"},
+            {"attributeName": "mcp_used", "laFieldName": "MCP Used"},
+            {"attributeName": "mcp_tool_count", "laFieldName": "MCP Tool Count"},
+            {"attributeName": "mcp_tool_names", "laFieldName": "MCP Tool Names"},
+            {"attributeName": "mode", "laFieldName": "Mode"},
+            {"attributeName": "model_id", "laFieldName": "Model ID"},
+            {"attributeName": "session_id", "laFieldName": "Session ID"},
+            {"attributeName": "thread_id", "laFieldName": "Thread ID"},
+            {"attributeName": "input_tokens", "laFieldName": "Input Tokens"},
+            {"attributeName": "output_tokens", "laFieldName": "Output Tokens"},
+            {"attributeName": "total_tokens", "laFieldName": "Total Tokens"},
+            {"attributeName": "cost_usd", "laFieldName": "Cost USD"},
+            {"attributeName": "pricing_basis", "laFieldName": "Pricing Basis"},
+            {"attributeName": "node_name", "laFieldName": "Node Name"},
+            {"attributeName": "duration_ms", "laFieldName": "Duration MS"},
+            {"attributeName": "error", "laFieldName": "Error"},
+        ]
+        resource = Resource.create(
+            {
+                "service.name": service_name,
+                "oci_la_attribute_mapping": json.dumps(attribute_mapping),
+            }
         )
-    for otel_handler in (h for h in root_logger.handlers if isinstance(h, LoggingHandler)):
-        # The filter ensures record has request_id attribute before export
-        if not any(isinstance(f, RequestIdFilter) for f in getattr(otel_handler, "filters", [])):
-            otel_handler.addFilter(RequestIdFilter())
+
+        # Create logger provider and exporter (fail-open if exporter init fails)
+        provider = SDKLoggerProvider(resource=resource)
+
+        logs_endpoint = _compute_logs_endpoint()
+        # Default endpoint: use 30s timeout so collector→Loki pipeline can complete (Loki can respond in ~15s); when no collector runs, fail after 30s.
+        default_logs = "http://localhost:4318/v1/logs"
+        otlp_timeout = 30.0 if logs_endpoint == default_logs else None
+        try:
+            exporters.append(OTLPLogExporter(endpoint=logs_endpoint, timeout=otlp_timeout))
+            desc = f"OTLP ({logs_endpoint}"
+            if otlp_timeout is not None:
+                desc += f", timeout={otlp_timeout}s"
+            desc += ")"
+            exporter_descriptions.append(desc)
+        except Exception as exc:  # Fail-open: continue without OTLP exporter
+            logger.warning("OTLP log exporter init failed: %s", exc)
+
+        la_settings = _get_logging_analytics_settings()
+        if la_settings:
+            try:
+                exporters.append(LoggingAnalyticsExporter(la_settings, service_name))
+                exporter_descriptions.append(
+                    f"OCI Logging Analytics (namespace={la_settings.namespace})"
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to enable Logging Analytics exporter: %s", exc)
+
+        batch_delay_millis = _compute_logs_batch_delay_millis()
+        for exp in exporters:
+            provider.add_log_record_processor(
+                BatchLogRecordProcessor(exp, schedule_delay_millis=batch_delay_millis)
+            )
+
+        # Register provider globally so OpenTelemetry-aware libs can find it
+        set_logger_provider(provider)
+
+        # Add a single LoggingHandler (bridges stdlib logging -> OTel Logs)
+        if not any(isinstance(h, LoggingHandler) for h in root_logger.handlers):
+            LoggingInstrumentor().instrument(
+                set_logging_format=False,
+                log_level=logging.NOTSET,
+                logger_provider=provider,
+            )
+        for otel_handler in (h for h in root_logger.handlers if isinstance(h, LoggingHandler)):
+            # The filter ensures record has request_id attribute before export
+            if not any(isinstance(f, RequestIdFilter) for f in getattr(otel_handler, "filters", [])):
+                otel_handler.addFilter(RequestIdFilter())
+
+    if not exporters:
+        logger.warning("No log exporters configured; console-only logging active")
 
     # Optional console stream for local visibility
     if console and not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):
@@ -709,10 +722,6 @@ def setup_logging(console: bool = True) -> None:
         )
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
-
-    # Log exporter summary so it appears on console (handler was just added above)
-    if exporters:
-        logger.info("Log exporters: %s", "; ".join(exporter_descriptions))
 
     # Ensure uvicorn and uvicorn.access loggers propagate to root so our format/handlers are used
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
