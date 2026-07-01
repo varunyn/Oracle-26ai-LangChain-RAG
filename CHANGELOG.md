@@ -3,6 +3,7 @@
 ## 2026-07-01
 
 - Simplified chat memory around native LangChain messages by removing the custom dictionary conversion, legacy content repair, and unused message merge helpers.
+- Removed the unused `runtime.agent.normalize_messages` request-shape helper and its obsolete export/tests.
 - Removed the legacy `run_mixed_node` compatibility wrapper and migrated its tests to the active `mixed_mcp` and `mixed_compose` graph nodes.
 - Removed Langfuse payload masking and attribute truncation so local traces retain complete inputs, outputs, tool schemas, and reasoning data.
 - Removed unused Langfuse child-observation and generation-outcome helper abstractions.
