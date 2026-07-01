@@ -167,7 +167,7 @@ function readPhaseSnapshot(): Phase {
 
 function subscribeToPhase(onStoreChange: () => void): () => void {
   if (typeof window === "undefined") {
-    return () => {};
+    return () => undefined;
   }
 
   const handleChange = () => {
@@ -256,10 +256,10 @@ export default function NativeToolCallsE2EPage(): React.ReactElement {
             feedbackSubmittedMessageIndexes={new Set<number>()}
             maxCitationsToShow={10}
             messages={fixture.messages}
-            onFeedback={() => {}}
-            onRecoverDirect={() => {}}
-            onRecoverRagOnly={() => {}}
-            onRetry={() => {}}
+            onFeedback={() => undefined}
+            onRecoverDirect={() => undefined}
+            onRecoverRagOnly={() => undefined}
+            onRetry={() => undefined}
             status={fixture.status}
             toolCalls={fixture.toolCalls}
           />

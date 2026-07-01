@@ -145,7 +145,7 @@ function ChatPageContent({
       return;
     }
     void onRefreshThreadHistory(stream.client).catch(() => undefined);
-  }, [chat.status, onRefreshThreadHistory, stream.client, threadId]);
+  }, [chat.status, onRefreshThreadHistory, stream.client]);
 
   return (
     <div
