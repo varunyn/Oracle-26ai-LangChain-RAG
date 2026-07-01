@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 
 from langchain_core.callbacks import AsyncCallbackManager, BaseCallbackHandler
 
@@ -187,41 +188,14 @@ def test_get_langfuse_client_passes_sample_rate_when_configured(monkeypatch: Any
             LANGFUSE_ENVIRONMENT=None,
             LANGFUSE_RELEASE=None,
             LANGFUSE_SAMPLE_RATE=0.25,
-            LANGFUSE_MAX_ATTRIBUTE_CHARS=12_000,
         ),
     )
     langfuse_tracing.set_langfuse_client(None, disabled=False)
 
     assert langfuse_tracing.get_langfuse_client() is not None
     assert captured["sample_rate"] == 0.25
-    assert callable(captured["mask_otel_spans"])
-
-
-def test_langfuse_otel_mask_truncates_large_attributes() -> None:
-    mask = langfuse_tracing._build_langfuse_otel_mask(10)
-    assert callable(mask)
-
-    identifier = object()
-    params = SimpleNamespace(
-        spans={
-            identifier: SimpleNamespace(
-                attributes={
-                    "short": "small",
-                    "large": "abcdefghijklmnopqrstuvwxyz",
-                    "large_list": ["short", "abcdefghijklmnopqrstuvwxyz"],
-                }
-            )
-        }
-    )
-
-    result = mask(params=params)
-
-    patch = result.span_patches[identifier]
-    assert patch.set_attributes["large"].startswith("abcdefghij... [truncated")
-    assert patch.set_attributes["large_list"][0] == "short"
-    assert patch.set_attributes["large_list"][1].startswith("abcdefghij... [truncated")
-    assert patch.set_attributes["rag_app.langfuse_payload_truncated"] is True
-    assert patch.set_attributes["rag_app.langfuse_max_attribute_chars"] == 10
+    assert "mask" not in captured
+    assert "mask_otel_spans" not in captured
 
 
 def test_get_langfuse_client_prefers_environment_over_settings(monkeypatch: Any) -> None:
@@ -247,7 +221,6 @@ def test_get_langfuse_client_prefers_environment_over_settings(monkeypatch: Any)
             LANGFUSE_ENVIRONMENT=None,
             LANGFUSE_RELEASE=None,
             LANGFUSE_SAMPLE_RATE=None,
-            LANGFUSE_MAX_ATTRIBUTE_CHARS=12_000,
         ),
     )
     langfuse_tracing.set_langfuse_client(None, disabled=False)
@@ -306,6 +279,11 @@ def test_start_langfuse_chat_trace_propagates_trace_attributes(monkeypatch: Any)
 
     monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
     monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
+    monkeypatch.setattr(
+        langfuse_tracing,
+        "get_settings",
+        lambda: SimpleNamespace(LANGFUSE_RELEASE=None),
+    )
     monkeypatch.setattr(langfuse_tracing, "LangfusePropagateAttributes", _propagate_attributes)
     langfuse_tracing.set_langfuse_client(_Client(), disabled=False)
 
@@ -321,21 +299,52 @@ def test_start_langfuse_chat_trace_propagates_trace_attributes(monkeypatch: Any)
         trace.update_output({"answer": "hi"})
 
     assert captured["observation_kwargs"] == {
-        "name": "chat-rag",
+        "name": "chat.request",
         "as_type": "chain",
         "input": {"question": "hello"},
-        "metadata": {"mode": "rag", "model_id": "model-a", "thread_id": "thread-a"},
+        "metadata": {
+            "mode": "rag",
+            "model_id": "model-a",
+            "thread_id": "thread-a",
+            "session_id": "session-a",
+        },
     }
     assert captured["propagation_kwargs"] == {
-        "trace_name": "chat-rag",
+        "trace_name": "chat.request",
         "session_id": "session-a",
-        "metadata": {"mode": "rag", "model_id": "model-a", "thread_id": "thread-a"},
+        "metadata": {
+            "mode": "rag",
+            "model_id": "model-a",
+            "thread_id": "thread-a",
+            "session_id": "session-a",
+        },
         "tags": ["chat", "mode:rag", "model:model-a"],
     }
     assert captured["propagation_entered"] is True
     assert captured["propagation_exited"] is True
     assert captured["observation_exited"] is True
     assert captured["observation_update"] == {"output": {"answer": "hi"}}
+
+
+def test_update_generation_usage_sends_usage_and_cost_details() -> None:
+    run_id = uuid4()
+    captured: dict[str, Any] = {}
+
+    class _Generation:
+        def update(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    handler = SimpleNamespace(runs={run_id: _Generation()})
+    langfuse_tracing._update_generation_usage(
+        handler,
+        run_id,
+        {"input": 1_000, "output": 500, "total": 1_500},
+        "xai.grok-4-fast",
+    )
+
+    assert captured["usage_details"] == {"input": 1_000, "output": 500, "total": 1_500}
+    assert captured["cost_details"]["total"] > 0
+    assert captured["metadata"]["pricing_basis"] == "token"
 
 
 def test_safe_flush_no_op_when_disabled(monkeypatch: Any) -> None:

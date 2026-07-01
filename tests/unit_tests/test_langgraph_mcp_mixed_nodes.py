@@ -61,7 +61,6 @@ def test_mcp_node_runs_agent_turn_without_chat_runtime_service(monkeypatch) -> N
         return FakeMcpTurn()
 
     monkeypatch.setattr(mcp, "run_mcp_agent_turn", fake_run_mcp_agent_turn)
-    monkeypatch.setattr(mcp, "start_langfuse_chat_trace", lambda **kwargs: _FakeTraceContextManager())
     monkeypatch.setattr(mcp, "get_llm", lambda model_id=None: SimpleNamespace(model_id="fake-mcp-model"))
 
     runtime = SimpleNamespace(
@@ -128,7 +127,6 @@ def test_mixed_node_runs_agent_turn_without_chat_runtime_service(monkeypatch) ->
         raise AssertionError("mixed node should not synthesize after an agent final answer")
 
     monkeypatch.setattr(mixed, "run_mcp_agent_turn", fake_run_mcp_agent_turn)
-    monkeypatch.setattr(mixed, "start_langfuse_chat_trace", lambda **kwargs: _FakeTraceContextManager())
     monkeypatch.setattr(mixed, "get_llm", lambda model_id=None: SimpleNamespace(model_id="fake-mixed-model"))
     monkeypatch.setattr(
         mixed.rag_runtime,
@@ -227,7 +225,6 @@ def test_mixed_node_synthesizes_when_tool_loop_has_no_final_answer(monkeypatch) 
         return "Synthesized answer", None, "fake-mixed-model"
 
     monkeypatch.setattr(mixed, "run_mcp_agent_turn", fake_run_mcp_agent_turn)
-    monkeypatch.setattr(mixed, "start_langfuse_chat_trace", lambda **kwargs: _FakeTraceContextManager())
     monkeypatch.setattr(mixed, "get_llm", lambda model_id=None: SimpleNamespace(model_id="fake-mixed-model"))
     monkeypatch.setattr(
         mixed.rag_runtime,
@@ -313,7 +310,6 @@ def test_mixed_node_preserves_native_tool_messages_only_for_mcp_turns(monkeypatc
     async def fake_synthesize_rag_answer(**kwargs: object) -> tuple[str, None, str]:
         raise AssertionError("mixed node should not synthesize after an agent final answer")
 
-    monkeypatch.setattr(mixed, "start_langfuse_chat_trace", lambda **kwargs: _FakeTraceContextManager())
     monkeypatch.setattr(mixed, "get_llm", lambda model_id=None: SimpleNamespace(model_id="fake-mixed-model"))
     monkeypatch.setattr(
         mixed.rag_runtime,
@@ -389,7 +385,6 @@ def test_mixed_node_does_not_emit_tool_messages_for_retrieval_only(monkeypatch) 
         _ = kwargs
         return "Net 30 days.", None, "fake-rag-model"
 
-    monkeypatch.setattr(rag, "start_langfuse_chat_trace", lambda **kwargs: _FakeTraceContextManager())
     monkeypatch.setattr(rag, "get_thread_id", lambda runtime: "thread-1")
     monkeypatch.setattr(rag, "build_run_config", lambda **kwargs: {})
     monkeypatch.setattr(rag, "contextualize_question", fake_contextualize_question)
@@ -418,6 +413,7 @@ def test_mixed_node_does_not_emit_tool_messages_for_retrieval_only(monkeypatch) 
     result = asyncio.run(
         rag.run_rag_node(
             {"messages": [HumanMessage(content="What are the terms?")]},
+            {},
             runtime,  # type: ignore[arg-type]
         )
     )

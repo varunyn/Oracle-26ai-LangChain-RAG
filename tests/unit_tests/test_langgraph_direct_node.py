@@ -39,11 +39,6 @@ def test_direct_node_invokes_llm_without_chat_runtime_service(monkeypatch) -> No
         "emit_usage_observability",
         lambda **kwargs: (None, None),
     )
-    monkeypatch.setattr(
-        direct,
-        "start_langfuse_chat_trace",
-        lambda **kwargs: _FakeTraceContextManager(),
-    )
 
     runtime = SimpleNamespace(
         context={"model_id": "model-1", "session_id": "session-1", "enable_tracing": False},
@@ -53,6 +48,7 @@ def test_direct_node_invokes_llm_without_chat_runtime_service(monkeypatch) -> No
     result = asyncio.run(
         direct.run_direct_node(
             {"messages": [HumanMessage(content="Hello")]},
+            {},
             runtime,  # type: ignore[arg-type]
         )
     )
@@ -84,11 +80,6 @@ def test_direct_node_accepts_native_human_type_dict_messages(monkeypatch) -> Non
         "emit_usage_observability",
         lambda **kwargs: (None, None),
     )
-    monkeypatch.setattr(
-        direct,
-        "start_langfuse_chat_trace",
-        lambda **kwargs: _FakeTraceContextManager(),
-    )
 
     runtime = SimpleNamespace(
         context={"model_id": "model-1", "session_id": "session-1", "enable_tracing": False},
@@ -98,6 +89,7 @@ def test_direct_node_accepts_native_human_type_dict_messages(monkeypatch) -> Non
     result = asyncio.run(
         direct.run_direct_node(
             {"messages": [{"type": "human", "content": "Hello", "id": "user-1"}]},
+            {},
             runtime,  # type: ignore[arg-type]
         )
     )

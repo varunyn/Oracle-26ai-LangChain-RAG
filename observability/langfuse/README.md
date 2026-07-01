@@ -41,10 +41,9 @@ Keep SDK trace payloads small for local development. The application defaults in
 
 ```bash
 LANGFUSE_SAMPLE_RATE=0.25
-LANGFUSE_MAX_ATTRIBUTE_CHARS=12000
 ```
 
-Set `LANGFUSE_SAMPLE_RATE=1.0` only when you need every run. Increase `LANGFUSE_MAX_ATTRIBUTE_CHARS` only when you need full prompt/tool/result payloads in Langfuse.
+Set `LANGFUSE_SAMPLE_RATE=1.0` only when you need every run.
 
 To stop everything:
 

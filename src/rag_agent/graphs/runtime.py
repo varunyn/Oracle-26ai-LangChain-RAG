@@ -6,8 +6,9 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.runtime import Runtime
 
+from api.settings import get_settings
 from src.rag_agent.graphs.state import ChatGraphContext
-from src.rag_agent.utils.langfuse_tracing import add_langfuse_callbacks
+from src.rag_agent.utils.logging_config import get_request_id
 
 
 def get_runtime_context(runtime: Runtime[ChatGraphContext]) -> ChatGraphContext:
@@ -24,6 +25,15 @@ def get_thread_id(runtime: Runtime[ChatGraphContext]) -> str | None:
     return None
 
 
+def _clean_optional_value(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized or normalized.lower() in {"none", "null", "-"}:
+        return None
+    return normalized
+
+
 def build_run_config(
     *,
     parent_config: RunnableConfig | None = None,
@@ -33,8 +43,16 @@ def build_run_config(
     session_id: str | None,
     enable_tracing: bool | None,
     mcp_server_keys: list[str] | None,
-    trace_context: dict[str, object] | None = None,
+    request_id: str | None = None,
+    user_id: str | None = None,
+    release: str | None = None,
 ) -> RunnableConfig:
+    resolved_request_id = request_id or get_request_id()
+    if resolved_request_id == "-":
+        resolved_request_id = None
+    resolved_release = _clean_optional_value(
+        release or getattr(get_settings(), "LANGFUSE_RELEASE", None)
+    )
     run_config: dict[str, Any] = dict(parent_config or {})
     parent_configurable = run_config.get("configurable")
     configurable: dict[str, Any] = (
@@ -50,28 +68,29 @@ def build_run_config(
         configurable["model_id"] = model_id
     if session_id:
         configurable["session_id"] = session_id
+    if resolved_request_id:
+        configurable["request_id"] = resolved_request_id
+    if user_id:
+        configurable["user_id"] = user_id
+    if resolved_release:
+        configurable["release"] = resolved_release
     if mcp_server_keys:
         configurable["mcp_server_keys"] = mcp_server_keys
-    if trace_context:
-        configurable["langfuse_trace_context"] = trace_context
     run_config["configurable"] = configurable
-    if enable_tracing is True:
-        add_langfuse_callbacks(
-            run_config,
-            session_id=session_id,
-            user_id=None,
-            trace_context=cast(dict[str, str] | None, trace_context),
-            trace_name=f"chat-{mode}",
-            tags=[
-                tag
-                for tag in (
-                    "chat",
-                    f"mode:{mode}",
-                    f"model:{model_id}" if model_id else None,
-                )
-                if tag is not None
-            ],
-        )
+    metadata = dict(run_config.get("metadata") or {})
+    for key, value in {
+        "request_id": resolved_request_id,
+        "thread_id": thread_id,
+        "session_id": session_id,
+        "user_id": user_id,
+        "mode": mode,
+        "model_id": model_id,
+        "release": resolved_release,
+    }.items():
+        if isinstance(value, str) and value.strip():
+            metadata[key] = value.strip()
+    if metadata:
+        run_config["metadata"] = metadata
     return cast(RunnableConfig, run_config)
 
 
@@ -86,6 +105,7 @@ def references_from_result(result: dict[str, object], *, mode: str) -> dict[str,
         "mcp_used",
         "mcp_tools_used",
         "mcp_tool_invocations",
+        "outcome",
         "error",
     ):
         value = result.get(key)

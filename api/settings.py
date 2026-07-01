@@ -301,7 +301,6 @@ class Settings(BaseSettings):
     LANGFUSE_ENVIRONMENT: str | None = None
     LANGFUSE_RELEASE: str | None = None
     LANGFUSE_SAMPLE_RATE: float | None = Field(default=None, ge=0.0, le=1.0)
-    LANGFUSE_MAX_ATTRIBUTE_CHARS: int = Field(default=12_000, ge=0)
 
     # =============================================================================
     # Local Docker stacks (optional helper)

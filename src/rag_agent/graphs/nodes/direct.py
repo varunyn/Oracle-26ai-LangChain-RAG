@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from langchain_core.runnables.config import RunnableConfig
 from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.nodes.references import (
@@ -18,7 +19,6 @@ from src.rag_agent.runtime.memory import (
     to_langchain_messages,
 )
 from src.rag_agent.runtime.observability import emit_usage_observability, extract_usage
-from src.rag_agent.utils.langfuse_tracing import start_langfuse_chat_trace
 
 
 def get_llm(model_id: str | None = None) -> Any:
@@ -26,65 +26,52 @@ def get_llm(model_id: str | None = None) -> Any:
 
 
 async def run_direct_node(
-    state: ChatGraphState, runtime: Runtime[ChatGraphContext]
+    state: ChatGraphState,
+    config: RunnableConfig,
+    runtime: Runtime[ChatGraphContext],
 ) -> ChatGraphState:
     context = get_runtime_context(runtime)
     thread_id = get_thread_id(runtime)
     messages = langchain_messages_to_dicts(state["messages"])
     try:
-        with start_langfuse_chat_trace(
-            enabled=cast(bool | None, context.get("enable_tracing")),
+        history = to_langchain_messages(messages)
+        latest_question = latest_user_message(messages)
+
+        run_cfg = build_run_config(
+            parent_config=config,
+            thread_id=thread_id,
             mode="direct",
             model_id=cast(str | None, context.get("model_id")),
             session_id=cast(str | None, context.get("session_id")),
+            enable_tracing=cast(bool | None, context.get("enable_tracing")),
+            mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
+        )
+        llm = get_llm(model_id=cast(str | None, context.get("model_id")))
+        response = await ainvoke_llm_with_optional_config(llm, history, run_cfg)
+        usage = extract_usage(response)
+        resolved_model_id = cast(str | None, getattr(llm, "model_id", None)) or cast(
+            str | None, context.get("model_id")
+        )
+        emitted_usage, cost_usd = emit_usage_observability(
+            mode="direct",
+            model_id=resolved_model_id,
+            session_id=cast(str | None, context.get("session_id")),
             thread_id=thread_id,
-            input_payload={"question": latest_user_message(messages)} if messages else None,
-        ) as langfuse_trace:
-            history: list[Any] = []
-            history = to_langchain_messages(messages)
-            latest_question = latest_user_message(messages)
-
-            run_cfg = build_run_config(
-                thread_id=thread_id,
-                mode="direct",
-                model_id=cast(str | None, context.get("model_id")),
-                session_id=cast(str | None, context.get("session_id")),
-                enable_tracing=cast(bool | None, context.get("enable_tracing")),
-                mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
-                trace_context=langfuse_trace.trace_context if langfuse_trace else None,
-            )
-            llm = get_llm(model_id=cast(str | None, context.get("model_id")))
-            response = await ainvoke_llm_with_optional_config(llm, history, run_cfg)
-            usage = extract_usage(response)
-            resolved_model_id = cast(str | None, getattr(llm, "model_id", None)) or cast(
-                str | None, context.get("model_id")
-            )
-            emitted_usage, cost_usd = emit_usage_observability(
-                mode="direct",
-                model_id=resolved_model_id,
-                session_id=cast(str | None, context.get("session_id")),
-                thread_id=thread_id,
-                usage=usage,
-            )
-            result: dict[str, object] = {
-                "final_answer": getattr(response, "content", "") or "",
-                "error": None,
-                "standalone_question": latest_question or None,
-                "citations": [],
-                "reranker_docs": [],
-                "context_usage": None,
-                "mcp_used": False,
-                "mcp_tools_used": [],
-                "model_id": resolved_model_id,
-                "usage": emitted_usage,
-                "cost_usd": cost_usd,
-            }
-            if langfuse_trace is not None and langfuse_trace.trace_id:
-                result["trace_id"] = langfuse_trace.trace_id
-            if langfuse_trace is not None:
-                update_trace_output = getattr(langfuse_trace, "update_output", None)
-                if callable(update_trace_output):
-                    update_trace_output({"answer": result["final_answer"]})
+            usage=usage,
+        )
+        result: dict[str, object] = {
+            "final_answer": getattr(response, "content", "") or "",
+            "error": None,
+            "standalone_question": latest_question or None,
+            "citations": [],
+            "reranker_docs": [],
+            "context_usage": None,
+            "mcp_used": False,
+            "mcp_tools_used": [],
+            "model_id": resolved_model_id,
+            "usage": emitted_usage,
+            "cost_usd": cost_usd,
+        }
         assistant_message = assistant_message_from_result("direct", result)
     except Exception as exc:
         assistant_message = assistant_message_from_exception("direct", exc)

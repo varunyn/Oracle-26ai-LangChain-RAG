@@ -40,6 +40,15 @@ def test_route_mode_rejects_unimplemented_modes() -> None:
         route_mode({"messages": []}, _runtime(context={"mode": "bogus"}))
 
 
+def test_build_chat_agent_exposes_mixed_mode_execution_nodes() -> None:
+    graph = build_chat_agent()
+
+    node_names = set(graph.get_graph().nodes)
+
+    assert {"mixed_route", "mixed_retrieval", "mixed_mcp", "mixed_compose"} <= node_names
+    assert "mixed" not in node_names
+
+
 def test_run_direct_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
@@ -75,15 +84,11 @@ def test_run_direct_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -
         "emit_usage_observability",
         lambda **kwargs: (None, None),
     )
-    monkeypatch.setattr(
-        direct_node_module,
-        "start_langfuse_chat_trace",
-        lambda **kwargs: _FakeTraceContextManager(),
-    )
 
     result = asyncio.run(
         direct_node_module.run_direct_node(
             {"messages": [{"role": "user", "content": "hi"}]},
+            {},
             _runtime(
                 context={
                     "mode": "direct",
@@ -159,15 +164,11 @@ def test_run_rag_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
         "emit_usage_observability",
         lambda **kwargs: (None, None),
     )
-    monkeypatch.setattr(
-        rag_node_module,
-        "start_langfuse_chat_trace",
-        lambda **kwargs: _FakeTraceContextManager(),
-    )
 
     result = asyncio.run(
         rag_node_module.run_rag_node(
             {"messages": [{"role": "user", "content": "retrieve"}]},
+            {},
             _runtime(
                 context={
                     "mode": "rag",
@@ -213,15 +214,11 @@ def test_run_rag_node_returns_assistant_error_when_runtime_fails(
         raise RuntimeError("DPY-6005: cannot connect to database")
 
     monkeypatch.setattr(rag_node_module, "contextualize_question", fake_contextualize_question)
-    monkeypatch.setattr(
-        rag_node_module,
-        "start_langfuse_chat_trace",
-        lambda **kwargs: _FakeTraceContextManager(),
-    )
 
     result = asyncio.run(
         rag_node_module.run_rag_node(
             {"messages": [{"role": "user", "content": "retrieve"}]},
+            {},
             _runtime(context={"mode": "rag"}),
         )
     )
@@ -263,11 +260,6 @@ def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setattr(mcp_node_module, "get_llm", lambda model_id=None: FakeLlm())
     monkeypatch.setattr(mcp_node_module, "run_mcp_agent_turn", fake_run_mcp_agent_turn)
-    monkeypatch.setattr(
-        mcp_node_module,
-        "start_langfuse_chat_trace",
-        lambda **kwargs: _FakeTraceContextManager(),
-    )
 
     result = asyncio.run(
         mcp_node_module.run_mcp_node(
@@ -343,11 +335,6 @@ def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(mixed_node_module, "get_llm", lambda model_id=None: FakeLlm())
     monkeypatch.setattr(mixed_node_module, "run_mcp_agent_turn", fake_run_mcp_agent_turn)
-    monkeypatch.setattr(
-        mixed_node_module,
-        "start_langfuse_chat_trace",
-        lambda **kwargs: _FakeTraceContextManager(),
-    )
     monkeypatch.setattr(
         mixed_node_module.rag_runtime,
         "build_oracle_retrieval_tool",
@@ -447,11 +434,6 @@ def test_build_chat_agent_preserves_messages_across_same_thread(tmp_path, monkey
         "emit_usage_observability",
         lambda **kwargs: (None, None),
     )
-    monkeypatch.setattr(
-        direct_node_module,
-        "start_langfuse_chat_trace",
-        lambda **kwargs: _FakeTraceContextManager(),
-    )
 
     async def fake_ainvoke(llm: object, history: object, run_config: object) -> AIMessage:
         _ = llm, run_config
@@ -488,4 +470,3 @@ def test_build_chat_agent_preserves_messages_across_same_thread(tmp_path, monkey
         "reply-1",
         "follow up",
     ]
-

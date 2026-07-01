@@ -49,7 +49,6 @@ def test_rag_node_retrieves_and_returns_citations_without_chat_runtime_service(
         lambda docs: [{"source": "terms.md", "content": "Payment is due in 45 days."}],
     )
     monkeypatch.setattr(rag, "emit_usage_observability", lambda **kwargs: (None, None))
-    monkeypatch.setattr(rag, "start_langfuse_chat_trace", lambda **kwargs: _FakeTraceContextManager())
 
     runtime = SimpleNamespace(
         context={
@@ -65,6 +64,7 @@ def test_rag_node_retrieves_and_returns_citations_without_chat_runtime_service(
     result = asyncio.run(
         rag.run_rag_node(
             {"messages": [HumanMessage(content="What are the payment terms?")]},
+            {},
             runtime,  # type: ignore[arg-type]
         )
     )

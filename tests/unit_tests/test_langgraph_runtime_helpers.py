@@ -6,24 +6,15 @@ from src.rag_agent.graphs import runtime as graph_runtime
 from src.rag_agent.graphs.runtime import result_to_assistant_message
 
 
-def test_build_run_config_places_chat_context_under_configurable(monkeypatch) -> None:
-    captured: dict[str, object] = {}
-
-    def fake_add_langfuse_callbacks(run_config: dict[str, object], **kwargs: object) -> None:
-        captured.update(kwargs)
-        run_config["callbacks"] = ["langfuse"]
-        run_config["metadata"] = {"langfuse_session_id": kwargs["session_id"]}
-
-    monkeypatch.setattr(graph_runtime, "add_langfuse_callbacks", fake_add_langfuse_callbacks)
-
+def test_build_run_config_places_chat_context_under_configurable() -> None:
     config = graph_runtime.build_run_config(
+        parent_config={"callbacks": ["graph-handler"]},
         thread_id="thread-1",
         mode="rag",
         model_id="model-1",
         session_id="session-1",
         enable_tracing=True,
         mcp_server_keys=["oracle"],
-        trace_context={"trace_id": "trace-1"},
     )
 
     configurable = config["configurable"]
@@ -33,12 +24,33 @@ def test_build_run_config_places_chat_context_under_configurable(monkeypatch) ->
     assert configurable["session_id"] == "session-1"
     assert configurable["enable_tracing"] is True
     assert configurable["mcp_server_keys"] == ["oracle"]
-    assert configurable["langfuse_trace_context"] == {"trace_id": "trace-1"}
-    assert config["callbacks"] == ["langfuse"]
-    assert config["metadata"] == {"langfuse_session_id": "session-1"}
-    assert captured["trace_context"] == {"trace_id": "trace-1"}
-    assert captured["trace_name"] == "chat-rag"
-    assert captured["tags"] == ["chat", "mode:rag", "model:model-1"]
+    assert config["callbacks"] == ["graph-handler"]
+    assert config["metadata"]["session_id"] == "session-1"
+
+
+def test_build_run_config_propagates_request_identity_and_release() -> None:
+    config = graph_runtime.build_run_config(
+        thread_id="thread-1",
+        mode="mixed",
+        model_id="model-1",
+        session_id="session-1",
+        request_id="request-1",
+        user_id="user-1",
+        release="release-1",
+        enable_tracing=True,
+        mcp_server_keys=None,
+    )
+
+    configurable = config["configurable"]
+    metadata = config["metadata"]
+    assert configurable["request_id"] == "request-1"
+    assert configurable["user_id"] == "user-1"
+    assert configurable["release"] == "release-1"
+    assert metadata["request_id"] == "request-1"
+    assert metadata["thread_id"] == "thread-1"
+    assert metadata["session_id"] == "session-1"
+    assert metadata["user_id"] == "user-1"
+    assert metadata["release"] == "release-1"
 
 
 def test_result_to_assistant_message_preserves_reference_payload() -> None:

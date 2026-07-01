@@ -24,7 +24,6 @@ from src.rag_agent.runtime.memory import (
     langchain_messages_to_dicts,
     latest_user_message,
 )
-from src.rag_agent.utils.langfuse_tracing import start_langfuse_chat_trace
 
 
 def get_llm(model_id: str | None = None) -> Any:
@@ -40,61 +39,46 @@ async def run_mcp_node(
     thread_id = get_thread_id(runtime)
     messages = langchain_messages_to_dicts(state["messages"])
     try:
-        with start_langfuse_chat_trace(
-            enabled=cast(bool | None, context.get("enable_tracing")),
-            mode="mcp",
-            model_id=cast(str | None, context.get("model_id")),
-            session_id=cast(str | None, context.get("session_id")),
+        question = latest_user_message(messages)
+        chat_history = chat_history_before_latest_user(messages)
+        resolved_model_id = cast(str | None, context.get("model_id")) or get_llm().model_id
+        run_cfg = build_run_config(
+            parent_config=config,
             thread_id=thread_id,
-            input_payload={"question": latest_user_message(messages)} if messages else None,
-        ) as langfuse_trace:
-            question = latest_user_message(messages)
-            chat_history = chat_history_before_latest_user(messages)
-            resolved_model_id = cast(str | None, context.get("model_id")) or get_llm().model_id
-            run_cfg = build_run_config(
-                parent_config=config,
-                thread_id=thread_id,
-                mode="mcp",
-                model_id=resolved_model_id,
-                session_id=cast(str | None, context.get("session_id")),
-                enable_tracing=cast(bool | None, context.get("enable_tracing")),
-                mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
-                trace_context=langfuse_trace.trace_context if langfuse_trace else None,
-            )
+            mode="mcp",
+            model_id=resolved_model_id,
+            session_id=cast(str | None, context.get("session_id")),
+            enable_tracing=cast(bool | None, context.get("enable_tracing")),
+            mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
+        )
 
-            mcp_turn = await run_mcp_agent_turn(
-                question=question,
-                chat_history=chat_history,
-                resolved_model_id=resolved_model_id,
-                run_config=run_cfg,
-                mode="mcp",
-                mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
-                require_tool_call=require_tool_call_enabled(),
-                repeated_workflow_enabled=repeated_workflow_controller_enabled(),
-                workflow_checkpoint_path=workflow_checkpoint_path(),
-            )
-            result: dict[str, object] = {
-                "final_answer": mcp_turn.answer,
-                "error": None,
-                "standalone_question": question or None,
-                "citations": [],
-                "reranker_docs": [],
-                "context_usage": None,
-                "mcp_used": bool(mcp_turn.tools_used),
-                "mcp_tools_used": mcp_turn.tools_used,
-                "mcp_tool_invocations": mcp_turn.tool_invocations,
-                "model_id": mcp_turn.resolved_model_id,
-            }
-            tool_failure_error = tool_failure_summary(mcp_turn.tool_invocations)
-            if is_trivial_answer(str(result.get("final_answer") or "")) and tool_failure_error:
-                result["final_answer"] = tool_failure_error
-                result["error"] = tool_failure_error
-            if langfuse_trace is not None and langfuse_trace.trace_id:
-                result["trace_id"] = langfuse_trace.trace_id
-            if langfuse_trace is not None:
-                update_trace_output = getattr(langfuse_trace, "update_output", None)
-                if callable(update_trace_output):
-                    update_trace_output({"answer": result["final_answer"]})
+        mcp_turn = await run_mcp_agent_turn(
+            question=question,
+            chat_history=chat_history,
+            resolved_model_id=resolved_model_id,
+            run_config=run_cfg,
+            mode="mcp",
+            mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
+            require_tool_call=require_tool_call_enabled(),
+            repeated_workflow_enabled=repeated_workflow_controller_enabled(),
+            workflow_checkpoint_path=workflow_checkpoint_path(),
+        )
+        result: dict[str, object] = {
+            "final_answer": mcp_turn.answer,
+            "error": None,
+            "standalone_question": question or None,
+            "citations": [],
+            "reranker_docs": [],
+            "context_usage": None,
+            "mcp_used": bool(mcp_turn.tools_used),
+            "mcp_tools_used": mcp_turn.tools_used,
+            "mcp_tool_invocations": mcp_turn.tool_invocations,
+            "model_id": mcp_turn.resolved_model_id,
+        }
+        tool_failure_error = tool_failure_summary(mcp_turn.tool_invocations)
+        if is_trivial_answer(str(result.get("final_answer") or "")) and tool_failure_error:
+            result["final_answer"] = tool_failure_error
+            result["error"] = tool_failure_error
         state_messages = cast(list[object], getattr(mcp_turn, "state_messages", []) or [])
         messages_out = messages_from_result("mcp", result, state_messages)
         references = cast(dict[str, object], getattr(messages_out[-1], "additional_kwargs", {}) or {})

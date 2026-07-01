@@ -1,7 +1,15 @@
 # Changelog
 
+## 2026-07-01
+
+- Removed Langfuse payload masking and attribute truncation so local traces retain complete inputs, outputs, tool schemas, and reasoning data.
+- Removed unused Langfuse child-observation and generation-outcome helper abstractions.
+- Bound Langfuse's standard LangChain callback handler once at the LangGraph Agent Server graph boundary instead of creating tracing roots inside mode nodes.
+
 ## 2026-06-30
 
+- Split mixed-mode execution into visible LangGraph route, retrieval, MCP, and composition nodes; added correlation metadata, semantic MCP child spans, and explicit truncated-response outcomes to Langfuse tracing.
+- Kept `chat.request` as the sole Langfuse trace name so nested MCP/tool spans no longer rename the enclosing chat trace.
 - Linked suggestions traces to chat sessions and added request/outcome metadata for Langfuse debugging.
 - Fixed suggestions generation for tool-backed responses whose final stream item is not the assistant message.
 - Linked suggestions to the effective LangGraph stream thread for newly created conversations.
