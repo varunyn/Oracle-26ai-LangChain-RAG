@@ -180,6 +180,7 @@ async def _generate_suggestions_async(
         model_id=model_id,
         session_id=normalized_thread_id,
         thread_id=normalized_thread_id,
+        request_id=normalized_request_id,
         metadata={
             key: value
             for key, value in {
@@ -192,15 +193,16 @@ async def _generate_suggestions_async(
             "last_user_message": user_context[:2000] or None,
             "last_message": last_message[:4000],
         },
-        trace_name="suggestions",
+        trace_name="suggestions.generate",
         tags=trace_tags,
     ) as langfuse_trace:
         add_langfuse_callbacks(
             run_config,
             session_id=normalized_thread_id,
             user_id=None,
+            request_id=normalized_request_id,
             trace_context=langfuse_trace.trace_context,
-            trace_name="suggestions",
+            trace_name="suggestions.generate",
             tags=trace_tags,
         )
 
@@ -224,6 +226,9 @@ async def _generate_suggestions_async(
         except Exception:
             langfuse_trace.update_output({"suggestion_count": 0, "outcome": "error"})
             langfuse_trace.update_metadata({"suggestion_count": "0", "outcome": "error"})
+            update_outcome = getattr(langfuse_trace, "update_outcome", None)
+            if callable(update_outcome):
+                update_outcome("error", error_type="suggestions_generation")
             raise
         suggestions = _extract_structured_suggestions(result)
         outcome = (
@@ -239,6 +244,9 @@ async def _generate_suggestions_async(
         langfuse_trace.update_metadata(
             {"suggestion_count": str(len(suggestions)), "outcome": outcome}
         )
+        update_outcome = getattr(langfuse_trace, "update_outcome", None)
+        if callable(update_outcome):
+            update_outcome(outcome)
         return suggestions
 
 

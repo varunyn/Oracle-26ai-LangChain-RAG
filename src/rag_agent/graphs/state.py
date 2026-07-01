@@ -12,6 +12,10 @@ Mode = Literal["direct", "rag", "mcp", "mixed"]
 class ChatGraphContext(TypedDict, total=False):
     model_id: str
     session_id: str
+    request_id: str
+    thread_id: str
+    user_id: str
+    release: str
     collection_name: str
     mode: Mode
     enable_reranker: bool
@@ -24,3 +28,5 @@ class ChatGraphState(TypedDict, total=False):
     context: ChatGraphContext
     references: dict[str, object]
     progress: str
+    mixed_result: dict[str, object]
+    mixed_state_messages: list[object]
