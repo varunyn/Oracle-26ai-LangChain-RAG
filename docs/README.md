@@ -4,7 +4,7 @@
 
 A LangChain-powered Oracle RAG application with chat, MCP tools, and observability.
 
-![OCI Custom RAG Agent chat workspace with document upload](images/oci-custom-rag-agent-chat-upload-panel.png)
+![OCI Custom RAG Agent chat workspace with document upload](../images/oci-custom-rag-agent-chat-upload-panel.png)
 
 ## What this repo is
 
@@ -38,19 +38,19 @@ The UI includes the main chat workspace, document upload controls, source review
 
 ### Chat workspace and document upload
 
-![Chat workspace with document upload panel](images/oci-custom-rag-agent-chat-upload-panel.png)
+![Chat workspace with document upload panel](../images/oci-custom-rag-agent-chat-upload-panel.png)
 
 ### Processed sources
 
-![Processed sources table](images/oci-custom-rag-agent-processed-sources-table.png)
+![Processed sources table](../images/oci-custom-rag-agent-processed-sources-table.png)
 
 ### Flow mode selector
 
-![Flow mode selector](images/oci-custom-rag-agent-flow-mode-selector.png)
+![Flow mode selector](../images/oci-custom-rag-agent-flow-mode-selector.png)
 
 ### Model selector
 
-![Model selector](images/oci-custom-rag-agent-model-selector.png)
+![Model selector](../images/oci-custom-rag-agent-model-selector.png)
 
 ## Architecture
 

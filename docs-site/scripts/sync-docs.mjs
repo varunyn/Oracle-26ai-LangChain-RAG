@@ -97,7 +97,8 @@ function rewriteMarkdownLinks(markdown) {
     .replace(/\]\(docs\/([A-Z0-9_-]+)\.md\)/g, (_, name) => `](/${name.toLowerCase().replace(/_/g, "-")}/)`)
     .replace(/\]\((GETTING-STARTED)\.md\)/g, "](/)")
     .replace(/\]\((README)\.md\)/g, "](/overview/)")
-    .replace(/\]\(([A-Z0-9_-]+)\.md\)/g, (_, name) => `](/${name.toLowerCase().replace(/_/g, "-")}/)`);
+    .replace(/\]\(([A-Z0-9_-]+)\.md\)/g, (_, name) => `](/${name.toLowerCase().replace(/_/g, "-")}/)`)
+    .replace(/\]\(\.\.\/images\/([^)]+)\)/g, "](/images/$1)");
 }
 
 await rm(targetRoot, { force: true, recursive: true });
@@ -111,6 +112,17 @@ for (const source of files) {
   await mkdir(dirname(destination), { recursive: true });
   const markdown = await readFile(source, "utf8");
   await writeFile(destination, rewriteMarkdownLinks(markdown), "utf8");
+}
+
+// Copy repo-root images so docs-site builds can serve them from /images/<name>.
+const imagesSource = join(repoRoot, "images");
+const imagesTarget = join(docsSiteRoot, "public", "images");
+try {
+  await cp(imagesSource, imagesTarget, { recursive: true, force: true });
+} catch (err) {
+  if ((err).code !== "ENOENT") {
+    throw err;
+  }
 }
 
 await writeFile(join(targetRoot, "docs.json"), `${JSON.stringify({ menu: navigation }, null, 2)}\n`, "utf8");
