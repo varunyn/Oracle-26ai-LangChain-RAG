@@ -13,11 +13,7 @@ from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, 
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
 from src.rag_agent.infrastructure import oci_models as _oci_models
 from src.rag_agent.runtime.llm_invocation import ainvoke_llm_with_optional_config
-from src.rag_agent.runtime.memory import (
-    langchain_messages_to_dicts,
-    latest_user_message,
-    to_langchain_messages,
-)
+from src.rag_agent.runtime.memory import latest_user_message
 from src.rag_agent.runtime.observability import emit_usage_observability, extract_usage
 
 
@@ -32,9 +28,8 @@ async def run_direct_node(
 ) -> ChatGraphState:
     context = get_runtime_context(runtime)
     thread_id = get_thread_id(runtime)
-    messages = langchain_messages_to_dicts(state["messages"])
+    messages = state["messages"]
     try:
-        history = to_langchain_messages(messages)
         latest_question = latest_user_message(messages)
 
         run_cfg = build_run_config(
@@ -47,7 +42,7 @@ async def run_direct_node(
             mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
         )
         llm = get_llm(model_id=cast(str | None, context.get("model_id")))
-        response = await ainvoke_llm_with_optional_config(llm, history, run_cfg)
+        response = await ainvoke_llm_with_optional_config(llm, messages, run_cfg)
         usage = extract_usage(response)
         resolved_model_id = cast(str | None, getattr(llm, "model_id", None)) or cast(
             str | None, context.get("model_id")

@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from src.rag_agent.graphs.chat_agent import build_chat_agent, route_mode
@@ -94,7 +94,7 @@ def test_run_direct_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -
 
     result = asyncio.run(
         direct_node_module.run_direct_node(
-            {"messages": [{"role": "user", "content": "hi"}]},
+            {"messages": [HumanMessage(content="hi")]},
             {},
             _runtime(
                 context={
@@ -174,7 +174,7 @@ def test_run_rag_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
 
     result = asyncio.run(
         rag_node_module.run_rag_node(
-            {"messages": [{"role": "user", "content": "retrieve"}]},
+            {"messages": [HumanMessage(content="retrieve")]},
             {},
             _runtime(
                 context={
@@ -224,7 +224,7 @@ def test_run_rag_node_returns_assistant_error_when_runtime_fails(
 
     result = asyncio.run(
         rag_node_module.run_rag_node(
-            {"messages": [{"role": "user", "content": "retrieve"}]},
+            {"messages": [HumanMessage(content="retrieve")]},
             {},
             _runtime(context={"mode": "rag"}),
         )
@@ -270,7 +270,7 @@ def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
 
     result = asyncio.run(
         mcp_node_module.run_mcp_node(
-            {"messages": [{"role": "user", "content": "19 + 23"}]},
+            {"messages": [HumanMessage(content="19 + 23")]},
             {"callbacks": ["outer-callback"], "metadata": {"source": "workflow-test"}},
             _runtime(
                 context={
@@ -378,7 +378,7 @@ def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> Non
 
     result = asyncio.run(
         execute_mixed_nodes(
-            {"messages": [{"role": "user", "content": "payment terms plus 5"}]},
+            {"messages": [HumanMessage(content="payment terms plus 5")]},
             {"callbacks": ["outer-callback"], "metadata": {"source": "workflow-test"}},
             _runtime(
                 context={
@@ -458,11 +458,11 @@ def test_build_chat_agent_preserves_messages_across_same_thread(tmp_path, monkey
             config = {"configurable": {"thread_id": "chat-thread"}}
 
             first_result = await graph.ainvoke(
-                {"messages": [{"role": "user", "content": "hello"}]},
+                {"messages": [HumanMessage(content="hello")]},
                 config,
             )
             second_result = await graph.ainvoke(
-                {"messages": [{"role": "user", "content": "follow up"}]},
+                {"messages": [HumanMessage(content="follow up")]},
                 config,
             )
             return first_result, second_result

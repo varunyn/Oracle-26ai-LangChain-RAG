@@ -16,7 +16,6 @@ from src.rag_agent.runtime import rag_runtime
 from src.rag_agent.runtime.memory import (
     chat_history_before_latest_user,
     contextualize_question,
-    langchain_messages_to_dicts,
     latest_user_message,
 )
 from src.rag_agent.runtime.observability import emit_usage_observability
@@ -31,7 +30,7 @@ async def run_rag_node(
 ) -> ChatGraphState:
     context = get_runtime_context(runtime)
     thread_id = get_thread_id(runtime)
-    messages = langchain_messages_to_dicts(state["messages"])
+    messages = state["messages"]
     try:
         question = latest_user_message(messages)
         chat_history = chat_history_before_latest_user(messages)

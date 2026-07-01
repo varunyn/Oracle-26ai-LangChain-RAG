@@ -60,7 +60,7 @@ def test_direct_node_invokes_llm_without_chat_runtime_service(monkeypatch) -> No
     assert calls[0]["model_id"] == "model-1"
 
 
-def test_direct_node_accepts_native_human_type_dict_messages(monkeypatch) -> None:
+def test_direct_node_passes_native_messages_to_llm(monkeypatch) -> None:
     calls: list[dict[str, object]] = []
 
     def fake_get_llm(*, model_id: str | None = None) -> FakeLlm:
@@ -88,7 +88,7 @@ def test_direct_node_accepts_native_human_type_dict_messages(monkeypatch) -> Non
 
     result = asyncio.run(
         direct.run_direct_node(
-            {"messages": [{"type": "human", "content": "Hello", "id": "user-1"}]},
+            {"messages": [HumanMessage(content="Hello", id="user-1")]},
             {},
             runtime,  # type: ignore[arg-type]
         )
@@ -97,8 +97,8 @@ def test_direct_node_accepts_native_human_type_dict_messages(monkeypatch) -> Non
     history = calls[1]["history"]
     assert isinstance(history, list)
     assert len(history) == 1
-    assert getattr(history[0], "id", None) == "user-1"
-    assert getattr(history[0], "content", None) == "Hello"
+    assert history[0].id == "user-1"
+    assert history[0].content == "Hello"
     assistant = result["messages"][0]
     assert isinstance(assistant, AIMessage)
     assert assistant.additional_kwargs["standalone_question"] == "Hello"
