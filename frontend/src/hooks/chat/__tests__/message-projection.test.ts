@@ -1,7 +1,10 @@
 import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
 
-import { projectStreamMessages } from "../message-projection";
+import {
+  projectStreamMessages,
+  selectMessagesForStatus,
+} from "../message-projection";
 
 describe("projectStreamMessages", () => {
   it("drops replayed messages with the same stable id", () => {
@@ -132,6 +135,76 @@ describe("projectStreamMessages", () => {
     expect(projected[1]?.references?.mcp_used).toBe(true);
     expect(projected[1]?.references?.mcp_tools_used).toEqual([
       "oracle_retrieval",
+    ]);
+  });
+
+  it("removes an identical transient assistant projection in favor of the stable answer", () => {
+    const user = new HumanMessage({
+      id: "user-1",
+      content: "What are the payment terms?",
+    });
+    const stableAnswer = new AIMessage({
+      id: "user-1:assistant",
+      content: "Payment is due in 30 days.",
+      additional_kwargs: {
+        citations: [{ source: "terms.pdf", page: null }],
+      },
+    });
+    const transientAnswer = new AIMessage({
+      id: "lc_run--model-answer",
+      content: "Payment is due in 30 days.",
+    });
+
+    const projected = projectStreamMessages({
+      streamMessages: [user, stableAnswer, transientAnswer],
+    });
+
+    expect(projected.map((message) => message.id)).toEqual([
+      "user-1",
+      "user-1:assistant",
+    ]);
+    expect(projected[1]?.references?.citations).toEqual([
+      { source: "terms.pdf", page: null },
+    ]);
+  });
+
+  it("uses canonical graph state only after the live RAG stream is ready", () => {
+    const user = new HumanMessage({
+      id: "user-1",
+      content: "What are the payment terms?",
+    });
+    const streamedModelAnswer = new AIMessage({
+      id: "lc_run--model-answer",
+      content: "Payment is due in 30 days.",
+    });
+    const canonicalAnswer = new AIMessage({
+      id: "user-1:assistant",
+      content: "Payment is due in 30 days.",
+      additional_kwargs: {
+        mode: "rag",
+        citations: [{ source: "terms.pdf", page: null }],
+      },
+    });
+
+    const live = projectStreamMessages({
+      streamMessages: [user, streamedModelAnswer],
+    });
+    const finalized = projectStreamMessages({
+      streamMessages: [user, canonicalAnswer],
+    });
+
+    expect(
+      selectMessagesForStatus(live, finalized, "streaming").map(
+        (message) => message.id
+      )
+    ).toEqual(["user-1", "lc_run--model-answer"]);
+    const projected = selectMessagesForStatus(live, finalized, "ready");
+    expect(projected.map((message) => message.id)).toEqual([
+      "user-1",
+      "user-1:assistant",
+    ]);
+    expect(projected[1]?.references?.citations).toEqual([
+      { source: "terms.pdf", page: null },
     ]);
   });
 

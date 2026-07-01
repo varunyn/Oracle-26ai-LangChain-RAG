@@ -118,7 +118,9 @@ def references_from_result(result: dict[str, object], *, mode: str) -> dict[str,
     return references
 
 
-def result_to_assistant_message(mode: str, result: dict[str, object]) -> AIMessage:
+def result_to_assistant_message(
+    mode: str, result: dict[str, object], *, message_id: str | None = None
+) -> AIMessage:
     final_answer = result.get("final_answer")
     if isinstance(final_answer, str):
         content = final_answer
@@ -131,6 +133,7 @@ def result_to_assistant_message(mode: str, result: dict[str, object]) -> AIMessa
     references = references_from_result(result, mode=mode)
     return AIMessage(
         content=content,
+        id=message_id,
         additional_kwargs=references,
         response_metadata=references,
     )

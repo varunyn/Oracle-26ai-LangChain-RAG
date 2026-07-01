@@ -63,7 +63,13 @@ def test_rag_node_retrieves_and_returns_citations_without_chat_runtime_service(
 
     result = asyncio.run(
         rag.run_rag_node(
-            {"messages": [HumanMessage(content="What are the payment terms?")]},
+            {
+                "messages": [
+                    HumanMessage(
+                        id="user-1", content="What are the payment terms?"
+                    )
+                ]
+            },
             {},
             runtime,  # type: ignore[arg-type]
         )
@@ -72,5 +78,6 @@ def test_rag_node_retrieves_and_returns_citations_without_chat_runtime_service(
     assistant = result["messages"][0]
     assert isinstance(assistant, AIMessage)
     assert assistant.content == "Payment is due in 45 days."
+    assert assistant.id == "user-1:assistant"
     assert assistant.additional_kwargs["mode"] == "rag"
     assert assistant.additional_kwargs["citations"] == [{"source": "terms.md"}]

@@ -61,5 +61,5 @@ export function debugChatStage(
   if (process.env.NODE_ENV === "production") {
     return;
   }
-  console.debug(`[chat-debug] ${stage}`, details);
+  console.debug(`[chat-debug] ${stage}`, JSON.stringify(details));
 }

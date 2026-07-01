@@ -17,8 +17,10 @@ def merge_references(mode: str, result: dict[str, object]) -> dict[str, object]:
     return references
 
 
-def assistant_message_from_result(mode: str, result: dict[str, object]) -> AIMessage:
-    return result_to_assistant_message(mode, result)
+def assistant_message_from_result(
+    mode: str, result: dict[str, object], *, message_id: str | None = None
+) -> AIMessage:
+    return result_to_assistant_message(mode, result, message_id=message_id)
 
 
 def messages_from_result(
@@ -43,7 +45,9 @@ def messages_from_result(
     return messages
 
 
-def assistant_message_from_exception(mode: str, exc: Exception) -> AIMessage:
+def assistant_message_from_exception(
+    mode: str, exc: Exception, *, message_id: str | None = None
+) -> AIMessage:
     logger.exception("LangGraph %s node failed", mode)
     return assistant_message_from_result(
         mode,
@@ -63,6 +67,7 @@ def assistant_message_from_exception(mode: str, exc: Exception) -> AIMessage:
                 "message": str(exc),
             },
         },
+        message_id=message_id,
     )
 
 

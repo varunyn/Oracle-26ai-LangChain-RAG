@@ -52,6 +52,16 @@ def latest_user_message(messages: Sequence[BaseMessage]) -> str:
     return latest
 
 
+def latest_user_message_id(messages: Sequence[BaseMessage]) -> str | None:
+    for item in reversed(messages):
+        if _message_role(item) != "user":
+            continue
+        message_id = getattr(item, "id", None)
+        if isinstance(message_id, str) and message_id.strip():
+            return message_id.strip()
+    return None
+
+
 def chat_history_before_latest_user(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
     last_user_idx = -1
     for idx in range(len(messages) - 1, -1, -1):
@@ -107,5 +117,6 @@ __all__ = [
     "chat_history_before_latest_user",
     "contextualize_question",
     "latest_user_message",
+    "latest_user_message_id",
     "message_role_label",
 ]

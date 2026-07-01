@@ -1,9 +1,11 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import type { UseChatControllerArgs } from "@/hooks/chat/controller-types";
+import { debugChatStage, summarizeMessages } from "@/hooks/chat/debug";
 import {
   getLastUserMessageText,
   normalizeStatus,
   projectStreamMessages,
+  selectMessagesForStatus,
 } from "@/hooks/chat/message-projection";
 import {
   type BaseMessageWithKwargs,
@@ -57,12 +59,16 @@ export function useChatController({
   });
 
   const {
+    authoritativeThreadMessages,
     stream,
     transportError,
   } = useLangGraphStream();
   const effectiveThreadId = threadId ?? stream.threadId ?? null;
 
   const streamMessages = stream.messages;
+  const stateMessages =
+    authoritativeThreadMessages ??
+    (stream.values as { messages?: unknown } | undefined)?.messages;
   const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
   const replayedToolCalls = useMemo(
     () => toolCallsFromMessages(streamMessages as readonly unknown[] | undefined),
@@ -90,10 +96,29 @@ export function useChatController({
   );
 
   const messages = useMemo(() => {
-    return projectStreamMessages({
+    const liveMessages = projectStreamMessages({
       streamMessages: streamMessages as BaseMessageWithKwargs[] | undefined,
     });
-  }, [streamMessages]);
+    const finalizedMessages = Array.isArray(stateMessages)
+      ? projectStreamMessages({
+          streamMessages: stateMessages as BaseMessageWithKwargs[],
+        })
+      : undefined;
+    const selectedMessages = selectMessagesForStatus(
+      liveMessages,
+      finalizedMessages,
+      status
+    );
+    debugChatStage("selectMessagesForStatus", {
+      status,
+      live: summarizeMessages(liveMessages),
+      finalized: finalizedMessages
+        ? summarizeMessages(finalizedMessages)
+        : undefined,
+      selected: summarizeMessages(selectedMessages),
+    });
+    return selectedMessages;
+  }, [stateMessages, status, streamMessages]);
 
   useEffect(() => {
     if (stream.error == null) {

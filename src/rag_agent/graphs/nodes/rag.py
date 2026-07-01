@@ -17,6 +17,7 @@ from src.rag_agent.runtime.memory import (
     chat_history_before_latest_user,
     contextualize_question,
     latest_user_message,
+    latest_user_message_id,
 )
 from src.rag_agent.runtime.observability import emit_usage_observability
 
@@ -31,6 +32,9 @@ async def run_rag_node(
     context = get_runtime_context(runtime)
     thread_id = get_thread_id(runtime)
     messages = state["messages"]
+    assistant_id = latest_user_message_id(messages)
+    if assistant_id:
+        assistant_id = f"{assistant_id}:assistant"
     try:
         question = latest_user_message(messages)
         chat_history = chat_history_before_latest_user(messages)
@@ -92,9 +96,13 @@ async def run_rag_node(
             "usage": emitted_usage,
             "cost_usd": cost_usd,
         }
-        assistant_message = assistant_message_from_result("rag", result)
+        assistant_message = assistant_message_from_result(
+            "rag", result, message_id=assistant_id
+        )
     except Exception as exc:
-        assistant_message = assistant_message_from_exception("rag", exc)
+        assistant_message = assistant_message_from_exception(
+            "rag", exc, message_id=assistant_id
+        )
     return {
         "messages": [assistant_message],
         "references": assistant_message.additional_kwargs,
