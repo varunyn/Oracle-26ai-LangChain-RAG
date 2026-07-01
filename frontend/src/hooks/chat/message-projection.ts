@@ -169,8 +169,12 @@ function preferContent(
 ): string | undefined {
   const primaryText = primary?.trim() ?? "";
   const secondaryText = secondary?.trim() ?? "";
-  if (!primaryText) return secondary;
-  if (!secondaryText) return primary;
+  if (!primaryText) {
+    return secondary;
+  }
+  if (!secondaryText) {
+    return primary;
+  }
   return secondaryText.length >= primaryText.length ? secondary : primary;
 }
 
@@ -178,8 +182,12 @@ function preferToolCallIds(
   primary: string[] | undefined,
   secondary: string[] | undefined
 ): string[] | undefined {
-  if (!primary?.length) return secondary;
-  if (!secondary?.length) return primary;
+  if (!primary?.length) {
+    return secondary;
+  }
+  if (!secondary?.length) {
+    return primary;
+  }
   return secondary.length >= primary.length ? secondary : primary;
 }
 
@@ -187,14 +195,20 @@ export function mergeProjectedMessages(
   primary: MessageLike[],
   secondary: MessageLike[]
 ): MessageLike[] {
-  if (primary.length === 0) return secondary;
-  if (secondary.length === 0) return primary;
+  if (primary.length === 0) {
+    return secondary;
+  }
+  if (secondary.length === 0) {
+    return primary;
+  }
 
   const merged = [...primary];
   const indexById = new Map<string, number>();
   for (const [index, message] of merged.entries()) {
     const id = typeof message.id === "string" ? message.id.trim() : "";
-    if (id) indexById.set(id, index);
+    if (id) {
+      indexById.set(id, index);
+    }
   }
 
   for (const message of secondary) {

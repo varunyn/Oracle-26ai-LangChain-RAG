@@ -4,7 +4,9 @@ function normalizeBase(base: string): string {
 
 export function getClientApiBase(): string {
   if (typeof window === "undefined") {
-    return normalizeBase(process.env.FASTAPI_BACKEND_URL || "http://localhost:2024");
+    return normalizeBase(
+      process.env.FASTAPI_BACKEND_URL || "http://localhost:2024"
+    );
   }
 
   const configuredBase = process.env.NEXT_PUBLIC_API_BASE?.trim();

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  type NativeToolCall,
   filterToolCallsForChatStatus,
   mergeToolCalls,
+  type NativeToolCall,
   toolCallStateForStatus,
-  toolCallsFromMessages,
   toolCallsForMessage,
+  toolCallsFromMessages,
 } from "../tool-call-mapping";
 
 describe("filterToolCallsForChatStatus", () => {
@@ -89,7 +89,9 @@ describe("toolCallsForMessage", () => {
       status: "running",
     };
 
-    expect(toolCallsForMessage(["call-1"], mergeToolCalls(replayed, [live]))).toMatchObject([
+    expect(
+      toolCallsForMessage(["call-1"], mergeToolCalls(replayed, [live]))
+    ).toMatchObject([
       { callId: "call-1", input: { q: "new" }, status: "running" },
     ]);
   });

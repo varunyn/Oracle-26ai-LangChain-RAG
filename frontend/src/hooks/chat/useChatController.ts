@@ -11,13 +11,13 @@ import {
   type BaseMessageWithKwargs,
   isSameContextUsage,
 } from "@/hooks/chat/references";
+import { isMissingThreadError } from "@/hooks/chat/thread-errors";
 import {
   filterToolCallsForChatStatus,
   mergeToolCalls,
-  toolCallsFromMessages,
   type NativeToolCall,
+  toolCallsFromMessages,
 } from "@/hooks/chat/tool-call-mapping";
-import { isMissingThreadError } from "@/hooks/chat/thread-errors";
 import { useChatActions } from "@/hooks/chat/useChatActions";
 import { useChatBodyParams } from "@/hooks/useChatBodyParams";
 import { useSuggestions } from "@/hooks/useSuggestions";
@@ -58,11 +58,8 @@ export function useChatController({
     flowMode,
   });
 
-  const {
-    authoritativeThreadMessages,
-    stream,
-    transportError,
-  } = useLangGraphStream();
+  const { authoritativeThreadMessages, stream, transportError } =
+    useLangGraphStream();
   const effectiveThreadId = threadId ?? stream.threadId ?? null;
 
   const streamMessages = stream.messages;
@@ -71,7 +68,8 @@ export function useChatController({
     (stream.values as { messages?: unknown } | undefined)?.messages;
   const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
   const replayedToolCalls = useMemo(
-    () => toolCallsFromMessages(streamMessages as readonly unknown[] | undefined),
+    () =>
+      toolCallsFromMessages(streamMessages as readonly unknown[] | undefined),
     [streamMessages]
   );
   const mergedToolCalls = useMemo(

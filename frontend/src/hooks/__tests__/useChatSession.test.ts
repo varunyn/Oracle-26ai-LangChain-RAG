@@ -81,7 +81,11 @@ describe("updateThreadHistoryTitle", () => {
     ];
 
     expect(
-      updateThreadHistoryTitle(originalHistory, "thread-1", "Renamed old thread")
+      updateThreadHistoryTitle(
+        originalHistory,
+        "thread-1",
+        "Renamed old thread"
+      )
     ).toEqual([
       {
         id: "thread-2",

@@ -52,7 +52,7 @@ function stringField(value: unknown): string | undefined {
 
 function nativeToolCallId(toolCall: NativeToolCall): string | undefined {
   if (!isRecord(toolCall)) {
-    return undefined;
+    return;
   }
   const record: Record<string, unknown> = toolCall;
   return (
@@ -72,9 +72,11 @@ function normalizeStatus(value: unknown): RenderableToolCall["status"] {
   return "running";
 }
 
-function resultStatus(result: unknown): RenderableToolCall["status"] | undefined {
+function resultStatus(
+  result: unknown
+): RenderableToolCall["status"] | undefined {
   if (!isRecord(result)) {
-    return undefined;
+    return;
   }
   if (result.status === "error") {
     return "error";
@@ -102,7 +104,7 @@ export function toRenderableToolCall(
     stringField(record["name"]) ??
     stringField(call?.name) ??
     stringField(resultRecord?.name);
-  if (!callId || !name) {
+  if (!(callId && name)) {
     return null;
   }
   const result = record["result"];
@@ -112,7 +114,7 @@ export function toRenderableToolCall(
   const output = "output" in record ? record["output"] : resultContent(result);
   const error =
     status === "error"
-      ? stringField(record["error"]) ?? JSON.stringify(resultContent(result))
+      ? (stringField(record["error"]) ?? JSON.stringify(resultContent(result)))
       : stringField(record["error"]);
 
   return {
@@ -145,7 +147,9 @@ export function toolCallsForMessage(
     .filter((toolCall): toolCall is RenderableToolCall => toolCall != null);
 }
 
-function persistedToolCallId(message: PersistedMessageLike): string | undefined {
+function persistedToolCallId(
+  message: PersistedMessageLike
+): string | undefined {
   return (
     stringField(message.tool_call_id) ??
     stringField(message.toolCallId) ??
@@ -196,7 +200,7 @@ export function toolCallsFromMessages(
         }
         const callId = stringField(definition.id);
         const name = stringField(definition.name);
-        if (!callId || !name) {
+        if (!(callId && name)) {
           continue;
         }
         calls.set(callId, {

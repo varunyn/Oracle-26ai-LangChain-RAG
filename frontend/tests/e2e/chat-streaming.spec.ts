@@ -279,7 +279,10 @@ test.describe("chat streaming", () => {
 
     const history = page.getByLabel("Chat history");
     await expect(
-      history.getByRole("button", { name: "Latest invoice workflow", exact: true })
+      history.getByRole("button", {
+        name: "Latest invoice workflow",
+        exact: true,
+      })
     ).toHaveAttribute("aria-current", "page");
     await history
       .getByRole("button", { name: "Vendor payment terms", exact: true })
@@ -346,7 +349,10 @@ test.describe("chat streaming", () => {
       "00000000-0000-4000-8000-000000000002"
     );
     await expect(
-      history.getByRole("button", { name: "Latest invoice workflow", exact: true })
+      history.getByRole("button", {
+        name: "Latest invoice workflow",
+        exact: true,
+      })
     ).toHaveAttribute("aria-current", "page");
   });
 
@@ -772,9 +778,7 @@ test.describe("chat streaming", () => {
                 type: "tool",
                 name: toolName,
                 tool_call_id: callId,
-                content: [
-                  { type: "text", text: '{"solutions":"[2, 3]"}' },
-                ],
+                content: [{ type: "text", text: '{"solutions":"[2, 3]"}' }],
                 artifact: {
                   structured_content: { solutions: "[2, 3]" },
                 },
@@ -874,23 +878,23 @@ test.describe("chat streaming", () => {
             );
           }
 
-	          if (url.includes("/threads/") && url.endsWith("/commands")) {
-	            const commandBody = init?.body ? JSON.parse(String(init.body)) : {};
-	            return Promise.resolve(
-	              new Response(
-	                JSON.stringify({
-	                  type: "success",
-	                  id: typeof commandBody.id === "number" ? commandBody.id : 1,
-	                  result: { run_id: "mock-run-id" },
-	                  meta: { applied_through_seq: 0 },
-	                }),
-	                {
-	                status: 200,
-	                headers: { "content-type": "application/json" },
-	                }
-	              )
-	            );
-	          }
+          if (url.includes("/threads/") && url.endsWith("/commands")) {
+            const commandBody = init?.body ? JSON.parse(String(init.body)) : {};
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  type: "success",
+                  id: typeof commandBody.id === "number" ? commandBody.id : 1,
+                  result: { run_id: "mock-run-id" },
+                  meta: { applied_through_seq: 0 },
+                }),
+                {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                }
+              )
+            );
+          }
 
           if (url.includes("/threads/") && url.endsWith("/stream/events")) {
             const streamBody = init?.body ? JSON.parse(String(init.body)) : {};
@@ -1008,12 +1012,12 @@ test.describe("chat streaming", () => {
     await page.getByRole("textbox", { name: "Message" }).fill(prompt);
     await page.getByRole("button", { name: "Ask" }).click();
 
-	    await expect(
-	      page
-	        .getByTestId("chat-message-list")
-	        .getByText(prompt, { exact: true })
-	        .first()
-	    ).toBeVisible();
+    await expect(
+      page
+        .getByTestId("chat-message-list")
+        .getByText(prompt, { exact: true })
+        .first()
+    ).toBeVisible();
     await expect(page.getByText(finalAnswer)).toHaveCount(0);
 
     await page.evaluate(() => {
@@ -1307,7 +1311,10 @@ test.describe("chat streaming", () => {
     page,
   }) => {
     await page.addInitScript(() => {
-      window.localStorage.setItem("rag_agent_thread_id", CLEAR_ACTIVE_THREAD_ID);
+      window.localStorage.setItem(
+        "rag_agent_thread_id",
+        CLEAR_ACTIVE_THREAD_ID
+      );
     });
     let searchCount = 0;
     await page.route("**/threads/search**", (route) => {
@@ -1323,7 +1330,9 @@ test.describe("chat streaming", () => {
                   created_at: "2026-06-26T10:00:00Z",
                   updated_at: "2026-06-26T10:00:00Z",
                   values: {
-                    messages: [{ type: "human", content: "Active chat to delete" }],
+                    messages: [
+                      { type: "human", content: "Active chat to delete" },
+                    ],
                   },
                 },
                 {

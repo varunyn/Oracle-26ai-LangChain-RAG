@@ -1,6 +1,6 @@
 "use client";
 
-import * as React from "react";
+import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import {
   AlertCircle,
   Check,
@@ -8,7 +8,7 @@ import {
   CircleDashed,
   Wrench,
 } from "lucide-react";
-import { useControllableState } from "@radix-ui/react-use-controllable-state";
+import * as React from "react";
 
 import {
   Collapsible,
@@ -127,11 +127,11 @@ export function Tool({
         TOOL_STATE_CLASS[state],
         className
       )}
-      onOpenChange={setOpen}
-      open={open}
       data-tool-open={defaultOpen ? "true" : "false"}
       data-tool-state={state}
       data-tool-type={type ?? ""}
+      onOpenChange={setOpen}
+      open={open}
       {...props}
     >
       {children}
@@ -191,7 +191,7 @@ export function ToolContent({
     <CollapsibleContent
       className={cn(
         "space-y-2.5 overflow-hidden pt-2.5",
-        "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1",
+        "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1 data-[state=closed]:animate-out data-[state=open]:animate-in",
         className
       )}
       {...props}
@@ -237,7 +237,7 @@ export function ToolOutput({
 
   return (
     <div className={cn("space-y-1", className)} {...props}>
-      <div className="px-0.5 font-medium text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+      <div className="px-0.5 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.12em]">
         Result
       </div>
       <pre className={toolPreClasses} data-tool-payload="output">
@@ -256,7 +256,7 @@ export function ToolInput({
 }): React.ReactElement {
   return (
     <div className={cn("space-y-1", className)}>
-      <div className="px-0.5 font-medium text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+      <div className="px-0.5 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.12em]">
         Parameters
       </div>
       <pre className={toolPreClasses} data-tool-payload="input" {...props}>

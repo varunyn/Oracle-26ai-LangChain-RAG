@@ -14,8 +14,8 @@ import {
   useState,
 } from "react";
 import { debugChatStage } from "@/hooks/chat/debug";
-import { resolveLanggraphApiUrl } from "@/hooks/chat/stream-config";
 import type { BaseMessageWithKwargs } from "@/hooks/chat/references";
+import { resolveLanggraphApiUrl } from "@/hooks/chat/stream-config";
 
 type StreamValue = ReturnType<typeof useStream>;
 type RunCreatedInfo = { runId: string };
@@ -27,7 +27,9 @@ type RunCompletedInfo = {
 function threadMessagesFromStatePayload(
   payload: unknown
 ): BaseMessageWithKwargs[] | undefined {
-  if (!payload || typeof payload !== "object") return undefined;
+  if (!payload || typeof payload !== "object") {
+    return;
+  }
   const values = (payload as { values?: { messages?: unknown } }).values;
   return Array.isArray(values?.messages)
     ? (values.messages as BaseMessageWithKwargs[])
@@ -78,11 +80,13 @@ export function LangGraphStreamProvider({
     error: null,
     threadId,
   });
-  const [authoritativeThreadMessagesState, setAuthoritativeThreadMessagesState] =
-    useState<{
-      messages: BaseMessageWithKwargs[] | undefined;
-      threadId: string | null;
-    }>({ messages: undefined, threadId });
+  const [
+    authoritativeThreadMessagesState,
+    setAuthoritativeThreadMessagesState,
+  ] = useState<{
+    messages: BaseMessageWithKwargs[] | undefined;
+    threadId: string | null;
+  }>({ messages: undefined, threadId });
   const threadIdRef = useRef<string | null>(threadId);
   const mountedRef = useRef(false);
 
@@ -165,7 +169,9 @@ export function LangGraphStreamProvider({
       );
       const payload = await response.json();
       const messages = threadMessagesFromStatePayload(payload);
-      if (!messages || !mountedRef.current) return;
+      if (!(messages && mountedRef.current)) {
+        return;
+      }
 
       setAuthoritativeThreadMessagesState({
         messages,
@@ -188,7 +194,9 @@ export function LangGraphStreamProvider({
         reason: info.reason,
         runId: info.runId,
       });
-      if (info.reason !== "success" || !completedThreadId) return;
+      if (info.reason !== "success" || !completedThreadId) {
+        return;
+      }
 
       void hydrateAuthoritativeThread(completedThreadId).catch((error) => {
         debugChatStage("LangGraphStreamProvider.authoritativeStateError", {
