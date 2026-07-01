@@ -51,6 +51,7 @@ docs-site/dist/
 docs-site/node_modules/
 docs-site/.astro/
 docs-site/docs/
+docs-site/public/images/
 
 # Local frontend/tooling artifacts
 node_modules/
