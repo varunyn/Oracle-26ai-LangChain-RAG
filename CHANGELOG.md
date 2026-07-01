@@ -2,6 +2,7 @@
 
 ## 2026-07-01
 
+- Removed the obsolete `src.rag_agent.core.config` compatibility facade and routed Langfuse, OTEL tracing, and OTEL logging configuration through canonical `api.settings` values and standard environment variables.
 - Simplified chat memory around native LangChain messages by removing the custom dictionary conversion, legacy content repair, and unused message merge helpers.
 - Removed the unused `runtime.agent.normalize_messages` request-shape helper and its obsolete export/tests.
 - Removed the legacy `run_mixed_node` compatibility wrapper and migrated its tests to the active `mixed_mcp` and `mixed_compose` graph nodes.

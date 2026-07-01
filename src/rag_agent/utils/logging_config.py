@@ -94,16 +94,7 @@ def _get_logging_analytics_mode() -> str:
         value = value.strip().lower()
         if value in {LOGGING_ANALYTICS_MODE_AUTO, LOGGING_ANALYTICS_MODE_ALL}:
             return value
-    try:
-        from src.rag_agent.core import config as _cfg
-
-        attr = getattr(_cfg, "LOGGING_ANALYTICS_MODE", LOGGING_ANALYTICS_MODE_AUTO)
-    except Exception:  # noqa: BLE001
-        attr = LOGGING_ANALYTICS_MODE_AUTO
-    mode = str(attr).strip().lower()
-    if mode not in {LOGGING_ANALYTICS_MODE_AUTO, LOGGING_ANALYTICS_MODE_ALL}:
-        mode = LOGGING_ANALYTICS_MODE_AUTO
-    return mode
+    return LOGGING_ANALYTICS_MODE_AUTO
 
 
 _SEVERITY_WARN = SeverityNumber.SEVERITY_NUMBER_WARN  # 13
@@ -302,11 +293,11 @@ def _is_truthy(value: str | bool | None) -> bool:
     return str(value).strip().lower() in _TRUTHY_STRINGS
 
 
-def _load_config_attr(name: str, default: str | None = None) -> str | None:
+def _load_settings_attr(name: str, default: str | None = None) -> str | None:
     try:
-        from src.rag_agent.core import config as _cfg
+        from api.settings import get_settings
 
-        value = getattr(_cfg, name, None)
+        value = getattr(get_settings(), name, None)
         if value is None:
             return default
         if isinstance(value, str):
@@ -316,11 +307,11 @@ def _load_config_attr(name: str, default: str | None = None) -> str | None:
         return default
 
 
-def _load_bool_config(name: str) -> bool:
+def _load_settings_bool(name: str) -> bool:
     try:
-        from src.rag_agent.core import config as _cfg
+        from api.settings import get_settings
 
-        value = getattr(_cfg, name, None)
+        value = getattr(get_settings(), name, None)
         return _is_truthy(value)
     except Exception:  # noqa: BLE001
         return False
@@ -356,38 +347,37 @@ class LoggingAnalyticsSettings:
 
 @lru_cache(maxsize=1)
 def _get_logging_analytics_settings() -> LoggingAnalyticsSettings | None:
-    if not _load_bool_config("ENABLE_OCI_LOGGING_ANALYTICS") and not _is_truthy(
+    if not _load_settings_bool("ENABLE_OCI_LOGGING_ANALYTICS") and not _is_truthy(
         os.getenv("ENABLE_OCI_LOGGING_ANALYTICS")
     ):
         return None
 
-    namespace = os.getenv("LOGGING_ANALYTICS_NAMESPACE") or _load_config_attr(
+    namespace = os.getenv("LOGGING_ANALYTICS_NAMESPACE") or _load_settings_attr(
         "LOGGING_ANALYTICS_NAMESPACE"
     )
-    log_group_id = os.getenv("LOGGING_ANALYTICS_LOG_GROUP_ID") or _load_config_attr(
+    log_group_id = os.getenv("LOGGING_ANALYTICS_LOG_GROUP_ID") or _load_settings_attr(
         "LOGGING_ANALYTICS_LOG_GROUP_ID"
     )
     if not namespace or not log_group_id:
         logger.warning("ENABLE_OCI_LOGGING_ANALYTICS is True but namespace/log group missing")
         return None
 
-    log_set = os.getenv("LOGGING_ANALYTICS_LOG_SET") or _load_config_attr(
+    log_set = os.getenv("LOGGING_ANALYTICS_LOG_SET") or _load_settings_attr(
         "LOGGING_ANALYTICS_LOG_SET"
     )
-    meta_properties = os.getenv("LOGGING_ANALYTICS_META_PROPERTIES") or _load_config_attr(
+    meta_properties = os.getenv("LOGGING_ANALYTICS_META_PROPERTIES") or _load_settings_attr(
         "LOGGING_ANALYTICS_META_PROPERTIES"
     )
-    resource_category = os.getenv("LOGGING_ANALYTICS_RESOURCE_CATEGORY") or _load_config_attr(
+    resource_category = os.getenv("LOGGING_ANALYTICS_RESOURCE_CATEGORY") or _load_settings_attr(
         "LOGGING_ANALYTICS_RESOURCE_CATEGORY", "rag-api"
     )
 
-    profile = os.getenv("OCI_PROFILE") or _load_config_attr("OCI_PROFILE", "DEFAULT")
-    config_file = os.getenv("OCI_CONFIG_FILE") or _load_config_attr(
+    profile = os.getenv("OCI_PROFILE") or _load_settings_attr("OCI_PROFILE", "DEFAULT")
+    config_file = os.getenv("OCI_CONFIG_FILE") or _load_settings_attr(
         "OCI_CONFIG_FILE", "~/.oci/config"
     )
     min_level = (
         os.getenv("LOGGING_ANALYTICS_MIN_LEVEL")
-        or _load_config_attr("LOGGING_ANALYTICS_MIN_LEVEL")
         or "WARNING"
     )
     min_severity = _min_severity_from_level_name(str(min_level).strip().upper())
@@ -550,15 +540,10 @@ class RequestIdFilter(logging.Filter):
 
 
 def _compute_logs_endpoint() -> str:
-    # Prefer config.OTEL_LOGS_ENDPOINT, then env OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, then base + /v1/logs
-    try:
-        from src.rag_agent.core import config as _cfg
-
-        ep = getattr(_cfg, "OTEL_LOGS_ENDPOINT", None)
-        if isinstance(ep, str) and ep.strip():
-            return ep.strip()
-    except Exception:  # noqa: BLE001
-        pass
+    # Prefer app settings, then standard OTEL environment variables.
+    ep = _load_settings_attr("OTEL_LOGS_ENDPOINT")
+    if ep:
+        return ep
     logs_ep = os.getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
     if logs_ep:
         return logs_ep

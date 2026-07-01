@@ -6,13 +6,20 @@ from uuid import uuid4
 
 from langchain_core.callbacks import AsyncCallbackManager, BaseCallbackHandler
 
-from src.rag_agent.core import config
 from src.rag_agent.utils import langfuse_tracing
+
+
+def _set_langfuse_enabled(monkeypatch: Any, enabled: bool) -> None:
+    monkeypatch.setattr(
+        langfuse_tracing,
+        "get_settings",
+        lambda: SimpleNamespace(ENABLE_LANGFUSE_TRACING=enabled),
+    )
 
 
 def test_add_langfuse_callbacks_disabled_leaves_config_unchanged(monkeypatch: Any) -> None:
     """When Langfuse is disabled, add_langfuse_callbacks does not mutate run_config."""
-    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", False)
+    _set_langfuse_enabled(monkeypatch, False)
     monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
     langfuse_tracing.set_langfuse_client(None, disabled=False)
 
@@ -26,7 +33,7 @@ def test_add_langfuse_callbacks_disabled_leaves_config_unchanged(monkeypatch: An
 
 def test_add_langfuse_callbacks_enabled_adds_callbacks_and_metadata(monkeypatch: Any) -> None:
     """When Langfuse is enabled and client is set, run_config gets callbacks and metadata."""
-    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    _set_langfuse_enabled(monkeypatch, True)
     monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
     # Use a real-looking client so get_langfuse_client() returns it; add_langfuse_callbacks
     # needs the client to be created so it proceeds to add CallbackHandler.
@@ -67,13 +74,13 @@ def test_add_langfuse_callbacks_sets_trace_context_name_and_tags(monkeypatch: An
 
     import langfuse.langchain
 
-    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    _set_langfuse_enabled(monkeypatch, True)
     monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
     monkeypatch.setattr(langfuse.langchain, "CallbackHandler", _CallbackHandler)
     monkeypatch.setattr(
         langfuse_tracing,
         "get_settings",
-        lambda: SimpleNamespace(LANGFUSE_PUBLIC_KEY="pk-test"),
+        lambda: SimpleNamespace(ENABLE_LANGFUSE_TRACING=True, LANGFUSE_PUBLIC_KEY="pk-test"),
     )
     langfuse_tracing.set_langfuse_client(SimpleNamespace(public_key="pk-test"), disabled=False)
 
@@ -112,13 +119,13 @@ def test_add_langfuse_callbacks_falls_back_to_settings_public_key(monkeypatch: A
 
     import langfuse.langchain
 
-    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    _set_langfuse_enabled(monkeypatch, True)
     monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
     monkeypatch.setattr(langfuse.langchain, "CallbackHandler", _CallbackHandler)
     monkeypatch.setattr(
         langfuse_tracing,
         "get_settings",
-        lambda: SimpleNamespace(LANGFUSE_PUBLIC_KEY="pk-settings"),
+        lambda: SimpleNamespace(ENABLE_LANGFUSE_TRACING=True, LANGFUSE_PUBLIC_KEY="pk-settings"),
     )
     langfuse_tracing.set_langfuse_client(object(), disabled=False)
 
@@ -143,13 +150,13 @@ def test_add_langfuse_callbacks_preserves_callback_manager(monkeypatch: Any) -> 
 
     import langfuse.langchain
 
-    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    _set_langfuse_enabled(monkeypatch, True)
     monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
     monkeypatch.setattr(langfuse.langchain, "CallbackHandler", _CallbackHandler)
     monkeypatch.setattr(
         langfuse_tracing,
         "get_settings",
-        lambda: SimpleNamespace(LANGFUSE_PUBLIC_KEY="pk-settings"),
+        lambda: SimpleNamespace(ENABLE_LANGFUSE_TRACING=True, LANGFUSE_PUBLIC_KEY="pk-settings"),
     )
     langfuse_tracing.set_langfuse_client(object(), disabled=False)
 
@@ -175,12 +182,13 @@ def test_get_langfuse_client_passes_sample_rate_when_configured(monkeypatch: Any
         def __init__(self, **kwargs: Any) -> None:
             captured.update(kwargs)
 
-    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    _set_langfuse_enabled(monkeypatch, True)
     monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", _LangfuseRuntime)
     monkeypatch.setattr(
         langfuse_tracing,
         "get_settings",
         lambda: SimpleNamespace(
+            ENABLE_LANGFUSE_TRACING=True,
             LANGFUSE_HOST="http://localhost:3300",
             LANGFUSE_PUBLIC_KEY="pk-test",
             LANGFUSE_SECRET_KEY="sk-test",
@@ -205,7 +213,7 @@ def test_get_langfuse_client_prefers_environment_over_settings(monkeypatch: Any)
         def __init__(self, **kwargs: Any) -> None:
             captured.update(kwargs)
 
-    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    _set_langfuse_enabled(monkeypatch, True)
     monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", _LangfuseRuntime)
     monkeypatch.setenv("LANGFUSE_HOST", "http://langfuse-web:3000")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-env")
@@ -214,6 +222,7 @@ def test_get_langfuse_client_prefers_environment_over_settings(monkeypatch: Any)
         langfuse_tracing,
         "get_settings",
         lambda: SimpleNamespace(
+            ENABLE_LANGFUSE_TRACING=True,
             LANGFUSE_HOST="http://localhost:3300",
             LANGFUSE_PUBLIC_KEY="pk-settings",
             LANGFUSE_SECRET_KEY="sk-settings",
@@ -277,12 +286,12 @@ def test_start_langfuse_chat_trace_propagates_trace_attributes(monkeypatch: Any)
         captured["propagation_kwargs"] = kwargs
         return _PropagationManager()
 
-    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    _set_langfuse_enabled(monkeypatch, True)
     monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
     monkeypatch.setattr(
         langfuse_tracing,
         "get_settings",
-        lambda: SimpleNamespace(LANGFUSE_RELEASE=None),
+        lambda: SimpleNamespace(ENABLE_LANGFUSE_TRACING=True, LANGFUSE_RELEASE=None),
     )
     monkeypatch.setattr(langfuse_tracing, "LangfusePropagateAttributes", _propagate_attributes)
     langfuse_tracing.set_langfuse_client(_Client(), disabled=False)
@@ -349,13 +358,13 @@ def test_update_generation_usage_sends_usage_and_cost_details() -> None:
 
 def test_safe_flush_no_op_when_disabled(monkeypatch: Any) -> None:
     """safe_flush does not raise when Langfuse is disabled."""
-    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", False)
+    _set_langfuse_enabled(monkeypatch, False)
     langfuse_tracing.set_langfuse_client(None, disabled=False)
     langfuse_tracing.safe_flush()
 
 
 def test_safe_shutdown_calls_client_shutdown_and_clears_singleton(monkeypatch: Any) -> None:
-    monkeypatch.setattr(config, "ENABLE_LANGFUSE_TRACING", True)
+    _set_langfuse_enabled(monkeypatch, True)
     monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", object())
 
     class _Client:

@@ -16,7 +16,6 @@ from langchain_core.outputs import ChatGeneration, LLMResult
 from typing_extensions import override
 
 from api.settings import get_settings
-from src.rag_agent.core import config as core_config
 from src.rag_agent.runtime.observability import estimate_cost_usd
 from src.rag_agent.utils.context_window import estimate_tokens, messages_to_text
 from src.rag_agent.utils.logging_config import get_request_id
@@ -219,7 +218,7 @@ def langfuse_enabled() -> bool:
         return False
     if LangfuseRuntime is None:
         return False
-    return bool(core_config.ENABLE_LANGFUSE_TRACING)
+    return bool(getattr(get_settings(), "ENABLE_LANGFUSE_TRACING", False))
 
 
 def get_langfuse_client() -> Any | None:

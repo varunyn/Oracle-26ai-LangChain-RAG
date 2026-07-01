@@ -110,11 +110,11 @@ def _env_enabled(key: str, default: bool = False) -> bool:
 
 
 def _get_traces_endpoint() -> str:
-    """Return OTLP traces endpoint: config.OTEL_TRACES_ENDPOINT, then env, then default."""
+    """Return OTLP traces endpoint from app settings, env, or the local default."""
     try:
-        import config as _cfg  # type: ignore
+        from api.settings import get_settings
 
-        ep = getattr(_cfg, "OTEL_TRACES_ENDPOINT", None)
+        ep = getattr(get_settings(), "OTEL_TRACES_ENDPOINT", None)
         if isinstance(ep, str) and ep.strip():
             return ep.strip()
     except Exception:  # noqa: BLE001
@@ -125,9 +125,9 @@ def _get_traces_endpoint() -> str:
 def _get_traces_headers() -> dict[str, str] | None:
     """Return optional HTTP headers for trace exporter (e.g. Oracle APM dataKey auth)."""
     try:
-        import config as _cfg  # type: ignore
+        from api.settings import get_settings
 
-        h = getattr(_cfg, "OTEL_TRACES_HEADERS", None)
+        h = getattr(get_settings(), "OTEL_TRACES_HEADERS", None)
         if isinstance(h, dict) and h:
             return {str(k): str(v) for k, v in h.items()}
     except Exception:  # noqa: BLE001
