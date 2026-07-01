@@ -4,6 +4,7 @@
 
 - Aligned `.env.example` with `api/settings.py`: updated stale `MODEL_LIST` / `MODEL_DISPLAY_NAMES` examples to the current region-derived defaults, removed non-existent `ENABLE_PERSISTENT_MEMORY` and `MCP_AGENT_MODEL_TIMEOUT_SECONDS`, and added missing `RAG_RETRIEVAL_TOP_K`.
 - Fixed remaining stale runtime references in docs: `docs/LOGGING-ANALYTICS.md` now points to the LangGraph Agent Server health endpoint (`localhost:2024/health`) instead of the removed standalone FastAPI backend port `3002`; `observability/langfuse/README.md` no longer says the FastAPI app sends traces to Langfuse.
+- Synced `docs/README.md` with the current root `README.md` so the docs-site overview page no longer carries outdated architecture, feature descriptions, and broken relative links.
 - Fixed frontend environment documentation: added `FASTAPI_BACKEND_URL` to `frontend/env.example`, documented `NEXT_PUBLIC_LANGGRAPH_API_BASE` / `LANGGRAPH_BACKEND_URL` in `docs/CONFIGURATION.md`, and corrected the Docker Compose server-side URL variable in `docs/GETTING-STARTED.md`.
 - Corrected `docs/DOCUMENT-POPULATION.md` to reference the actual `CHUNK_SIZE` / `CHUNK_OVERLAP` defaults from settings instead of hard-coded outdated values.
 - Removed the stale `MAX_MSGS_IN_HISTORY` reference from `README.md` and corrected the MCP `semantic_search` mode description to match the code (only `vector` is supported).

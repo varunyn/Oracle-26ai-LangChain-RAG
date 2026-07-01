@@ -1,147 +1,144 @@
-# Custom RAG Agent
+# Oracle 26ai LangChain RAG
 
-A production-ready **Retrieval-Augmented Generation (RAG)** agent built with **LangChain**, **Oracle 26AI Vector Store**, and **OCI Generative AI**. It supports RAG, MCP, mixed, and direct chat modes with streaming responses.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+A LangChain-powered Oracle RAG application with chat, MCP tools, and observability.
+
+![OCI Custom RAG Agent chat workspace with document upload](images/oci-custom-rag-agent-chat-upload-panel.png)
+
+## What this repo is
+
+This repository is best understood as a **reference implementation**, not a zero-config starter. It combines:
+
+- a LangGraph Agent Server chat runtime with custom FastAPI product routes mounted through `langgraph.json`
+- graph-owned mode dispatch for retrieval, MCP tools, direct chat, and follow-up transforms
+- a Next.js chat frontend with streaming responses and citations
+- Oracle/OCI-backed embeddings, chat models, and vector search
+- optional observability with OpenTelemetry, Grafana/Tempo/Loki, and Langfuse
+
+If you want the fastest path to a realistic first run, start with:
+
+- [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md)
+- [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)
+- [`docs/DOCKER-SETUP.md`](docs/DOCKER-SETUP.md)
 
 ## Overview
 
 This application provides an intelligent question-answering system that:
 
-- Processes user queries through runtime mode dispatch (`rag`, `mcp`, `mixed`, `direct`)
-- Searches documents using semantic vector search
-- Generates contextual answers with citations
-- Supports streaming responses and real-time UI updates
+- Retrieves relevant document chunks from Oracle vector search
+- Reranks results before answer generation
+- Supports follow-up interpretation and grounded reformatting
+- Supports optional MCP tool usage in `mcp`, `mixed`, or `direct` flows
+- Streams answers to the UI with citations and source references
+
+## Screenshots
+
+The UI includes the main chat workspace, document upload controls, source review, and runtime selectors.
+
+### Chat workspace and document upload
+
+![Chat workspace with document upload panel](images/oci-custom-rag-agent-chat-upload-panel.png)
+
+### Processed sources
+
+![Processed sources table](images/oci-custom-rag-agent-processed-sources-table.png)
+
+### Flow mode selector
+
+![Flow mode selector](images/oci-custom-rag-agent-flow-mode-selector.png)
+
+### Model selector
+
+![Model selector](images/oci-custom-rag-agent-model-selector.png)
 
 ## Architecture
 
-Chat execution is handled by the LangGraph Agent Server `chat_agent` graph with explicit mode dispatch:
+The active chat runtime is the LangGraph Agent Server `chat_agent` graph in `src/rag_agent/graphs/chat_agent.py`. FastAPI remains mounted as a custom app for product routes such as config, suggestions, feedback, and document ingestion.
 
-- `rag`: Oracle vector similarity search + answer prompt
-- `mcp`: MCP tools only through `langchain_mcp_adapters` + LangChain agent loop
-- `mixed`: MCP tools plus the local `oracle_retrieval` tool in one agent loop; when retrieval returns docs, the final answer is synthesized through the RAG answer path with any non-retrieval tool outputs included as supplemental context
-- `direct`: plain LLM response from chat history
+## LangGraph Agent Server development
+
+Run the graph server locally:
+
+```bash
+uv run langgraph dev
+```
+
+The graph id is `chat_agent`, and `langgraph.json` keeps FastAPI mounted through `api/main.py:app` so product routes are served from the same `localhost:2024` Agent Server host.
 
 ### Key Directories
 
-| Directory        | Purpose                                                                                       |
-| ---------------- | --------------------------------------------------------------------------------------------- |
-| `src/rag_agent/` | Runtime and infrastructure modules (OCI models, MCP adapter/executor, prompts, tracing utilities) |
-| `api/`           | FastAPI product APIs for config, documents, feedback, suggestions, and health, mounted into the Agent Server |
-| `frontend/`      | Next.js app; `src/app` (pages/layout), `src/components`, `src/lib` (chat, config, types) |
-| `mcp_servers/`   | MCP servers (RAG, semantic search, minimal)                                                   |
-| `scripts/`       | Document population and table create/drop/truncate utilities                                  |
-| `tests/`         | Pytest and manual run scripts for MCP/workflow                                                |
-| `docs/`          | Setup, MCP usage, tracing, OCI, database                                                      |
-
-```mermaid
----
-config:
-  flowchart:
-    curve: linear
----
-graph TD;
-    __start__([<p>__start__</p>]):::first
-    ChatRequest["Agent Server chat_agent run"]
-    Mode{"mode"}
-    RAG["RAG path<br/>vector search + prompt"]
-    MCP["MCP path<br/>create_agent + MCP tools"]
-    Mixed["Mixed path<br/>oracle_retrieval + MCP tools"]
-    MixedDocs{"retrieval docs?"}
-    MixedRAG["RAG answer synthesis"]
-    MixedMCP["MCP answer or retrieval error"]
-    Direct["Direct path<br/>LLM on history"]
-    Persist["Store thread state by thread_id"]
-    Stream["LangGraph SSE stream"]
-    __end__([<p>__end__</p>]):::last
-    __start__ --> ChatRequest
-    ChatRequest --> Mode
-    Mode -->|rag| RAG
-    Mode -->|mcp| MCP
-    Mode -->|mixed| Mixed
-    Mixed --> MixedDocs
-    MixedDocs -->|yes| MixedRAG
-    MixedDocs -->|no| MixedMCP
-    Mode -->|direct| Direct
-    RAG --> Persist
-    MCP --> Persist
-    MixedRAG --> Persist
-    MixedMCP --> Persist
-    Direct --> Persist
-    Persist --> Stream
-    Stream --> __end__
-    classDef default fill:#f2f0ff,line-height:1.2
-    classDef first fill-opacity:0
-    classDef last fill:#bfb6fc
-```
-
-## Key Components
-
-### 1. **Semantic Search**
-
-- Performed via `langchain-oracledb` vector store in the runtime RAG path
-- Uses OracleVS vector similarity search through `langchain-oracledb`
-- Returns relevant chunks and normalized citations/sources
-
-### 2. **MCP Adapter Runtime**
-
-- `MultiServerMCPClient` wiring in `src/rag_agent/infrastructure/mcp_adapter_runtime.py`
-- Caches clients/tools per connection set
-- Supports per-request server selection via `mcp_server_keys`
-
-### 3. **MCP Agent Executor**
-
-- `create_agent(...)` loop in `src/rag_agent/infrastructure/mcp_agent_executor.py`
-- Built-in middleware for retries/tool-call bounds
-- Shared MCP prompts and middleware-backed tool execution
-- Mixed mode gives the agent the full retrieval + MCP toolbox. When `oracle_retrieval` returns documents, the final response uses the RAG answer path and includes non-retrieval MCP tool results as supplemental context.
-
-### 4. **Citation Normalization**
-
-- Centralized in `src/rag_agent/core/citations.py`
-- Used across runtime and API response shaping
+| Directory                       | Purpose                                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `src/rag_agent/runtime/`        | Graph node runtime helpers, memory, retrieval services, observability, and Agent Server checkpointer integration |
+| `src/rag_agent/workflows/`      | Repeated MCP workflow helpers and work-unit extraction                                         |
+| `src/rag_agent/infrastructure/` | OCI, Oracle vector search, MCP adapter, and model/tool integrations                            |
+| `api/`                          | FastAPI product APIs for config, documents, feedback, suggestions, and health, mounted into the LangGraph Agent Server |
+| `frontend/`                     | Next.js app; `src/app`, `src/components`, and `src/lib` chat/config/types                      |
+| `mcp_servers/`                  | MCP servers for RAG, semantic search, and minimal local tools                                  |
+| `scripts/`                      | Document population, database/table utilities, stack management, and API doc sync              |
+| `tests/`                        | Unit, workflow, integration, and manual run scripts                                            |
+| `docs/`                         | Setup, MCP usage, tracing, OCI, database, and generated API documentation                      |
 
 ## Data Flow
 
 ```
 User Query
     ↓
+[Normalize Messages] → stable ChatMessage payload
+    ↓
 [Mode Dispatch] → rag | mcp | mixed | direct
     ↓
-[Runtime Execution] → retrieval and/or MCP tools
+[RAG Path] Oracle retrieval + answer prompt
+        OR
+[MCP Path] configured MCP tools
+        OR
+[Mixed Path] Oracle retrieval tool + MCP tools in one agent loop
+        OR
+[Direct Path] LLM on chat history only
     ↓
-[Citations + State] → normalized refs + thread state update
+[References + State] → citations, context usage, MCP metadata, thread memory
     ↓
-Next.js UI → Displays answer + sources
+Next.js UI → streamed answer + citations
 ```
 
 ## Technology Stack
 
-- **Framework**: LangChain v1 agents + MCP adapters
-- **Vector Database**: Oracle 26AI with VECTOR data type
-- **LLM**: OCI Generative AI (Meta Llama, Cohere, OpenAI models)
-- **Embeddings**: OCI Generative AI (Cohere multilingual)
-- **UI**: Next.js
-- **Observability**: OpenTelemetry (OTLP); OCI APM supported via OTLP
-- **Language**: Python 3.11
+| Layer                  | Technology                                                                         |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| Backend API            | FastAPI, Pydantic, Uvicorn                                                         |
+| Agent runtime          | LangChain v1 agents, LangGraph-compatible thread/run APIs, LangChain MCP adapters  |
+| Retrieval              | Oracle 26AI / Oracle AI Vector Search through `langchain-oracledb`                 |
+| LLM and embeddings     | OCI Generative AI through `langchain-oci`; optional OpenAI-compatible model wiring |
+| Reranking              | Native OCI Gen AI rerank with lexical filtering on rerank failure                  |
+| Frontend               | Next.js 16, React 19, TypeScript, Tailwind CSS v4, Radix UI, Streamdown            |
+| Streaming protocol     | LangGraph-compatible SSE `event: values` streams consumed by `@langchain/react`    |
+| Optional observability | OpenTelemetry OTLP, Grafana, Tempo, Loki, OCI APM, Langfuse                        |
+| Tooling                | Python 3.11, `uv`, `pnpm`, Docker Compose, Playwright, Ruff, Black, Mypy, Pytest   |
 
 ## Setup
 
-**New here?** Start with the step-by-step guide: [GETTING-STARTED.md](GETTING-STARTED.md).
+**New here?** Start with the step-by-step guide: [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md).
 
 ### Prerequisites
 
-1. **Oracle 26AI Database** with:
-   - Vector Store enabled
-   - Table: `RAG_KNOWLEDGE_BASE` (created automatically)
+1. **Oracle 26AI Database / Oracle AI Vector Search** with:
+   - Vector search enabled
    - Wallet configured for secure connection
+   - Permission to create or use the configured knowledge-base table, defaulting to `RAG_KNOWLEDGE_BASE`
 
 2. **OCI Account** with:
    - Generative AI service access
    - API keys configured in `~/.oci/config`
-   - Compartment with Generative AI permissions
+   - Compartment permissions for chat, embeddings, and native rerank models
 
 3. **Python 3.11**
-4. **uv** (Python package manager)
-5. **pnpm** (frontend package manager)
+4. **uv** for Python dependency management
+5. **Node.js and pnpm** for the Next.js frontend
+6. **Docker or Colima/Docker Desktop** if you plan to run the backend/frontend or optional observability stacks through Compose
+7. **Optional observability configuration** only if you enable tracing or monitoring:
+   - OCI APM or OTLP endpoint if sending traces outside the local stack
+   - Langfuse keys if using Langfuse trace UI
 
 ### Installation
 
@@ -160,13 +157,20 @@ uv sync
 
 OCI and Oracle AI Vector Search integrations use the official [oracle/langchain-oracle](https://github.com/oracle/langchain-oracle) packages: **langchain-oci** (LLM and embeddings) and **langchain-oracledb** (vector store). See that repository for documentation and examples.
 
-**OCI Gen AI** is used via **ChatOCIGenAI** (from langchain-oci) for RAG answer synthesis, follow-up interpretation, and MCP tool-calling. Native OCI Gen AI rerank is used for retrieval reranking. Auth uses the OCI profile from config (~/.oci/config).
+**OCI Gen AI** is used via **ChatOCIGenAI** (from langchain-oci) for RAG answer synthesis, follow-up interpretation, and MCP tool-calling. Native OCI Gen AI rerank is used for retrieval reranking. Auth uses the OCI profile from config (`~/.oci/config`).
 
 **Development dependencies**:
 
 ```bash
 # Install with development tools (pytest, black, ruff, mypy)
 uv sync --group dev
+```
+
+**Live AI workflow e2e checks** are opt-in because they call the configured OCI LLM:
+
+```bash
+RUN_INTEGRATION_TESTS=1 OCI_INTEGRATION_TESTS=1 AI_WORKFLOW_E2E_TESTS=1 \
+  uv run pytest tests/integration_tests/test_ai_repeated_workflow_e2e.py -q -s
 ```
 
 ### Configuration
@@ -184,23 +188,11 @@ uv sync --group dev
    - **OCI**: `OCI_PROFILE`, `COMPARTMENT_ID`, `REGION`
    - **Models**: `LLM_MODEL_ID`, `EMBED_MODEL_ID` (defaults exist; override as needed)
 
-   See [CONFIGURATION](CONFIGURATION.md) and `.env.example` for all options.
+   See `docs/CONFIGURATION.md` and `.env.example` for all options.
 
 ## Usage
 
-### 1. Populate Knowledge Base
-
-The ingestion implementation lives in `src/rag_agent/ingestion.py`. For local operations and batch ingestion, the supported CLI entrypoint remains `scripts/ingest_documents.py`, which now wraps that shared module.
-
-```bash
-# Process specific files (PDF, HTML, TXT, MD)
-uv run python scripts/ingest_documents.py --files document1.pdf document2.pdf readme.md
-
-# Process all supported files in a directory
-uv run python scripts/ingest_documents.py --dir ./documents
-```
-
-### 2. Run the Application
+### 1. Run the Application
 
 #### Local ports
 
@@ -233,6 +225,8 @@ docker compose up -d langgraph frontend
 
 - LangGraph Agent Server and product APIs: http://localhost:2024
 - Frontend: http://localhost:4000 (container exposes port 3000 at 4000 per compose)
+- The Docker frontend is built with `NEXT_PUBLIC_API_BASE=http://localhost:2024` and `NEXT_PUBLIC_LANGGRAPH_API_BASE=http://localhost:2024` by default.
+- The Docker LangGraph service allows local browser origins through `CORS_ALLOW_ORIGINS` and bind-mounts `./langgraph.json`, so local CORS/config changes apply after recreating `rag-langgraph`.
 - Logs: `docker compose logs -f langgraph frontend`
 - Stop: `docker compose down`
 
@@ -250,7 +244,7 @@ If you are running locally, start optional observability containers with the com
 
 #### Optional Langfuse stack
 
-If you want Langfuse SDK traces locally:
+If you want [Langfuse](https://github.com/langfuse/langfuse) SDK traces locally:
 
 ```bash
 cp observability/langfuse/.env.example observability/langfuse/.env
@@ -258,7 +252,7 @@ cp observability/langfuse/.env.example observability/langfuse/.env
 docker compose -f observability/langfuse/docker-compose.yml up -d
 ```
 
-The Langfuse UI will run at `http://localhost:3300` (default) using its own compose file so it doesn't interfere with the main stack. See `observability/langfuse/README.md` for details.
+The Langfuse UI will run at `http://localhost:3300` (default) using its own compose file so it doesn’t interfere with the main stack. See `observability/langfuse/README.md` for details.
 
 - LangGraph Agent Server and product APIs: http://localhost:2024
 - Frontend: http://localhost:4000 (Next.js dev server reads API URL from env)
@@ -283,12 +277,28 @@ The Langfuse UI will run at `http://localhost:3300` (default) using its own comp
    `ENABLE_OBSERVABILITY_STACK=true` or `ENABLE_OTEL_TRACING=true`, and
    `langfuse` when `ENABLE_LANGFUSE_TRACING=true`.
 
+### 2. Add documents
+
+The primary path is the UI: use the sidebar **Upload documents** control to add PDF, HTML, TXT, Markdown, or MD files to the selected collection. The **Processed sources** tab shows indexed sources, chunk counts, refresh, and delete actions.
+
+For batch imports or automation, use the CLI entrypoint. It wraps the same ingestion implementation used by the upload API.
+
+```bash
+# Process specific files
+uv run python scripts/ingest_documents.py --files document1.pdf document2.pdf readme.md
+
+# Process all supported files in a directory
+uv run python scripts/ingest_documents.py --dir ./documents
+```
+
 ### 3. Query the Knowledge Base
 
 1. Enter your question in the chat interface
-2. The LangGraph `chat_agent` routes by `mode` (`rag`, `mcp`, `mixed`, `direct`)
-3. Receive streaming answer with references in assistant message metadata (`citations`, `reranker_docs`, `mcp_tool_invocations`, and related fields)
-4. Inspect sources in the chat UI
+2. The agent processes through all workflow stages
+3. View intermediate results in the sidebar:
+   - Standalone question (when a follow-up is rewritten for retrieval)
+   - References (after reranking)
+4. Receive streaming answer with citations
 
 ## Features
 
@@ -296,19 +306,20 @@ The Langfuse UI will run at `http://localhost:3300` (default) using its own comp
 
 - Real-time answer generation
 - Progressive UI updates as each stage completes
-- Immediate display of tool activity and document sources
+- Immediate display of document references
 
 ### 🔄 Chat History and Memory
 
-- Maintains conversation context by `thread_id`
-- Server-side short-term memory in LangGraph thread/checkpoint state
-- Cleared through `DELETE /api/threads/{thread_id}`
+- Maintains conversation context (`chat_history` in state)
+- Rewrites retrieval-oriented follow-up questions when needed
+- Thread state is persisted per `thread_id` in the SQLite file configured by
+  `LANGGRAPH_SQLITE_PATH`
 
-### 🧭 Retrieval Relevance Filtering
+### 🎯 Intelligent Reranking
 
-- Mixed mode applies lightweight overlap filtering to retrieved docs
-- Prevents obviously off-topic retrieval snippets from becoming citations
-- Retrieval uses a configurable top-k (`RAG_RETRIEVAL_TOP_K`, default `5`) and caches the OCI embedding client per process.
+- Native OCI Gen AI rerank relevance scoring
+- Filters out irrelevant documents
+- Improves answer accuracy
 
 ### 📊 Observability (Optional)
 
@@ -378,11 +389,16 @@ The **RAG MCP server** (`mcp_rag_server.py`) exposes **`rag_ask`** for full RAG 
 
 ### Using MCP
 
-See [MCP usage](MCP-USAGE.md) for usage guide.
+This repo supports MCP in two distinct ways:
+
+1. **Expose standalone MCP servers** from `mcp_servers/` such as `mcp_semantic_search.py` and `mcp_rag_server.py`.
+2. **Consume MCP servers inside the app** through the LangGraph `chat_agent` graph with `mode="mcp"` or `mode="mixed"` in run context.
+
+See [`docs/MCP-USAGE.md`](docs/MCP-USAGE.md) for the detailed usage guide.
 
 ## Advantages of Agentic Approach
 
-The modular runtime architecture provides:
+The modular LangGraph architecture provides:
 
 1. **Flexibility**: Easy to add/remove/modify workflow steps
 2. **Observability**: Each step can be monitored independently
@@ -398,8 +414,9 @@ The modular runtime architecture provides:
 ```
 User: "What is Oracle 23AI?"
 
-1. [RAG Search] → Found relevant document chunks
-2. [Answer] → Generated answer with citations:
+1. [Search] → Found 6 relevant document chunks
+2. [Rerank] → Ranked and filtered to top 3 chunks
+3. [Answer] → Generated answer with citations:
 
    "Oracle 23AI is Oracle's next-generation database..."
 
@@ -409,18 +426,19 @@ User: "What is Oracle 23AI?"
 
 ## Documentation
 
-- [Getting started](GETTING-STARTED.md) – First run walkthrough
-- [Docker setup](DOCKER-SETUP.md) – Run services with Docker/compose
-- [Database setup](DATABASE-SETUP.md) – Vector DB and wallet configuration
-- [Document population](DOCUMENT-POPULATION.md) – Ingesting documents into the knowledge base
-- [MCP usage](MCP-USAGE.md) – Using MCP tools and RAG MCP server
-- [OCI session token](OCI-SESSION-TOKEN.md) – OCI session token auth
-- [Tracing](TRACING.md) – Observability and tracing
-- [Observability routing](OBSERVABILITY_ROUTING.md) – How to combine local Grafana/Tempo, OCI APM, and OCI Logging Analytics
+- [Getting started](docs/GETTING-STARTED.md) – First run walkthrough
+- [Configuration](docs/CONFIGURATION.md) – Backend/frontend env variables and settings
+- [Docker setup](docs/DOCKER-SETUP.md) – Run services with Docker/compose
+- [Database setup](docs/DATABASE-SETUP.md) – Vector DB and wallet configuration
+- [Document population](docs/DOCUMENT-POPULATION.md) – Ingesting documents into the knowledge base
+- [MCP usage](docs/MCP-USAGE.md) – Using MCP tools and RAG MCP server
+- [OCI session token](docs/OCI-SESSION-TOKEN.md) – OCI session token auth
+- [Tracing](docs/TRACING.md) – Observability and tracing
+- [Observability routing](docs/OBSERVABILITY_ROUTING.md) – Combining local Grafana/Tempo, OCI APM, and OCI Logging Analytics
 
 ### Documentation site (GitHub Pages)
 
-The public docs site is built with ReallySimpleDocs/Astro from the Markdown files in this `docs/` folder.
+The public docs site is built with ReallySimpleDocs/Astro from the Markdown files in `docs/`.
 
 **View locally:**
 
@@ -439,15 +457,15 @@ cd docs-site
 npm run build
 ```
 
-The build syncs Markdown from `docs/` into the Astro docs tree and writes the static site to `docs-site/dist/`. GitHub Pages deployment is handled by `.github/workflows/docs-pages.yml`.
+The build syncs Markdown from `docs/` into the Astro content tree and writes the static site to `docs-site/dist/`. GitHub Pages deployment is handled by `.github/workflows/docs-pages.yml`.
 
 ## Troubleshooting
 
-See the [Documentation](#documentation) section above. For database or OCI issues, start with [DATABASE-SETUP](DATABASE-SETUP.md) and [OCI-SESSION-TOKEN](OCI-SESSION-TOKEN.md).
+See the [Documentation](#documentation) section above. For database or OCI issues, start with [`docs/DATABASE-SETUP.md`](docs/DATABASE-SETUP.md) and [`docs/OCI-SESSION-TOKEN.md`](docs/OCI-SESSION-TOKEN.md).
 
 ## Contributing
 
-See [AGENTS.md](AGENTS.md) (in the repo root) for contribution workflow, testing gate, and code style.
+See [AGENTS.md](AGENTS.md) for contribution workflow, testing gate, and code style.
 
 ## License
 
@@ -455,7 +473,7 @@ MIT License
 
 ## References
 
-- [LangChain Agents Documentation](https://docs.langchain.com/oss/python/langchain/agents)
+- [LangGraph Documentation](https://docs.langchain.com/oss/python/langgraph/overview)
 - [Oracle LangChain integration (langchain-oci, langchain-oracledb)](https://github.com/oracle/langchain-oracle)
 - [Oracle 23AI Vector Search](https://docs.oracle.com/en/database/oracle/oracle-database/26/vecse/)
 - [OCI Generative AI](https://docs.oracle.com/en-us/iaas/Content/generative-ai/home.htm)
