@@ -60,6 +60,6 @@ Volumes (`langfuse_*`) keep your data between restarts. Add `-v` to `down` if yo
   - `POSTGRES_PASSWORD`, `CLICKHOUSE_PASSWORD`, `REDIS_AUTH`, `MINIO_ROOT_PASSWORD`
   - MinIO-related access keys (`LANGFUSE_S3_*_SECRET_ACCESS_KEY`)
 - **Langfuse bootstrap (optional)** – set `LANGFUSE_INIT_*` in `.env` to create the first org/user/project on startup. **You must set `LANGFUSE_INIT_ORG_ID`** (e.g. `my-org`); otherwise `LANGFUSE_INIT_USER_EMAIL`, `LANGFUSE_INIT_USER_NAME`, and `LANGFUSE_INIT_USER_PASSWORD` are ignored. See `.env.example` for the full list.
-- **Backend integration** – after the stack is running, set `ENABLE_LANGFUSE_TRACING=true` and `LANGFUSE_HOST=http://localhost:3300` in `.env` so the FastAPI app sends traces to Langfuse.
+- **Backend integration** – after the stack is running, set `ENABLE_LANGFUSE_TRACING=true` and `LANGFUSE_HOST=http://localhost:3300` in `.env` so the LangGraph Agent Server sends traces to Langfuse.
 
 See [`docs/TRACING.md`](../../docs/TRACING.md#6-langfuse-sdk-optional) for the SDK wiring details.

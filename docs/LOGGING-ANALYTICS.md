@@ -56,7 +56,7 @@ The `use loganalytics-log-group` permission includes the upload operation requir
 
 ## 3. Verify ingestion
 
-1. Generate traffic (`curl http://localhost:3002/health` or a chat request).
+1. Generate traffic (`curl http://localhost:2024/health` or a chat request).
 2. Check API logs for `Log exporters: ... OCI Logging Analytics` at startup and ensure no `export failed` messages.
 3. In OCI Console → Logging Analytics → Log Explorer, filter by the log group / OpenTelemetry Logs source and search for `service.name = "rag-api"`.
 
