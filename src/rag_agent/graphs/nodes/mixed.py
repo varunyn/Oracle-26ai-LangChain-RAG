@@ -211,14 +211,3 @@ async def run_mixed_compose_node(
         "messages": messages_out,
         "references": references,
     }
-
-
-async def run_mixed_node(
-    state: ChatGraphState,
-    config: RunnableConfig,
-    runtime: Runtime[ChatGraphContext],
-) -> ChatGraphState:
-    """Compatibility wrapper for callers that invoke the legacy mixed node directly."""
-    intermediate = await run_mixed_mcp_node(state, config, runtime)
-    composed_state = {**state, **intermediate}
-    return await run_mixed_compose_node(composed_state, config, runtime)

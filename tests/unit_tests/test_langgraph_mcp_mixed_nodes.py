@@ -40,6 +40,13 @@ class FakeMcpTurn:
             ]
 
 
+async def execute_mixed_nodes(state: dict[str, object], config: dict[str, object], runtime: object):
+    intermediate = await mixed.run_mixed_mcp_node(state, config, runtime)  # type: ignore[arg-type]
+    return await mixed.run_mixed_compose_node(
+        {**state, **intermediate}, config, runtime  # type: ignore[arg-type]
+    )
+
+
 def test_mcp_node_runs_agent_turn_without_chat_runtime_service(monkeypatch) -> None:
     class _FakeTrace:
         trace_context = None
@@ -89,7 +96,7 @@ def test_mcp_node_runs_agent_turn_without_chat_runtime_service(monkeypatch) -> N
     assert assistant.additional_kwargs["mcp_tools_used"] == ["lookup"]
 
 
-def test_mixed_node_runs_agent_turn_without_chat_runtime_service(monkeypatch) -> None:
+def test_mixed_nodes_run_agent_turn_without_chat_runtime_service(monkeypatch) -> None:
     class _FakeTrace:
         trace_context = None
         trace_id = None
@@ -154,7 +161,7 @@ def test_mixed_node_runs_agent_turn_without_chat_runtime_service(monkeypatch) ->
     )
 
     result = asyncio.run(
-        mixed.run_mixed_node(
+        execute_mixed_nodes(
             {"messages": [HumanMessage(content="Use tools and docs")]},
             {"callbacks": ["outer-callback"]},
             runtime,  # type: ignore[arg-type]
@@ -174,7 +181,7 @@ def test_mixed_node_runs_agent_turn_without_chat_runtime_service(monkeypatch) ->
     assert assistant.additional_kwargs["citations"] == [{"source": "doc.md"}]
 
 
-def test_mixed_node_synthesizes_when_tool_loop_has_no_final_answer(monkeypatch) -> None:
+def test_mixed_nodes_synthesize_when_tool_loop_has_no_final_answer(monkeypatch) -> None:
     class _FakeTrace:
         trace_context = None
         trace_id = None
@@ -252,7 +259,7 @@ def test_mixed_node_synthesizes_when_tool_loop_has_no_final_answer(monkeypatch) 
     )
 
     result = asyncio.run(
-        mixed.run_mixed_node(
+        execute_mixed_nodes(
             {"messages": [HumanMessage(content="Use docs")]},
             {"callbacks": ["outer-callback"]},
             runtime,  # type: ignore[arg-type]
@@ -266,7 +273,7 @@ def test_mixed_node_synthesizes_when_tool_loop_has_no_final_answer(monkeypatch) 
     assert assistant.additional_kwargs["citations"] == [{"source": "doc.md"}]
 
 
-def test_mixed_node_preserves_native_tool_messages_only_for_mcp_turns(monkeypatch) -> None:
+def test_mixed_nodes_preserve_native_tool_messages_only_for_mcp_turns(monkeypatch) -> None:
     class _FakeTrace:
         trace_context = None
         trace_id = None
@@ -338,7 +345,7 @@ def test_mixed_node_preserves_native_tool_messages_only_for_mcp_turns(monkeypatc
 
     monkeypatch.setattr(mixed, "run_mcp_agent_turn", fake_run_mcp_agent_turn_without_mcp)
     retrieval_only_result = asyncio.run(
-        mixed.run_mixed_node(
+        execute_mixed_nodes(
             {"messages": [HumanMessage(content="Use docs only")]},
             {"callbacks": ["outer-callback"]},
             runtime,  # type: ignore[arg-type]
@@ -347,7 +354,7 @@ def test_mixed_node_preserves_native_tool_messages_only_for_mcp_turns(monkeypatc
 
     monkeypatch.setattr(mixed, "run_mcp_agent_turn", fake_run_mcp_agent_turn_with_mcp)
     mcp_turn_result = asyncio.run(
-        mixed.run_mixed_node(
+        execute_mixed_nodes(
             {"messages": [HumanMessage(content="Use docs and tools")]},
             {"callbacks": ["outer-callback"]},
             runtime,  # type: ignore[arg-type]

@@ -2,6 +2,7 @@
 
 ## 2026-07-01
 
+- Removed the legacy `run_mixed_node` compatibility wrapper and migrated its tests to the active `mixed_mcp` and `mixed_compose` graph nodes.
 - Removed Langfuse payload masking and attribute truncation so local traces retain complete inputs, outputs, tool schemas, and reasoning data.
 - Removed unused Langfuse child-observation and generation-outcome helper abstractions.
 - Bound Langfuse's standard LangChain callback handler once at the LangGraph Agent Server graph boundary instead of creating tracing roots inside mode nodes.

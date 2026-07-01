@@ -27,6 +27,13 @@ def _content(message: object) -> object:
     return getattr(message, "content", None)
 
 
+async def execute_mixed_nodes(state: dict[str, object], config: dict[str, object], runtime: object):
+    intermediate = await mixed_node_module.run_mixed_mcp_node(state, config, runtime)  # type: ignore[arg-type]
+    return await mixed_node_module.run_mixed_compose_node(
+        {**state, **intermediate}, config, runtime  # type: ignore[arg-type]
+    )
+
+
 def test_route_mode_reads_runtime_context() -> None:
     assert route_mode({"messages": []}, _runtime(context=None)) == "direct"
     assert route_mode({"messages": []}, _runtime(context={"mode": "direct"})) == "direct"
@@ -294,7 +301,7 @@ def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
     assert assistant.additional_kwargs["mcp_used"] is True
 
 
-def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     class _FakeTrace:
@@ -370,7 +377,7 @@ def test_run_mixed_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) ->
     )
 
     result = asyncio.run(
-        mixed_node_module.run_mixed_node(
+        execute_mixed_nodes(
             {"messages": [{"role": "user", "content": "payment terms plus 5"}]},
             {"callbacks": ["outer-callback"], "metadata": {"source": "workflow-test"}},
             _runtime(
