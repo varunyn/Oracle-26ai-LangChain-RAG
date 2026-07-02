@@ -30,3 +30,8 @@ class ChatGraphState(TypedDict, total=False):
     progress: str
     mixed_result: dict[str, object]
     mixed_state_messages: list[object]
+
+
+class MCPSubGraphState(TypedDict, total=False):
+    messages: Annotated[list[AnyMessage], add_messages]
+    remaining_steps: int
