@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping
 from typing import Any, cast
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
-
-logger = logging.getLogger(__name__)
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -158,7 +155,22 @@ async def call_llm_node(
     remaining = state.get("remaining_steps", MCP_MAX_ROUNDS)
     if remaining <= 0:
         return {"messages": [AIMessage(content="Tool call limit reached.")]}
-    sanitized = [_sanitize_for_oci(m) for m in state["messages"]]
+
+    system_prompt = cast(str | None, context.get("mcp_subgraph_system_prompt"))
+    chat_history = cast(list[object] | None, context.get("mcp_subgraph_chat_history"))
+    question = cast(str | None, context.get("mcp_subgraph_question"))
+    full_messages: list[object] = []
+    if system_prompt:
+        full_messages.append(SystemMessage(content=system_prompt))
+    for item in chat_history or []:
+        converted = message_to_langchain(item)
+        if converted is not None:
+            full_messages.append(converted)
+    if question:
+        full_messages.append(HumanMessage(content=question))
+    full_messages.extend(state.get("messages", []))
+
+    sanitized = [_sanitize_for_oci(m) for m in full_messages]
     response = await model.ainvoke(sanitized, config=config)
     return {"messages": [response], "remaining_steps": remaining - 1}
 
@@ -264,13 +276,12 @@ async def run_mixed_mcp_setup(
     runtime.context["mcp_subgraph_model_id"] = resolved_model_id
     runtime.context["mcp_subgraph_question"] = question
     runtime.context["mcp_subgraph_run_cfg"] = run_cfg
-    input_count = 1 + len(input_messages)
-    runtime.context["mcp_subgraph_input_count"] = input_count
+    runtime.context["mcp_subgraph_system_prompt"] = system_prompt_text
+    runtime.context["mcp_subgraph_chat_history"] = chat_history
 
     return {
-        "messages": [SystemMessage(content=system_prompt_text), *input_messages],
+        "messages": [],
         "progress": "Planning collection and tool search…",
-        "mcp_input_count": input_count,
     }
 
 
@@ -285,25 +296,10 @@ async def run_mixed_compose_node(
         return {"messages": messages_from_result("mixed", result, []), "references": {}}
 
     context = get_runtime_context(_runtime) if _runtime else {}
-    input_count = cast(int, state.get("mcp_input_count", 0))
-    if input_count > 0 and len(messages) > input_count:
-        tool_messages = messages[input_count:]
-        remove_stale = [
-            RemoveMessage(id=m.id)
-            for m in messages[:input_count]
-            if hasattr(m, "id") and m.id
-        ]
-    else:
-        tool_messages = messages
-        remove_stale = []
-    logger.info(
-        "mixed_compose total=%d input_count=%d tool_msgs=%d remove=%d",
-        len(messages), input_count, len(tool_messages), len(remove_stale),
-    )
     question = cast(str | None, context.get("mcp_subgraph_question")) or latest_user_message(messages) or ""
-    tool_invocations = extract_tool_invocations_from_messages(tool_messages)
+    tool_invocations = extract_tool_invocations_from_messages(messages)
     tools_used = list({inv["tool_name"] for inv in tool_invocations})
-    final_answer = _latest_agent_final_answer(tool_messages) or ""
+    final_answer = _latest_agent_final_answer(messages) or ""
 
     retrieval_state = None
     raw_tools = context.get("mcp_subgraph_tools")
@@ -352,7 +348,7 @@ async def run_mixed_compose_node(
         tool_invocations=cast(list[dict[str, object]], tool_invocations),
     ):
         final_answer = NO_ORACLE_CONTEXT_ANSWER
-    if not policy_error and retrieval_docs and _latest_agent_final_answer(tool_messages) is None:
+    if not policy_error and retrieval_docs and _latest_agent_final_answer(messages) is None:
         supplemental_context = mixed_tool_supplemental_context(
             cast(list[dict[str, object]], tool_invocations)
         )
@@ -378,9 +374,9 @@ async def run_mixed_compose_node(
         "mcp_tools_used": tools_used,
         "mcp_tool_invocations": tool_invocations,
     }
-    messages_out = messages_from_result("mixed", result, tool_messages)
+    messages_out = messages_from_result("mixed", result, messages)
     references = cast(dict[str, object], getattr(messages_out[-1], "additional_kwargs", {}) or {})
     return {
-        "messages": [*remove_stale, *messages_out],
+        "messages": messages_out,
         "references": references,
     }

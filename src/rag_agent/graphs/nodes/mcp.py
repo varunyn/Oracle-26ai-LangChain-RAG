@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import logging
 from typing import Any, cast
 
-from langchain_core.messages import BaseMessage, HumanMessage, RemoveMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.runtime import Runtime
 
@@ -24,8 +23,6 @@ from src.rag_agent.runtime.memory import (
     chat_history_before_latest_user,
     latest_user_message,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def get_llm(model_id: str | None = None) -> Any:
@@ -68,12 +65,11 @@ async def run_mcp_setup(
     runtime.context["mcp_subgraph_model_id"] = resolved_model_id
     runtime.context["mcp_subgraph_question"] = question
     runtime.context["mcp_subgraph_run_cfg"] = run_cfg
-    runtime.context["mcp_subgraph_input_count"] = 1 + len(input_messages)
+    runtime.context["mcp_subgraph_system_prompt"] = system_prompt_text
+    runtime.context["mcp_subgraph_chat_history"] = chat_history
 
-    input_count = 1 + len(input_messages)
     return {
-        "messages": [SystemMessage(content=system_prompt_text), *input_messages],
-        "mcp_input_count": input_count,
+        "messages": [],
     }
 
 
@@ -87,27 +83,10 @@ async def run_mcp_compose(
         result = {"final_answer": "MCP execution did not produce a result."}
         return {"messages": messages_from_result("mcp", result, []), "references": {}}
 
-    input_count = cast(int, state.get("mcp_input_count", 0))
-    if input_count > 0 and len(messages) > input_count:
-        tool_messages = messages[input_count:]
-        remove_stale = [
-            RemoveMessage(id=m.id)
-            for m in messages[:input_count]
-            if hasattr(m, "id") and m.id
-        ]
-    else:
-        tool_messages = messages
-        remove_stale = []
-
-    logger.info(
-        "mcp_compose total=%d input_count=%d tool_msgs=%d remove=%d",
-        len(messages), input_count, len(tool_messages), len(remove_stale),
-    )
-
     context = get_runtime_context(_runtime) if _runtime else {}
-    tool_invocations = extract_tool_invocations_from_messages(tool_messages)
+    tool_invocations = extract_tool_invocations_from_messages(messages)
     tools_used = list({inv["tool_name"] for inv in tool_invocations})
-    final_answer = _latest_agent_final_answer(tool_messages) or ""
+    final_answer = _latest_agent_final_answer(messages) or ""
 
     tool_failure_error = tool_failure_summary(cast(list[dict[str, object]], tool_invocations))
     if is_trivial_answer(final_answer) and tool_failure_error:
@@ -124,10 +103,10 @@ async def run_mcp_compose(
         "mcp_tools_used": tools_used,
         "mcp_tool_invocations": tool_invocations,
     }
-    messages_out = messages_from_result("mcp", result, tool_messages)
+    messages_out = messages_from_result("mcp", result, messages)
     references = cast(dict[str, object], getattr(messages_out[-1], "additional_kwargs", {}) or {})
     return {
-        "messages": [*remove_stale, *messages_out],
+        "messages": messages_out,
         "references": references,
     }
 

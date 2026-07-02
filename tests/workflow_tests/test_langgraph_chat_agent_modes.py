@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from src.rag_agent.graphs.chat_agent import build_chat_agent, route_mode
@@ -266,7 +266,7 @@ def test_mcp_setup_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None
         }
     )
 
-    result = asyncio.run(
+    asyncio.run(
         mcp_node_module.run_mcp_setup(
             {"messages": [HumanMessage(content="19 + 23")]},
             {"callbacks": ["outer-callback"], "metadata": {"source": "workflow-test"}},
@@ -274,9 +274,7 @@ def test_mcp_setup_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None
         )
     )
 
-    assert len(result["messages"]) >= 2
-    assert isinstance(result["messages"][0], SystemMessage)
-    assert isinstance(result["messages"][-1], HumanMessage)
+    assert isinstance(runtime.context["mcp_subgraph_system_prompt"], str)
     assert runtime.context["mcp_subgraph_model_id"] == "model-c"
     subgraph_run_cfg = runtime.context["mcp_subgraph_run_cfg"]
     assert isinstance(subgraph_run_cfg, dict)
@@ -352,9 +350,7 @@ def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> Non
     )
 
     assert "progress" in result
-    assert len(result["messages"]) >= 2
-    assert isinstance(result["messages"][0], SystemMessage)
-    assert isinstance(result["messages"][-1], HumanMessage)
+    assert isinstance(runtime.context["mcp_subgraph_system_prompt"], str)
     assert runtime.context["mcp_subgraph_model_id"] == "model-d"
     subgraph_run_cfg = runtime.context["mcp_subgraph_run_cfg"]
     assert isinstance(subgraph_run_cfg, dict)
