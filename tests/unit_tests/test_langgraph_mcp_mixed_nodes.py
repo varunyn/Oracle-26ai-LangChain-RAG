@@ -46,6 +46,7 @@ def _make_runtime(*, retrieval_docs: list[object] | None = None, question: str =
 def test_mcp_node_runs_agent_turn_without_chat_runtime_service(monkeypatch) -> None:
     """MCP (non-mixed) node test — unchanged, tests mcp module level."""
     from dataclasses import dataclass
+
     from src.rag_agent.graphs.nodes import mcp
 
     @dataclass
