@@ -387,7 +387,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({service_name=\"rag-api\"} |~ \"(Error in vector_store|error=Vector search|Search is temporarily unavailable|rag_retrieval_no_docs|Unhandled exception at /api/langgraph/threads)\" [$__range]))",
+          "expr": "sum(count_over_time({service_name=\"rag-api\"} |~ \"(Error in vector_store|error=Vector search|Search is temporarily unavailable|rag_retrieval_no_docs|Unhandled exception at /threads/)\" [$__range]))",
           "queryType": "instant",
           "refId": "A"
         }
@@ -755,7 +755,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "{service_name=\"rag-api\"} |~ `(ERROR|Unhandled exception at|Search is temporarily unavailable|Vector search timeout|DB_TCP_CONNECT_TIMEOUT|rag_retrieval_no_docs|HTTP/1.1\\\" 5\\\\d{2} .*?/api/langgraph/)`",
+          "expr": "{service_name=\"rag-api\"} |~ `(ERROR|Unhandled exception at|Search is temporarily unavailable|Vector search timeout|DB_TCP_CONNECT_TIMEOUT|rag_retrieval_no_docs|HTTP/1.1\\\" 5\\\\d{2} .*?/threads/)`",
           "queryType": "range",
           "refId": "A"
         }

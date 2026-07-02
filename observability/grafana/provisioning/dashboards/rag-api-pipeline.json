@@ -132,7 +132,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({service_name=\"rag-api\"} |= \"rag_retrieval_fallback mode=\" [$__range]))",
+          "expr": "sum(count_over_time({service_name=\"rag-api\"} |= \"rag_retrieval mode=\" [$__range]))",
           "queryType": "instant",
           "refId": "A"
         }
@@ -330,7 +330,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({service_name=\"rag-api\"} |= \"POST /api/langgraph/threads/\" |= \"/runs/stream HTTP/1.1\" [$__interval]))",
+          "expr": "sum(count_over_time({service_name=\"rag-api\"} |= \"POST /threads/\" |= \"/runs/stream HTTP/1.1\" [$__interval]))",
           "legendFormat": "runs/stream",
           "queryType": "range",
           "refId": "A"
@@ -341,7 +341,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({service_name=\"rag-api\"} |~ \" (GET|POST) /api/langgraph/threads/.*/(state|history) HTTP/1.1\" [$__interval]))",
+          "expr": "sum(count_over_time({service_name=\"rag-api\"} |~ \" (GET|POST) /threads/.*/(state|history) HTTP/1.1\" [$__interval]))",
           "legendFormat": "state/history",
           "queryType": "range",
           "refId": "C"
@@ -435,7 +435,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({service_name=\"rag-api\"} |= \"rag_retrieval_fallback mode=\" [$__interval]))",
+          "expr": "sum(count_over_time({service_name=\"rag-api\"} |= \"rag_retrieval mode=\" [$__interval]))",
           "legendFormat": "rag_retrieval_fallback",
           "queryType": "range",
           "refId": "B"
@@ -484,7 +484,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "{service_name=\"rag-api\"} |~ \"(chat_runtime_mcp_tools_loaded|rag_retrieval(_fallback|_no_docs)?|/api/langgraph/threads/)\"",
+          "expr": "{service_name=\"rag-api\"} |~ \"(chat_runtime_mcp_tools_loaded|rag_retrieval(_fallback|_no_docs)?|/threads/)\"",
           "queryType": "range",
           "refId": "A"
         }
