@@ -46,8 +46,6 @@ Response style:
 # Placeholder appended by mcp_agent when building messages; replaced with dynamic tool list.
 TOOL_SUMMARY_PLACEHOLDER = "{{TOOL_SUMMARY}}"
 
-SYSTEM_PROMPT = SYSTEM_PROMPT_BASE + "\n\n" + TOOL_SUMMARY_PLACEHOLDER
-
 # Mixed mode: when document context was provided, prefer tool result in final answer.
 SYSTEM_PROMPT_MIXED = (
     SYSTEM_PROMPT_BASE

@@ -1,5 +1,5 @@
 # Re-export MCP prompts
-from .mcp_agent_prompts import SYSTEM_PROMPT, SYSTEM_PROMPT_MIXED
+from .mcp_agent_prompts import SYSTEM_PROMPT_MIXED
 
 ANSWER_PROMPT_TEMPLATE = """
 You're a helpful AI assistant. Your task is to answer user questions using only the information
@@ -50,7 +50,6 @@ Respond with only the JSON object, no markdown code fence, no explanation.
 """
 
 __all__ = [
-    "SYSTEM_PROMPT",
     "SYSTEM_PROMPT_MIXED",
     "ANSWER_PROMPT_TEMPLATE",
     "ANSWER_STRUCTURED_PROMPT_TEMPLATE",
