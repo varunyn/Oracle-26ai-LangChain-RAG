@@ -62,7 +62,6 @@ Start from the running system:
 
 - The browser chat uses the LangGraph Agent Server at `http://localhost:2024` and graph id `chat_agent` from `langgraph.json`.
 - `api/` owns product endpoints, not the primary chat stream. Keep chat orchestration in `src/rag_agent/graphs/` and runtime helpers in `src/rag_agent/runtime/`.
-- `ChatRuntimeService` is a compatibility adapter for direct/RAG paths; do not restore MCP/mixed ownership there without an explicit migration.
 - MCP server definitions are managed through the Settings UI/config store and resolved by the MCP infrastructure layer. Do not hardcode consumed server URLs in graph or standalone server code.
 - LangGraph Agent Server persistence owns chat thread history. Preserve structured `AIMessage` content and stable message ids across stream and replay changes.
 

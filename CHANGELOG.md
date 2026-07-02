@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-02
+
+- Fixed stale code references in `docs/MCP-USAGE.md`: removed references to deleted `mcp_agent.py` and `get_mcp_answer_async`; updated MCP mode table, flow diagram, and implementation section to current sub-graph architecture.
+- Fixed stale directory reference in `docs/README.md` Repo Map: `src/rag_agent/workflows/` replaced with `src/rag_agent/graphs/`.
+- Removed stale `ChatRuntimeService` reference from `AGENTS.md`.
+- Untracked `docs/superpowers/` plans and specs; added `*` to `docs/superpowers/.gitignore` so local development plan files are kept on disk but ignored in git.
+
 ## 2026-07-01
 
 - Aligned `.env.example` with `api/settings.py`: updated stale `MODEL_LIST` / `MODEL_DISPLAY_NAMES` examples to the current region-derived defaults, removed non-existent `ENABLE_PERSISTENT_MEMORY` and `MCP_AGENT_MODEL_TIMEOUT_SECONDS`, and added missing `RAG_RETRIEVAL_TOP_K`.
