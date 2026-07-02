@@ -1,0 +1,46 @@
+<script>
+import mermaid from "mermaid";
+
+const MERMAID_KEYWORDS = [
+  "sequenceDiagram",
+  "graph TD",
+  "graph LR",
+  "flowchart TD",
+  "flowchart LR",
+  "gantt",
+  "classDiagram",
+  "stateDiagram",
+  "stateDiagram-v2",
+  "pie",
+  "erDiagram",
+];
+
+mermaid.initialize({
+  startOnLoad: false,
+  theme: "default",
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+  const pres = document.querySelectorAll<HTMLPreElement>("pre.shiki");
+  if (pres.length === 0) return;
+
+  const containers: HTMLDivElement[] = [];
+
+  for (const pre of pres) {
+    const text = pre.textContent?.trim() ?? "";
+    const isMermaid = MERMAID_KEYWORDS.some((kw) => text.startsWith(kw));
+    if (!isMermaid) continue;
+
+    const id = `mermaid-${crypto.randomUUID()}`;
+    const div = document.createElement("div");
+    div.className = "mermaid";
+    div.id = id;
+    div.textContent = text;
+    pre.replaceWith(div);
+    containers.push(div);
+  }
+
+  if (containers.length === 0) return;
+  mermaid.run({ querySelector: ".mermaid" });
+});
+</script>
