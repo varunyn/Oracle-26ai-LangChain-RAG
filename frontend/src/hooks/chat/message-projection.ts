@@ -30,6 +30,18 @@ function isToolMessage(message: BaseMessageWithKwargs): boolean {
   return role === "tool" || type === "tool";
 }
 
+function isSystemMessage(message: BaseMessageWithKwargs): boolean {
+  const serialized = message as BaseMessageWithKwargs & {
+    role?: unknown;
+    type?: unknown;
+  };
+  const role =
+    typeof serialized.role === "string" ? serialized.role.toLowerCase() : "";
+  const type =
+    typeof serialized.type === "string" ? serialized.type.toLowerCase() : "";
+  return role === "system" || type === "system";
+}
+
 function toToolCallIds(message: BaseMessageWithKwargs): string[] | undefined {
   const serialized = message as BaseMessageWithKwargs & ToolCallContainer;
   const toolCalls = serialized.tool_calls ?? serialized.toolCalls;
@@ -137,7 +149,7 @@ export function projectStreamMessages(args: {
 }): MessageLike[] {
   const { streamMessages } = args;
   const mapped = (streamMessages ?? [])
-    .filter((message) => !isToolMessage(message))
+    .filter((message) => !isToolMessage(message) && !isSystemMessage(message))
     .map((message, index) => {
       const toolCallIds = toToolCallIds(message);
       const content = getMessageContent(message);
