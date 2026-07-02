@@ -92,6 +92,7 @@ Frontend:
 - Lint (ESLint): `cd frontend && pnpm lint`
 - Check (Ultracite/Biome): `cd frontend && pnpm check`
 - Build/type check: `cd frontend && pnpm build`
+- Dead code/unused deps: `cd frontend && pnpm knip`
 - E2E: `cd frontend && pnpm test:e2e`
 
 Test categories:
