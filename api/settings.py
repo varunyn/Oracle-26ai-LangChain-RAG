@@ -164,6 +164,8 @@ class Settings(BaseSettings):
         default_factory=lambda: [
             "http://localhost:4000",
             "http://127.0.0.1:4000",
+            "http://localhost:4040",
+            "http://127.0.0.1:4040",
             "http://localhost:3000",
             "http://127.0.0.1:3000",
         ]
