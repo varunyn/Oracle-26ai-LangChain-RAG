@@ -70,14 +70,19 @@ export function ChatHeader({
           )}
         </button>
         <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <Image
-            alt="Oracle"
-            className="h-7 w-auto shrink-0 object-contain sm:h-8"
-            height={32}
-            priority
-            src="/oracle-logo.png"
-            width={140}
-          />
+          <div
+            className="relative h-7 w-auto shrink-0 sm:h-8"
+            style={{ aspectRatio: '140/32' }}
+          >
+            <Image
+              alt="Oracle"
+              className="object-contain"
+              fill
+              priority
+              src="/oracle-logo.png"
+              sizes="(min-width: 640px) 140px, 122px"
+            />
+          </div>
           <div className="min-w-0 space-y-0.5">
             <h1 className="truncate font-semibold text-foreground text-lg tracking-tight sm:text-xl">
               OCI Custom RAG Agent

@@ -1,8 +1,11 @@
+import { AIMessage, ToolMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
 
 import {
+  deriveToolCallsFromMessages,
   filterToolCallsForChatStatus,
   type NativeToolCall,
+  toRenderableToolCall,
   toolCallStateForStatus,
   toolCallsForMessage,
 } from "../tool-call-mapping";
@@ -113,5 +116,165 @@ describe("toolCallsForMessage", () => {
     expect(toolCallsForMessage(["call-1"], toolCalls)).toMatchObject([
       { callId: "call-1", name: "semantic_search" },
     ]);
+  });
+});
+
+describe("deriveToolCallsFromMessages", () => {
+  it("derives finished tool calls from ai + tool message pairs", () => {
+    const messages = [
+      new AIMessage({
+        id: "ai-1",
+        content: ".",
+        tool_calls: [
+          { id: "call-1", name: "semantic_search", args: { query: "Oracle 26ai" } },
+        ],
+      }),
+      new ToolMessage({
+        id: "tool-1",
+        content: JSON.stringify({ results: ["doc1", "doc2"] }),
+        tool_call_id: "call-1",
+        name: "semantic_search",
+      }),
+    ];
+
+    const derived = deriveToolCallsFromMessages(messages);
+
+    expect(derived).toHaveLength(1);
+    const renderable = toRenderableToolCall(derived[0]);
+    expect(renderable).toMatchObject({
+      callId: "call-1",
+      name: "semantic_search",
+      status: "finished",
+    });
+  });
+
+  it("derives error tool calls when tool message has error status", () => {
+    const messages = [
+      new AIMessage({
+        id: "ai-1",
+        content: ".",
+        tool_calls: [
+          { id: "call-1", name: "fetch_document", args: { docId: "123" } },
+        ],
+      }),
+      new ToolMessage({
+        id: "tool-1",
+        content: "Document not found",
+        tool_call_id: "call-1",
+        name: "fetch_document",
+        status: "error",
+      }),
+    ];
+
+    const derived = deriveToolCallsFromMessages(messages);
+
+    expect(derived).toHaveLength(1);
+    const renderable = toRenderableToolCall(derived[0]);
+    expect(renderable).toMatchObject({
+      callId: "call-1",
+      name: "fetch_document",
+      status: "error",
+      error: "Document not found",
+    });
+  });
+
+  it("picks up tool calls from multiple assistant messages", () => {
+    const messages = [
+      new AIMessage({
+        id: "ai-1",
+        content: ".",
+        tool_calls: [
+          { id: "call-1", name: "semantic_search", args: { query: "first" } },
+        ],
+      }),
+      new ToolMessage({
+        id: "tool-1",
+        content: "first result",
+        tool_call_id: "call-1",
+      }),
+      new AIMessage({
+        id: "ai-2",
+        content: "The answer is foo.",
+      }),
+      new AIMessage({
+        id: "ai-3",
+        content: ".",
+        tool_calls: [
+          { id: "call-2", name: "list_documents", args: {} },
+        ],
+      }),
+      new ToolMessage({
+        id: "tool-2",
+        content: "doc-a, doc-b",
+        tool_call_id: "call-2",
+      }),
+      new AIMessage({
+        id: "ai-4",
+        content: "Final answer.",
+      }),
+    ];
+
+    const derived = deriveToolCallsFromMessages(messages);
+
+    expect(derived).toHaveLength(2);
+    const renderables = derived.map((tc) => toRenderableToolCall(tc));
+    expect(renderables[0]).toMatchObject({
+      callId: "call-1",
+      name: "semantic_search",
+      status: "finished",
+    });
+    expect(renderables[1]).toMatchObject({
+      callId: "call-2",
+      name: "list_documents",
+      status: "finished",
+    });
+  });
+
+  it("skips ai messages without tool_calls", () => {
+    const messages = [
+      new AIMessage({ id: "ai-1", content: "Just a thought." }),
+    ];
+
+    expect(deriveToolCallsFromMessages(messages)).toEqual([]);
+  });
+
+  it("skips tool calls missing id or name", () => {
+    const messages = [
+      new AIMessage({
+        id: "ai-1",
+        content: ".",
+        tool_calls: [
+          { args: { query: "test" } } as never,
+        ],
+      }),
+    ];
+
+    expect(deriveToolCallsFromMessages(messages)).toEqual([]);
+  });
+
+  it("produces renderable output that the rest of the pipeline consumes", () => {
+    const messages = [
+      new AIMessage({
+        id: "ai-1",
+        content: ".",
+        tool_calls: [
+          { id: "call-1", name: "semantic_search", args: { query: "test" } },
+        ],
+      }),
+      new ToolMessage({
+        id: "tool-1",
+        content: JSON.stringify({ title: "Result" }),
+        tool_call_id: "call-1",
+      }),
+    ];
+
+    const derived = deriveToolCallsFromMessages(messages);
+    const matched = toolCallsForMessage(["call-1"], derived);
+
+    expect(matched[0]).toMatchObject({
+      callId: "call-1",
+      name: "semantic_search",
+      status: "finished",
+    });
   });
 });

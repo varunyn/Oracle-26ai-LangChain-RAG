@@ -1,4 +1,5 @@
 import type { AssembledToolCall } from "@langchain/react";
+import type { BaseMessageWithKwargs } from "@/hooks/chat/references";
 import type { ToolState } from "@/components/ai-elements/tool";
 
 export type NativeToolCall = AssembledToolCall;
@@ -140,4 +141,138 @@ export function toolCallStateForStatus(
     return "output-available";
   }
   return "input-available";
+}
+
+function isToolMessage(message: BaseMessageWithKwargs): boolean {
+  const serialized = message as BaseMessageWithKwargs & {
+    type?: unknown;
+    role?: unknown;
+  };
+  const type =
+    typeof serialized.type === "string" ? serialized.type.toLowerCase() : "";
+  const role =
+    typeof serialized.role === "string" ? serialized.role.toLowerCase() : "";
+  return type === "tool" || role === "tool";
+}
+
+function extractToolCallId(
+  message: BaseMessageWithKwargs
+): string | undefined {
+  const serialized = message as BaseMessageWithKwargs & {
+    tool_call_id?: unknown;
+  };
+  return typeof serialized.tool_call_id === "string" &&
+    serialized.tool_call_id.length > 0
+    ? serialized.tool_call_id
+    : undefined;
+}
+
+function extractToolStatus(
+  message: BaseMessageWithKwargs
+): "error" | "success" | undefined {
+  const serialized = message as BaseMessageWithKwargs & {
+    status?: unknown;
+  };
+  if (serialized.status === "error") return "error";
+  if (serialized.status === "success") return "success";
+  return undefined;
+}
+
+function extractContent(value: unknown): unknown {
+  if (value == null) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === ".") return "";
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const textParts = value
+      .filter(
+        (part: unknown): part is { type: string; text: string } =>
+          typeof part === "object" &&
+          part != null &&
+          (part as { type?: string }).type === "text"
+      )
+      .map((part) => part.text);
+    return textParts.length > 0 ? textParts.join("") : String(value);
+  }
+  return String(value);
+}
+
+export function deriveToolCallsFromMessages(
+  messages: readonly BaseMessageWithKwargs[]
+): NativeToolCall[] {
+  const toolResultsByCallId = new Map<
+    string,
+    { output: unknown; status: "error" | "success"; error?: string }
+  >();
+
+  for (const message of messages) {
+    const raw = message as BaseMessageWithKwargs & {
+      type?: unknown;
+      tool_calls?: unknown;
+    };
+    if (!isToolMessage(message)) continue;
+    const callId = extractToolCallId(message);
+    if (!callId) continue;
+    const toolStatus = extractToolStatus(message);
+    const content = extractContent(raw.content);
+    toolResultsByCallId.set(callId, {
+      output: content,
+      status: toolStatus === "error" ? "error" : "success",
+      error:
+        toolStatus === "error"
+          ? typeof content === "string"
+            ? content
+            : "Tool execution failed"
+          : undefined,
+    });
+  }
+
+  const result: NativeToolCall[] = [];
+
+  for (const message of messages) {
+    const raw = message as BaseMessageWithKwargs & {
+      type?: unknown;
+      tool_calls?: Array<{
+        id?: string;
+        name?: string;
+        args?: Record<string, unknown>;
+      }>;
+    };
+    if (raw.type !== "ai") continue;
+    const toolCalls = raw.tool_calls;
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) continue;
+
+    for (const toolCall of toolCalls) {
+      const id =
+        typeof toolCall.id === "string" && toolCall.id.length > 0
+          ? toolCall.id
+          : undefined;
+      const name =
+        typeof toolCall.name === "string" && toolCall.name.length > 0
+          ? toolCall.name
+          : undefined;
+      if (!id || !name) continue;
+
+      const toolResult = toolResultsByCallId.get(id);
+      const output = toolResult?.output ?? null;
+      const status = toolResult?.status === "error" ? "error" : "finished";
+      const error = toolResult?.error;
+
+      result.push({
+        name,
+        callId: id,
+        id,
+        namespace: [],
+        input: toolCall.args ?? {},
+        args: toolCall.args ?? {},
+        output,
+        status,
+        error,
+      } as unknown as NativeToolCall);
+    }
+  }
+
+  return result;
 }
