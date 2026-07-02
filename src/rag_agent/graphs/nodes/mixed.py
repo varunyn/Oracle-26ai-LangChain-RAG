@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from typing import Any, cast
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
+
+logger = logging.getLogger(__name__)
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -293,6 +296,10 @@ async def run_mixed_compose_node(
     else:
         tool_messages = messages
         remove_stale = []
+    logger.info(
+        "mixed_compose total=%d input_count=%d tool_msgs=%d remove=%d",
+        len(messages), input_count, len(tool_messages), len(remove_stale),
+    )
     question = cast(str | None, context.get("mcp_subgraph_question")) or latest_user_message(messages) or ""
     tool_invocations = extract_tool_invocations_from_messages(tool_messages)
     tools_used = list({inv["tool_name"] for inv in tool_invocations})

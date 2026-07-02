@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 
 from langchain_core.messages import BaseMessage, HumanMessage, RemoveMessage, SystemMessage
@@ -23,6 +24,8 @@ from src.rag_agent.runtime.memory import (
     chat_history_before_latest_user,
     latest_user_message,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def get_llm(model_id: str | None = None) -> Any:
@@ -95,6 +98,11 @@ async def run_mcp_compose(
     else:
         tool_messages = messages
         remove_stale = []
+
+    logger.info(
+        "mcp_compose total=%d input_count=%d tool_msgs=%d remove=%d",
+        len(messages), input_count, len(tool_messages), len(remove_stale),
+    )
 
     context = get_runtime_context(_runtime) if _runtime else {}
     tool_invocations = extract_tool_invocations_from_messages(tool_messages)
