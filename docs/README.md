@@ -71,7 +71,7 @@ The graph id is `chat_agent`, and `langgraph.json` keeps FastAPI mounted through
 | Directory                       | Purpose                                                                                        |
 | ------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `src/rag_agent/runtime/`        | Graph node runtime helpers, memory, retrieval services, observability, and Agent Server checkpointer integration |
-| `src/rag_agent/workflows/`      | Repeated MCP workflow helpers and work-unit extraction                                         |
+| `src/rag_agent/graphs/`         | Chat graph state, nodes (rag/mcp/mixed/direct), sub-graph dispatch, and MCP workflow policies  |
 | `src/rag_agent/infrastructure/` | OCI, Oracle vector search, MCP adapter, and model/tool integrations                            |
 | `api/`                          | FastAPI product APIs for config, documents, feedback, suggestions, and health, mounted into the LangGraph Agent Server |
 | `frontend/`                     | Next.js app; `src/app`, `src/components`, and `src/lib` chat/config/types                      |

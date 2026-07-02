@@ -160,7 +160,7 @@ Chat is handled by the LangGraph Agent Server `chat_agent` graph. Request **`mod
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `direct`   | LLM on chat history only; no vector search, no MCP tools.                                                                                                 |
 | `rag`      | Vector similarity search + single answer prompt; MCP tools are not loaded.                                                                                |
-| `mcp`      | MCP tools only (`get_mcp_answer_async`); tools from `langchain_mcp_adapters`.                                                                             |
+| `mcp`      | MCP tools only (sub-graph loop); tools from `langchain_mcp_adapters`.                                                                             |
 | `mixed`    | MCP tools plus the local **`oracle_retrieval`** tool in one LangChain agent loop. When retrieval returns documents, the final answer is synthesized through the RAG answer path. Non-retrieval MCP tool outputs from the same turn are passed into that synthesis as supplemental context. If retrieval is not used or returns no documents, the response comes from the MCP agent answer or a retrieval error. |
 
 - **Default `mode`** (when not sent): `build_chat_config` in `api/dependencies.py` sets `mixed` when `ENABLE_MCP_TOOLS` is true and at least one MCP server is configured; otherwise `rag`.
@@ -181,7 +181,7 @@ Use `"mode": "mcp"` for MCP tools only, `"mode": "rag"` for retrieval-only, `"mo
 
 ## Implementation (consuming side)
 
-MCP and mixed chat modes load tools through **`langchain_mcp_adapters.MultiServerMCPClient`** (`src/rag_agent/infrastructure/mcp_adapter_runtime.py`; clients and tool lists are cached per connection set). The MCP tool loop runs through **`src/rag_agent/infrastructure/mcp_agent.py`** and **`src/rag_agent/infrastructure/mcp_agent_executor.py`** inside the graph-owned `mcp` and `mixed` nodes. In mixed mode, retrieved docs plus non-retrieval tool outputs are handed to the RAG runtime for answer synthesis when `oracle_retrieval` returns documents. RAG-only and direct modes do not load MCP tools.
+MCP and mixed chat modes load tools through **`langchain_mcp_adapters.MultiServerMCPClient`** (`src/rag_agent/infrastructure/mcp_adapter_runtime.py`; clients and tool lists are cached per connection set). The MCP tool loop runs through the **sub-graph architecture** — `run_mcp_setup` loads tools via `load_adapter_tools`, then the sub-graph runs the tool loop, and `run_mcp_compose` (both in `src/rag_agent/graphs/nodes/mcp.py`) extracts the final answer. In mixed mode, retrieved docs plus non-retrieval tool outputs are handed to the RAG runtime for answer synthesis when `oracle_retrieval` returns documents. RAG-only and direct modes do not load MCP tools.
 
 ### Flow diagram (high level)
 
@@ -190,7 +190,7 @@ flowchart TD
     A[Agent Server chat_agent run] --> C{mode}
     C -->|direct| D[LLM on message history]
     C -->|rag| E[Vector search + answer prompt]
-    C -->|mcp| F[MultiServerMCPClient.get_tools + get_mcp_answer_async]
+    C -->|mcp| F[MultiServerMCPClient.get_tools → sub-graph loop]
     C -->|mixed| G[oracle_retrieval + MCP tools]
     G --> I{retrieval docs?}
     I -->|yes| J[RAG answer synthesis]
@@ -205,7 +205,7 @@ flowchart TD
 | Path         | When         | Main modules                                                 |
 | ------------ | ------------ | ------------------------------------------------------------ |
 | **`rag`**    | `mode=rag`   | Oracle VS + graph-owned RAG answer synthesis |
-| **`mcp`**    | `mode=mcp`   | `mcp_adapter_runtime` → `get_mcp_answer_async`              |
+| **`mcp`**    | `mode=mcp`   | `mcp_adapter_runtime` → sub-graph nodes (`mcp.py` setup/compose) |
 | **`mixed`**  | `mode=mixed` | `oracle_retrieval` tool + MCP tools → RAG answer synthesis when docs are found; otherwise MCP agent answer or retrieval error |
 | **`direct`** | `mode=direct`| `get_llm().invoke` on history                               |
 
