@@ -154,21 +154,11 @@ function toReferencePayload(
 export function toReferences(
   message: BaseMessageWithKwargs
 ): ReferencePayload | null {
-  const candidates: unknown[] = [
-    message.additional_kwargs,
-    message.additional_kwargs?.references,
-    message.response_metadata,
-  ];
-  for (const candidate of candidates) {
-    if (!candidate || typeof candidate !== "object") {
-      continue;
-    }
-    const references = toReferencePayload(candidate as Record<string, unknown>);
-    if (references) {
-      return references;
-    }
+  const raw = message.additional_kwargs;
+  if (!raw || typeof raw !== "object") {
+    return null;
   }
-  return null;
+  return toReferencePayload(raw as Record<string, unknown>);
 }
 
 export function traceIdFromMessage(message: MessageLike): string | undefined {

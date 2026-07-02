@@ -172,6 +172,15 @@ async def call_llm_node(
 
     sanitized = [_sanitize_for_oci(m) for m in full_messages]
     response = await model.ainvoke(sanitized, config=config)
+    if isinstance(response, AIMessage) and response.tool_calls and _content_text(response.content) == ".":
+        response = AIMessage(
+            content="",
+            additional_kwargs=dict(response.additional_kwargs),
+            response_metadata=dict(response.response_metadata),
+            tool_calls=list(response.tool_calls),
+            id=response.id,
+            name=response.name,
+        )
     return {"messages": [response], "remaining_steps": remaining - 1}
 
 

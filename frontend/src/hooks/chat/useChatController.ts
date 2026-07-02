@@ -14,9 +14,7 @@ import {
 import { isMissingThreadError } from "@/hooks/chat/thread-errors";
 import {
   filterToolCallsForChatStatus,
-  mergeToolCalls,
   type NativeToolCall,
-  toolCallsFromMessages,
 } from "@/hooks/chat/tool-call-mapping";
 import { useChatActions } from "@/hooks/chat/useChatActions";
 import { useChatBodyParams } from "@/hooks/useChatBodyParams";
@@ -67,15 +65,6 @@ export function useChatController({
     authoritativeThreadMessages ??
     (stream.values as { messages?: unknown } | undefined)?.messages;
   const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
-  const replayedToolCalls = useMemo(
-    () =>
-      toolCallsFromMessages(streamMessages as readonly unknown[] | undefined),
-    [streamMessages]
-  );
-  const mergedToolCalls = useMemo(
-    () => mergeToolCalls(replayedToolCalls, streamToolCalls),
-    [replayedToolCalls, streamToolCalls]
-  );
   const progress =
     typeof (stream.values as { progress?: unknown } | undefined)?.progress ===
     "string"
@@ -89,8 +78,8 @@ export function useChatController({
     stream.error != null || submitError != null || transportError != null
   );
   const visibleToolCalls = useMemo(
-    () => filterToolCallsForChatStatus(mergedToolCalls, status),
-    [mergedToolCalls, status]
+    () => filterToolCallsForChatStatus(streamToolCalls, status),
+    [streamToolCalls, status]
   );
 
   const messages = useMemo(() => {

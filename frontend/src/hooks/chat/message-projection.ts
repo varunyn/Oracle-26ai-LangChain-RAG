@@ -153,12 +153,10 @@ export function projectStreamMessages(args: {
     .map((message, index) => {
       const toolCallIds = toToolCallIds(message);
       const content = getMessageContent(message);
-      const displayContent =
-        toolCallIds && content.trim() === "." ? "" : content;
       return {
         id: typeof message.id === "string" ? message.id : `message-${index}`,
         role: toRole(message),
-        content: displayContent,
+        content: content,
         ...(toolCallIds ? { toolCallIds } : {}),
         references: toReferences(message),
       };
