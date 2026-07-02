@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables.config import RunnableConfig
@@ -16,17 +16,13 @@ from src.rag_agent.graphs.nodes.mixed import (
 from src.rag_agent.graphs.nodes.references import messages_from_result
 from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, get_thread_id
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
-from src.rag_agent.infrastructure import oci_models as _oci_models
 from src.rag_agent.infrastructure.mcp_adapter_runtime import load_adapter_tools
+from src.rag_agent.infrastructure.oci_models import get_llm
 from src.rag_agent.runtime.mcp_turn import tool_failure_summary
 from src.rag_agent.runtime.memory import (
     chat_history_before_latest_user,
     latest_user_message,
 )
-
-
-def get_llm(model_id: str | None = None) -> Any:
-    return _oci_models.get_llm(model_id=model_id)
 
 
 async def run_mcp_setup(

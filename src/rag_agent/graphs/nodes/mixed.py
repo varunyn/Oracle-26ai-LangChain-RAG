@@ -24,8 +24,8 @@ from src.rag_agent.graphs.nodes.references import (
 )
 from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, get_thread_id
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState, MCPSubGraphState
-from src.rag_agent.infrastructure import oci_models as _oci_models
 from src.rag_agent.infrastructure.mcp_agent_executor import _build_tool_summary
+from src.rag_agent.infrastructure.oci_models import get_llm
 from src.rag_agent.prompts.mcp_agent_prompts import SYSTEM_PROMPT_MIXED as _SYSTEM_PROMPT_MIXED
 from src.rag_agent.prompts.mcp_agent_prompts import (
     TOOL_SUMMARY_PLACEHOLDER as _TOOL_SUMMARY_PLACEHOLDER,
@@ -36,11 +36,6 @@ from src.rag_agent.runtime.memory import (
     chat_history_before_latest_user,
     latest_user_message,
 )
-
-
-def get_llm(model_id: str | None = None) -> Any:
-    return _oci_models.get_llm(model_id=model_id)
-
 
 MCP_MAX_ROUNDS = 10
 

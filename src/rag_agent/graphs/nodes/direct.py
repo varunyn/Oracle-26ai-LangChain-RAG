@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.runtime import Runtime
@@ -11,14 +11,10 @@ from src.rag_agent.graphs.nodes.references import (
 )
 from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, get_thread_id
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
-from src.rag_agent.infrastructure import oci_models as _oci_models
+from src.rag_agent.infrastructure.oci_models import get_llm
 from src.rag_agent.runtime.llm_invocation import ainvoke_llm_with_optional_config
 from src.rag_agent.runtime.memory import latest_user_message
 from src.rag_agent.runtime.observability import emit_usage_observability, extract_usage
-
-
-def get_llm(model_id: str | None = None) -> Any:
-    return _oci_models.get_llm(model_id=model_id)
 
 
 async def run_direct_node(

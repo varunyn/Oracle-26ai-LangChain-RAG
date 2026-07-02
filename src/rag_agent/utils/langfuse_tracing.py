@@ -16,6 +16,7 @@ from langchain_core.outputs import ChatGeneration, LLMResult
 from typing_extensions import override
 
 from api.settings import get_settings
+from src.rag_agent.core.usage import normalize_usage
 from src.rag_agent.runtime.observability import estimate_cost_usd
 from src.rag_agent.utils.context_window import estimate_tokens, messages_to_text
 from src.rag_agent.utils.logging_config import get_request_id
@@ -658,7 +659,7 @@ def _extract_usage_from_response(response: LLMResult) -> dict[str, int] | None:
     if isinstance(llm_output, dict):
         llm_output_map = cast(dict[str, object], llm_output)
         usage = llm_output_map.get("usage") or llm_output_map.get("token_usage")
-        parsed = _normalize_usage(usage)
+        parsed = normalize_usage(usage)
         if parsed:
             return parsed
     generations = response.generations
@@ -667,65 +668,16 @@ def _extract_usage_from_response(response: LLMResult) -> dict[str, int] | None:
             gen_info = getattr(chunk, "generation_info", None)
             if isinstance(gen_info, dict):
                 gen_info_map = cast(dict[str, object], gen_info)
-                parsed = _normalize_usage(gen_info_map.get("usage_metadata"))
+                parsed = normalize_usage(gen_info_map.get("usage_metadata"))
                 if parsed:
                     return parsed
             message = getattr(chunk, "message", None)
             if not isinstance(message, BaseMessage):
                 continue
-            parsed = _normalize_usage(getattr(message, "usage_metadata", None))
+            parsed = normalize_usage(getattr(message, "usage_metadata", None))
             if parsed:
                 return parsed
     return None
-
-
-def _normalize_usage(raw: object) -> dict[str, int] | None:
-    if not isinstance(raw, dict):
-        return None
-    usage = cast(dict[str, object], raw)
-    if {"input", "output", "total"}.issubset(usage.keys()):
-        return _coerce_usage(usage)
-    if {"prompt_tokens", "completion_tokens", "total_tokens"}.issubset(usage.keys()):
-        return _coerce_usage(
-            {
-                "input": usage.get("prompt_tokens"),
-                "output": usage.get("completion_tokens"),
-                "total": usage.get("total_tokens"),
-            }
-        )
-    if {"input_tokens", "output_tokens", "total_tokens"}.issubset(usage.keys()):
-        return _coerce_usage(
-            {
-                "input": usage.get("input_tokens"),
-                "output": usage.get("output_tokens"),
-                "total": usage.get("total_tokens"),
-            }
-        )
-    return None
-
-
-def _coerce_usage(raw: dict[str, object]) -> dict[str, int] | None:
-    def _to_int(value: object) -> int:
-        if isinstance(value, bool):
-            return 0
-        if isinstance(value, int):
-            return value
-        if isinstance(value, float):
-            return int(value)
-        return 0
-
-    input_tokens = _to_int(raw.get("input"))
-    output_tokens = _to_int(raw.get("output"))
-    total_tokens = _to_int(raw.get("total"))
-    if input_tokens == 0 and output_tokens == 0 and total_tokens == 0:
-        return None
-    if total_tokens == 0:
-        total_tokens = input_tokens + output_tokens
-    return {
-        "input": input_tokens,
-        "output": output_tokens,
-        "total": total_tokens,
-    }
 
 
 def _extract_model_id(kwargs: dict[str, object]) -> str | None:
