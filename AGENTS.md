@@ -116,9 +116,21 @@ Test categories:
 - For frontend chat regressions, check both `frontend/src/hooks/chat/` projection/state code and the Agent Server payload before changing rendering components.
 - Significant features, fixes, refactorings, specification updates, deployment changes, and documentation updates must be recorded in CHANGELOG.md under the current date.
 
+## Release Triggers
+
+Cut a release when any of the following land on `main`:
+
+- **New feature** — new graph mode, MCP server, API endpoint, or user-facing capability
+- **Breaking change** — schema/response contract change, removed config var, renamed route, required migration
+- **Major refactor** — sub-graph architecture change, runtime rewrite, provider swap
+- **Significant fix** — streaming, memory, or correctness fix that affects end-user behavior
+- **Infrastructure** — Docker Compose topology change, new stack, deployment workflow change
+
+Patch releases (bug fixes, docs, non-breaking deps) can be batched and released ad-hoc. No need to release for every trivial change — bundle several fixes into one release.
+
 ## Release Process
 
-1. Bump version in `pyproject.toml` and `frontend/package.json`.
+1. Bump version in `pyproject.toml` and `frontend/package.json` (minor for new features/breaking changes, patch for fixes).
 2. Add a changelog entry under the new version heading in `CHANGELOG.md`.
 3. Commit the version bump and changelog.
 4. Tag the commit: `git tag v<VERSION>` (e.g. `v0.2.0`).
