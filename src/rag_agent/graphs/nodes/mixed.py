@@ -97,6 +97,50 @@ def _build_system_prompt_tools(question: str, tools: list[object]) -> str:
     return _SYSTEM_PROMPT_MIXED.replace(_TOOL_SUMMARY_PLACEHOLDER, _build_tool_summary(tools))
 
 
+_OCI_SUPPORTED_CONTENT_TYPES = {
+    "text", "image_url", "document_url", "document",
+    "file", "video_url", "video", "audio_url", "audio", "media",
+}
+
+
+def _sanitize_for_oci(message: object) -> object:
+    if not isinstance(message, AIMessage) or not isinstance(message.content, list):
+        return message
+    content: list[str | dict] = []
+    for item in message.content:
+        if isinstance(item, str):
+            if item:
+                content.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        ctype = item.get("type")
+        if ctype == "tool_call":
+            continue
+        if ctype in _OCI_SUPPORTED_CONTENT_TYPES:
+            content.append(dict(item))
+            continue
+        if "text" in item and ctype is None:
+            text = item.get("text")
+            if isinstance(text, str) and text:
+                content.append({"type": "text", "text": text})
+    if not content and (message.tool_calls or message.additional_kwargs.get("tool_calls")):
+        content = [{"type": "text", "text": "."}]
+    if content == message.content:
+        return message
+    copy = getattr(message, "model_copy", None)
+    if callable(copy):
+        return copy(update={"content": content})
+    return AIMessage(
+        content=content,
+        additional_kwargs=dict(message.additional_kwargs),
+        response_metadata=dict(message.response_metadata),
+        tool_calls=list(message.tool_calls),
+        id=message.id,
+        name=message.name,
+    )
+
+
 async def call_llm_node(
     state: MCPSubGraphState,
     config: RunnableConfig,
@@ -111,7 +155,8 @@ async def call_llm_node(
     remaining = state.get("remaining_steps", MCP_MAX_ROUNDS)
     if remaining <= 0:
         return {"messages": [AIMessage(content="Tool call limit reached.")]}
-    response = await model.ainvoke(state["messages"], config=config)
+    sanitized = [_sanitize_for_oci(m) for m in state["messages"]]
+    response = await model.ainvoke(sanitized, config=config)
     return {"messages": [response], "remaining_steps": remaining - 1}
 
 
