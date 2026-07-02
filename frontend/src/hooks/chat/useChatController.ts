@@ -72,11 +72,23 @@ export function useChatController({
   );
   const resolvedToolCalls = useMemo((): NativeToolCall[] => {
     if (streamToolCalls.length > 0) {
+      debugChatStage("resolvedToolCalls", {
+        source: "streamToolCalls",
+        count: streamToolCalls.length,
+        names: streamToolCalls.map((tc) => tc.name),
+      });
       return streamToolCalls;
     }
     if (toolCallsFromMessages.length > 0) {
+      debugChatStage("resolvedToolCalls", {
+        source: "toolCallsFromMessages",
+        count: toolCallsFromMessages.length,
+        names: toolCallsFromMessages.map((tc) => tc.name),
+        callIds: toolCallsFromMessages.map((tc) => tc.callId ?? (tc as Record<string, unknown>).id),
+      });
       return toolCallsFromMessages;
     }
+    debugChatStage("resolvedToolCalls", { source: "empty" });
     return EMPTY_TOOL_CALLS;
   }, [streamToolCalls, toolCallsFromMessages]);
   const progress =

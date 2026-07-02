@@ -42,9 +42,40 @@ function isSystemMessage(message: BaseMessageWithKwargs): boolean {
   return role === "system" || type === "system";
 }
 
+function extractToolCallsFromContent(
+  content: unknown
+): Array<{ id: string; name?: string; args?: Record<string, unknown> }> {
+  if (!Array.isArray(content)) return [];
+  return content
+    .filter(
+      (block): block is Record<string, unknown> =>
+        typeof block === "object" &&
+        block != null &&
+        (block.type === "tool_call" || block.type === "tool_use")
+    )
+    .map((block) => ({
+      id: typeof block.id === "string" ? block.id : "",
+      name: typeof block.name === "string" ? block.name : undefined,
+      args:
+        block.args && typeof block.args === "object"
+          ? (block.args as Record<string, unknown>)
+          : block.input && typeof block.input === "object"
+            ? (block.input as Record<string, unknown>)
+            : {},
+    }))
+    .filter((tc) => tc.id.length > 0);
+}
+
 function toToolCallIds(message: BaseMessageWithKwargs): string[] | undefined {
   const serialized = message as BaseMessageWithKwargs & ToolCallContainer;
-  const toolCalls = serialized.tool_calls ?? serialized.toolCalls;
+  const topLevel = serialized.tool_calls ?? serialized.toolCalls;
+  let toolCalls: ToolCallLike[] | undefined;
+  if (Array.isArray(topLevel) && topLevel.length > 0) {
+    toolCalls = topLevel;
+  } else {
+    const fromContent = extractToolCallsFromContent(serialized.content);
+    toolCalls = fromContent.length > 0 ? fromContent : undefined;
+  }
   const ids = toolCalls
     ?.map((toolCall) => toolCall.id)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
@@ -88,13 +119,19 @@ function removeDuplicateAssistantProjections(
 
     const content = message.content?.trim() ?? "";
     const messageId = typeof message.id === "string" ? message.id.trim() : "";
+    const messageToolCallIds = message.toolCallIds;
     const duplicateIndex = result.findIndex(
       (existing) =>
         existing.role === "assistant" &&
         (existing.content?.trim() ?? "") === content &&
         typeof existing.id === "string" &&
         (isEphemeralStreamMessageId(existing.id) ||
-          isEphemeralStreamMessageId(messageId))
+          isEphemeralStreamMessageId(messageId)) &&
+        (!messageToolCallIds?.length ||
+          !existing.toolCallIds?.length ||
+          messageToolCallIds.some((id) =>
+            (existing.toolCallIds ?? []).includes(id)
+          ))
     );
 
     if (duplicateIndex === -1) {
