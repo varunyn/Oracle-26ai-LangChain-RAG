@@ -94,6 +94,17 @@ export function toRole(message: BaseMessage): "user" | "assistant" | "system" {
   return "system";
 }
 
+/** Extract a displayable error string from a raw error field (string or {type, message}) */
+function extractError(raw: Record<string, unknown>): string | undefined {
+  const e = raw.error;
+  if (typeof e === "string") return e || undefined;
+  if (e && typeof e === "object") {
+    const obj = e as Record<string, unknown>;
+    if (typeof obj.message === "string" && obj.message) return obj.message;
+  }
+  return undefined;
+}
+
 function toReferencePayload(
   raw: Record<string, unknown>
 ): ReferencePayload | null {
@@ -104,7 +115,7 @@ function toReferencePayload(
     Array.isArray(raw.mcp_tool_invocations) ||
     typeof raw.trace_id === "string" ||
     typeof raw.standalone_question === "string" ||
-    typeof raw.error === "string" ||
+    typeof extractError(raw) === "string" ||
     raw.mcp_used === true;
   if (!hasKnownReferenceField) {
     return null;
@@ -136,7 +147,7 @@ function toReferencePayload(
     mcp_tool_invocations: Array.isArray(raw.mcp_tool_invocations)
       ? (raw.mcp_tool_invocations as McpToolInvocation[])
       : undefined,
-    error: typeof raw.error === "string" ? raw.error : undefined,
+    error: extractError(raw),
   };
 }
 
