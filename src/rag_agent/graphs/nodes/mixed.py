@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -283,7 +283,16 @@ async def run_mixed_compose_node(
 
     context = get_runtime_context(_runtime) if _runtime else {}
     input_count = cast(int, state.get("mcp_input_count", 0))
-    tool_messages = messages[input_count:] if input_count > 0 and len(messages) > input_count else messages
+    if input_count > 0 and len(messages) > input_count:
+        tool_messages = messages[input_count:]
+        remove_stale = [
+            RemoveMessage(id=m.id)
+            for m in messages[:input_count]
+            if hasattr(m, "id") and m.id
+        ]
+    else:
+        tool_messages = messages
+        remove_stale = []
     question = cast(str | None, context.get("mcp_subgraph_question")) or latest_user_message(messages) or ""
     tool_invocations = extract_tool_invocations_from_messages(tool_messages)
     tools_used = list({inv["tool_name"] for inv in tool_invocations})
@@ -365,6 +374,6 @@ async def run_mixed_compose_node(
     messages_out = messages_from_result("mixed", result, tool_messages)
     references = cast(dict[str, object], getattr(messages_out[-1], "additional_kwargs", {}) or {})
     return {
-        "messages": messages_out,
+        "messages": [*remove_stale, *messages_out],
         "references": references,
     }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, RemoveMessage, SystemMessage
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.runtime import Runtime
 
@@ -85,7 +85,16 @@ async def run_mcp_compose(
         return {"messages": messages_from_result("mcp", result, []), "references": {}}
 
     input_count = cast(int, state.get("mcp_input_count", 0))
-    tool_messages = messages[input_count:] if input_count > 0 and len(messages) > input_count else messages
+    if input_count > 0 and len(messages) > input_count:
+        tool_messages = messages[input_count:]
+        remove_stale = [
+            RemoveMessage(id=m.id)
+            for m in messages[:input_count]
+            if hasattr(m, "id") and m.id
+        ]
+    else:
+        tool_messages = messages
+        remove_stale = []
 
     context = get_runtime_context(_runtime) if _runtime else {}
     tool_invocations = extract_tool_invocations_from_messages(tool_messages)
@@ -110,7 +119,7 @@ async def run_mcp_compose(
     messages_out = messages_from_result("mcp", result, tool_messages)
     references = cast(dict[str, object], getattr(messages_out[-1], "additional_kwargs", {}) or {})
     return {
-        "messages": messages_out,
+        "messages": [*remove_stale, *messages_out],
         "references": references,
     }
 
