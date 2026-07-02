@@ -176,6 +176,55 @@ def build_mcp_sub_graph() -> StateGraph:
     return sub_graph.compile()
 
 
+async def run_mixed_mcp_setup(
+    state: ChatGraphState,
+    config: RunnableConfig,
+    runtime: Runtime[ChatGraphContext],
+) -> ChatGraphState:
+    context = get_runtime_context(runtime)
+    thread_id = get_thread_id(runtime)
+    messages = state.get("messages", [])
+    question = latest_user_message(messages)
+    chat_history = chat_history_before_latest_user(messages)
+    retrieval_tool = rag_runtime.build_oracle_retrieval_tool(
+        collection_name=cast(str | None, context.get("collection_name")),
+        filter_docs=rag_runtime.filter_retrieved_docs,
+    )
+    resolved_model_id = cast(str | None, context.get("model_id")) or get_llm().model_id
+    run_cfg = build_run_config(
+        parent_config=config,
+        thread_id=thread_id,
+        mode="mixed",
+        model_id=resolved_model_id,
+        session_id=cast(str | None, context.get("session_id")),
+        enable_tracing=cast(bool | None, context.get("enable_tracing")),
+        mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
+    )
+    from src.rag_agent.infrastructure.mcp_adapter_runtime import load_adapter_tools
+    mcp_tools = await load_adapter_tools(
+        server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
+        run_config=run_cfg,
+    )
+    agent_tools = [retrieval_tool, *mcp_tools] if retrieval_tool else list(mcp_tools)
+    system_prompt_text = _build_system_prompt_tools(question, agent_tools)
+    input_messages: list[BaseMessage] = []
+    for item in chat_history or []:
+        converted = _message_to_langchain(item)
+        if converted is not None:
+            input_messages.append(converted)
+    input_messages.append(HumanMessage(content=question))
+
+    runtime.context["mcp_subgraph_tools"] = agent_tools
+    runtime.context["mcp_subgraph_model_id"] = resolved_model_id
+    runtime.context["mcp_subgraph_question"] = question
+    runtime.context["mcp_subgraph_run_cfg"] = run_cfg
+
+    return {
+        "messages": [SystemMessage(content=system_prompt_text), *input_messages],
+        "progress": "Planning collection and tool search…",
+    }
+
+
 async def run_mixed_mcp_node(
     state: ChatGraphState,
     config: RunnableConfig,
@@ -309,12 +358,91 @@ async def run_mixed_compose_node(
     _config: RunnableConfig | None = None,
     _runtime: Runtime[ChatGraphContext] | None = None,
 ) -> ChatGraphState:
-    result = state.get("mixed_result")
-    if not isinstance(result, dict):
+    messages = state.get("messages", [])
+    if not messages:
         result = {"final_answer": "Mixed-mode execution did not produce a result."}
-    state_messages = state.get("mixed_state_messages")
-    normalized_state_messages = state_messages if isinstance(state_messages, list) else []
-    messages_out = messages_from_result("mixed", result, normalized_state_messages)
+        return {"messages": messages_from_result("mixed", result, []), "references": {}}
+
+    context = get_runtime_context(_runtime) if _runtime else {}
+    question = cast(str | None, context.get("mcp_subgraph_question")) or latest_user_message(messages) or ""
+    tool_invocations = extract_tool_invocations_from_messages(messages)
+    tools_used = list({inv["tool_name"] for inv in tool_invocations})
+    final_answer = _latest_agent_final_answer(messages) or ""
+
+    retrieval_state = None
+    raw_tools = context.get("mcp_subgraph_tools")
+    if isinstance(raw_tools, list):
+        for tool in raw_tools:
+            if hasattr(tool, "_retrieval_state"):
+                retrieval_state = getattr(tool, "_retrieval_state", None)
+                break
+    retrieval_docs = (
+        cast(list[object], retrieval_state.get("docs", []))
+        if isinstance(retrieval_state, dict)
+        else []
+    )
+
+    workflow_policy = workflow_policy_for_request(mode="mixed", question=question)
+    policy_applied, missing_capabilities, policy_failure_message = enforce_workflow_policy(
+        policy=workflow_policy,
+        tools_used=tools_used,
+        tool_invocations=cast(list[dict[str, object]], tool_invocations),
+    )
+    policy_error = policy_failure_message if policy_applied and missing_capabilities else None
+    if policy_error:
+        final_answer = policy_error
+    tool_failure_error = tool_failure_summary(cast(list[dict[str, object]], tool_invocations))
+    if not policy_error and is_trivial_answer(final_answer) and tool_failure_error:
+        final_answer = tool_failure_error
+        policy_error = tool_failure_error
+    if retrieval_docs and question:
+        retrieval_docs = rag_runtime.rerank_retrieved_docs(
+            question,
+            cast(list[Any], retrieval_docs),
+            enable_reranker=cast(bool | None, context.get("enable_reranker")),
+        )
+    retrieval_error = oracle_retrieval_error(
+        retrieval_state=retrieval_state,
+        tools_used=tools_used,
+        tool_invocations=cast(list[dict[str, object]], tool_invocations),
+    )
+    if not policy_error and retrieval_error:
+        final_answer = ORACLE_RETRIEVAL_FAILED_ANSWER
+        policy_error = ORACLE_RETRIEVAL_FAILED_ANSWER
+    if not policy_error and oracle_retrieval_used_without_context(
+        retrieval_state=retrieval_state,
+        retrieval_docs=cast(list[Any], retrieval_docs),
+        tools_used=tools_used,
+        tool_invocations=cast(list[dict[str, object]], tool_invocations),
+    ):
+        final_answer = NO_ORACLE_CONTEXT_ANSWER
+    if not policy_error and retrieval_docs and _latest_agent_final_answer(messages) is None:
+        supplemental_context = mixed_tool_supplemental_context(
+            cast(list[dict[str, object]], tool_invocations)
+        )
+        final_answer, _rag_usage, _ = await rag_runtime.synthesize_rag_answer(
+            question=question,
+            docs=cast(list[Any], retrieval_docs),
+            model_id=cast(str | None, context.get("model_id")),
+            run_config=cast(RunnableConfig | None, context.get("mcp_subgraph_run_cfg")),
+            supplemental_context=supplemental_context,
+        )
+
+    result: dict[str, object] = {
+        "final_answer": final_answer,
+        "error": policy_error,
+        "outcome": "error" if policy_error else "success",
+        "standalone_question": question or None,
+        "citations": rag_runtime.citations_from_docs(cast(list[Any], retrieval_docs)),
+        "reranker_docs": rag_runtime.serialize_docs(cast(list[Any], retrieval_docs)),
+        "context_usage": {"retrieved_docs_count": len(retrieval_docs)}
+        if retrieval_docs
+        else None,
+        "mcp_used": bool(tools_used),
+        "mcp_tools_used": tools_used,
+        "mcp_tool_invocations": tool_invocations,
+    }
+    messages_out = messages_from_result("mixed", result, messages)
     references = cast(dict[str, object], getattr(messages_out[-1], "additional_kwargs", {}) or {})
     return {
         "messages": messages_out,

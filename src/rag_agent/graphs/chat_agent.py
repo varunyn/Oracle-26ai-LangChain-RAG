@@ -11,8 +11,9 @@ from langgraph.runtime import Runtime
 from src.rag_agent.graphs.nodes.direct import run_direct_node
 from src.rag_agent.graphs.nodes.mcp import run_mcp_node
 from src.rag_agent.graphs.nodes.mixed import (
+    build_mcp_sub_graph,
     run_mixed_compose_node,
-    run_mixed_mcp_node,
+    run_mixed_mcp_setup,
 )
 from src.rag_agent.graphs.nodes.rag import run_rag_node
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
@@ -57,7 +58,9 @@ def build_chat_agent(*, checkpointer: Any | None = None) -> CompiledStateGraph:
     graph.add_node("rag_progress", _rag_progress_node)
     graph.add_node("direct", run_direct_node)
     graph.add_node("mcp", run_mcp_node)
-    graph.add_node("mixed_mcp", run_mixed_mcp_node)
+    graph.add_node("mixed_mcp_setup", run_mixed_mcp_setup)
+    mcp_sub_graph = build_mcp_sub_graph()
+    graph.add_node("mcp_sub_graph", mcp_sub_graph)
     graph.add_node("mixed_compose", run_mixed_compose_node)
     graph.add_node("rag", run_rag_node)
     graph.set_entry_point("bootstrap")
@@ -72,8 +75,9 @@ def build_chat_agent(*, checkpointer: Any | None = None) -> CompiledStateGraph:
         },
     )
     graph.add_edge("mixed_route", "mixed_retrieval")
-    graph.add_edge("mixed_retrieval", "mixed_mcp")
-    graph.add_edge("mixed_mcp", "mixed_compose")
+    graph.add_edge("mixed_retrieval", "mixed_mcp_setup")
+    graph.add_edge("mixed_mcp_setup", "mcp_sub_graph")
+    graph.add_edge("mcp_sub_graph", "mixed_compose")
     graph.add_edge("rag_progress", "rag")
     graph.add_edge("direct", END)
     graph.add_edge("mcp", END)
