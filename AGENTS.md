@@ -89,7 +89,8 @@ Python:
 
 Frontend:
 
-- Lint: `cd frontend && pnpm lint`
+- Lint (ESLint): `cd frontend && pnpm lint`
+- Check (Ultracite/Biome): `cd frontend && pnpm check`
 - Build/type check: `cd frontend && pnpm build`
 - E2E: `cd frontend && pnpm test:e2e`
 
