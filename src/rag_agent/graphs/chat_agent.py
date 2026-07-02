@@ -9,9 +9,9 @@ from langgraph.prebuilt import ToolCallTransformer
 from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.nodes.direct import run_direct_node
-from src.rag_agent.graphs.nodes.mcp import run_mcp_node
+from src.rag_agent.graphs.nodes.mcp import run_mcp_compose, run_mcp_setup
 from src.rag_agent.graphs.nodes.mixed import (
-    build_mcp_sub_graph,
+    build_tool_agent_sub_graph,
     run_mixed_compose_node,
     run_mixed_mcp_setup,
 )
@@ -57,10 +57,13 @@ def build_chat_agent(*, checkpointer: Any | None = None) -> CompiledStateGraph:
     graph.add_node("mixed_retrieval", _mixed_retrieval_node)
     graph.add_node("rag_progress", _rag_progress_node)
     graph.add_node("direct", run_direct_node)
-    graph.add_node("mcp", run_mcp_node)
-    graph.add_node("mixed_mcp_setup", run_mixed_mcp_setup)
-    mcp_sub_graph = build_mcp_sub_graph()
-    graph.add_node("mcp_sub_graph", mcp_sub_graph)
+    graph.add_node("mcp_setup", run_mcp_setup)
+    mcp_agent = build_tool_agent_sub_graph()
+    graph.add_node("mcp_agent", mcp_agent)
+    graph.add_node("mcp_compose", run_mcp_compose)
+    graph.add_node("mixed_setup", run_mixed_mcp_setup)
+    mixed_agent = build_tool_agent_sub_graph()
+    graph.add_node("mixed_agent", mixed_agent)
     graph.add_node("mixed_compose", run_mixed_compose_node)
     graph.add_node("rag", run_rag_node)
     graph.set_entry_point("bootstrap")
@@ -69,18 +72,20 @@ def build_chat_agent(*, checkpointer: Any | None = None) -> CompiledStateGraph:
         route_mode,
         {
             "direct": "direct",
-            "mcp": "mcp",
+            "mcp": "mcp_setup",
             "mixed": "mixed_route",
             "rag": "rag_progress",
         },
     )
     graph.add_edge("mixed_route", "mixed_retrieval")
-    graph.add_edge("mixed_retrieval", "mixed_mcp_setup")
-    graph.add_edge("mixed_mcp_setup", "mcp_sub_graph")
-    graph.add_edge("mcp_sub_graph", "mixed_compose")
+    graph.add_edge("mixed_retrieval", "mixed_setup")
+    graph.add_edge("mixed_setup", "mixed_agent")
+    graph.add_edge("mixed_agent", "mixed_compose")
+    graph.add_edge("mcp_setup", "mcp_agent")
+    graph.add_edge("mcp_agent", "mcp_compose")
     graph.add_edge("rag_progress", "rag")
     graph.add_edge("direct", END)
-    graph.add_edge("mcp", END)
+    graph.add_edge("mcp_compose", END)
     graph.add_edge("mixed_compose", END)
     graph.add_edge("rag", END)
     return graph.compile(checkpointer=checkpointer, transformers=[ToolCallTransformer])

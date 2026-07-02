@@ -77,7 +77,7 @@ def _latest_agent_final_answer(state_messages: list[object]) -> str | None:
     return None
 
 
-def _message_to_langchain(m: object) -> BaseMessage | None:
+def message_to_langchain(m: object) -> BaseMessage | None:
     if m is None:
         return None
     if isinstance(m, Mapping):
@@ -168,7 +168,7 @@ def extract_tool_invocations_from_messages(messages: list[object]) -> list[dict[
     return invocations
 
 
-def build_mcp_sub_graph() -> StateGraph:
+def build_tool_agent_sub_graph() -> StateGraph:
     sub_graph = StateGraph(MCPSubGraphState, context_schema=ChatGraphContext)
     sub_graph.add_node("call_llm", call_llm_node)
     sub_graph.add_node("run_tools", run_tools_node)
@@ -211,7 +211,7 @@ async def run_mixed_mcp_setup(
     system_prompt_text = _build_system_prompt_tools(question, agent_tools)
     input_messages: list[BaseMessage] = []
     for item in chat_history or []:
-        converted = _message_to_langchain(item)
+        converted = message_to_langchain(item)
         if converted is not None:
             input_messages.append(converted)
     input_messages.append(HumanMessage(content=question))

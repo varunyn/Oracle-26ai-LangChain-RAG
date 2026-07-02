@@ -45,7 +45,8 @@ def test_build_chat_agent_exposes_mixed_mode_execution_nodes() -> None:
 
     node_names = set(graph.get_graph().nodes)
 
-    assert {"mixed_route", "mixed_retrieval", "mixed_mcp_setup", "mcp_sub_graph", "mixed_compose"} <= node_names
+    assert {"mixed_route", "mixed_retrieval", "mixed_setup", "mixed_agent", "mixed_compose"} <= node_names
+    assert {"mcp_setup", "mcp_agent", "mcp_compose"} <= node_names
     assert "mixed" not in node_names
 
 
