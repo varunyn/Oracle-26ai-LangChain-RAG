@@ -116,12 +116,25 @@ Test categories:
 - For frontend chat regressions, check both `frontend/src/hooks/chat/` projection/state code and the Agent Server payload before changing rendering components.
 - Significant features, fixes, refactorings, specification updates, deployment changes, and documentation updates must be recorded in CHANGELOG.md under the current date.
 
+## Release Process
+
+1. Bump version in `pyproject.toml` and `frontend/package.json`.
+2. Add a changelog entry under the new version heading in `CHANGELOG.md`.
+3. Commit the version bump and changelog.
+4. Tag the commit: `git tag v<VERSION>` (e.g. `v0.2.0`).
+5. Push the tag: `git push origin v<VERSION>` — the Release workflow creates a GitHub Release with auto-generated notes.
+6. Alternatively, trigger the workflow manually via GitHub Actions → Release → "Run workflow" with the tag name.
+
+Before pushing a tag, verify:
+- `uv run ruff check` and `uv run black --check .` pass
+- `cd frontend && pnpm check && pnpm build` passes
+- `cd docs-site && npm run build` succeeds
+
 ## Contribution Notes
 
 - Main should stay deployable; use focused branches and commits for shared work.
 - Use conventional, descriptive commit subjects. Do not add `Co-authored-by`.
 - Before opening PRs, run the relevant checks above and report any failures with concrete logs.
-- For releases, use `./scripts/release_checklist.sh`.
 
 ## AGENTS.md Maintenance
 

@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Tag to release (e.g. v0.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set tag from input
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "GITHUB_TAG=${{ inputs.version }}" >> $GITHUB_ENV
+
+      - name: Set tag from push
+        if: github.event_name == 'push'
+        run: echo "GITHUB_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Verify tag matches version files
+        run: |
+          TAG_VERSION="${GITHUB_TAG#v}"
+          PY_VERSION=$(grep -m1 '^version' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          if [ "$TAG_VERSION" != "$PY_VERSION" ]; then
+            echo "Tag $GITHUB_TAG does not match pyproject.toml version $PY_VERSION"
+            exit 1
+          fi
+          JS_VERSION=$(grep -m1 '"version"' frontend/package.json | sed 's/.*"version": "\(.*\)",/\1/')
+          if [ "$TAG_VERSION" != "$JS_VERSION" ]; then
+            echo "Tag $GITHUB_TAG does not match frontend/package.json version $JS_VERSION"
+            exit 1
+          fi
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname | grep '^v' | sed -n 2p || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log --oneline --no-decorate "$PREV_TAG"..HEAD --format="- %s")
+          else
+            NOTES=$(git log --oneline --no-decorate --format="- %s")
+          fi
+          {
+            echo "NOTES<<EOF"
+            echo "$NOTES"
+            echo ""
+            echo "### Checklist"
+            echo ""
+            echo "- [ ] Run `uv sync` to update lockfile"
+            echo "- [ ] Run `cd frontend && pnpm install` to update lockfile"
+            echo "- [ ] Verify checks pass: \`uv run ruff check && uv run black --check .\`"
+            echo "- [ ] Frontend checks: \`cd frontend && pnpm check && pnpm build\`"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.GITHUB_TAG }}
+          name: ${{ env.GITHUB_TAG }}
+          body: ${{ steps.notes.outputs.NOTES }}
+          draft: false
+          prerelease: false

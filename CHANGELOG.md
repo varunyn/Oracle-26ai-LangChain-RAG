@@ -2,9 +2,12 @@
 
 ## 2026-07-02
 
+- Bumped version to 0.2.0 (significant refactoring: MCP sub-graph architecture, LangGraph Agent Server adoption, data flow cleanup).
+- Added Release GitHub Actions workflow triggered by `v*.*.*` tags.
+- Configured Dependabot with pip, npm, github-actions, and docker ecosystems.
+- Updated AGENTS.md with release process, frontend checks (Ultracite, knip), and removed stale `ChatRuntimeService` reference.
 - Fixed stale code references in `docs/MCP-USAGE.md`: removed references to deleted `mcp_agent.py` and `get_mcp_answer_async`; updated MCP mode table, flow diagram, and implementation section to current sub-graph architecture.
 - Fixed stale directory reference in `docs/README.md` Repo Map: `src/rag_agent/workflows/` replaced with `src/rag_agent/graphs/`.
-- Removed stale `ChatRuntimeService` reference from `AGENTS.md`.
 - Untracked `docs/superpowers/` plans and specs; added `*` to `docs/superpowers/.gitignore` so local development plan files are kept on disk but ignored in git.
 
 ## 2026-07-01
