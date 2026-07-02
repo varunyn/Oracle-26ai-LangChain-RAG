@@ -232,7 +232,7 @@ def test_run_rag_node_returns_assistant_error_when_runtime_fails(
     assert "DPY-6005" in assistant.additional_kwargs["error"]["message"]
 
 
-def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mcp_setup_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     class _FakeTrace:
@@ -250,49 +250,43 @@ def test_run_mcp_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
     class FakeLlm:
         model_id = "model-c"
 
-    async def fake_run_mcp_agent_turn(**kwargs: object) -> object:
-        captured.update(kwargs)
-        return SimpleNamespace(
-            answer="42",
-            tools_used=["calculator"],
-            tool_invocations=[{"tool_name": "calculator", "result": "42"}],
-            resolved_model_id="model-c",
-        )
+    async def fake_load_adapter_tools(**kwargs: object) -> list[object]:
+        captured["load_tools_kwargs"] = kwargs
+        return []
 
     monkeypatch.setattr(mcp_node_module, "get_llm", lambda model_id=None: FakeLlm())
-    monkeypatch.setattr(mcp_node_module, "run_mcp_agent_turn", fake_run_mcp_agent_turn)
+    monkeypatch.setattr(mcp_node_module, "load_adapter_tools", fake_load_adapter_tools)
+
+    runtime = _runtime(
+        context={
+            "mode": "mcp",
+            "model_id": "model-c",
+            "mcp_server_keys": ["calculator"],
+            "session_id": "session-mcp",
+        }
+    )
 
     result = asyncio.run(
-        mcp_node_module.run_mcp_node(
+        mcp_node_module.run_mcp_setup(
             {"messages": [HumanMessage(content="19 + 23")]},
             {"callbacks": ["outer-callback"], "metadata": {"source": "workflow-test"}},
-            _runtime(
-                context={
-                    "mode": "mcp",
-                    "model_id": "model-c",
-                    "mcp_server_keys": ["calculator"],
-                    "session_id": "session-mcp",
-                }
-            ),
+            runtime,  # type: ignore[arg-type]
         )
     )
 
-    run_config = captured["run_config"]
-    assert isinstance(run_config, dict)
-    assert captured["resolved_model_id"] == "model-c"
-    assert run_config["configurable"]["thread_id"] == "thread-123"
-    assert run_config["configurable"]["session_id"] == "session-mcp"
-    assert run_config["configurable"]["model_id"] == "model-c"
-    assert run_config["configurable"]["mcp_server_keys"] == ["calculator"]
-    assert run_config["callbacks"][0] == "outer-callback"
-    assert run_config["metadata"]["source"] == "workflow-test"
-    assert captured["mode"] == "mcp"
-    assert captured["mcp_server_keys"] == ["calculator"]
-    assistant = result["messages"][-1]
-    assert isinstance(assistant, AIMessage)
-    assert assistant.content == "42"
-    assert assistant.additional_kwargs["mode"] == "mcp"
-    assert assistant.additional_kwargs["mcp_used"] is True
+    assert len(result["messages"]) >= 2
+    assert isinstance(result["messages"][0], SystemMessage)
+    assert isinstance(result["messages"][-1], HumanMessage)
+    assert runtime.context["mcp_subgraph_model_id"] == "model-c"
+    subgraph_run_cfg = runtime.context["mcp_subgraph_run_cfg"]
+    assert isinstance(subgraph_run_cfg, dict)
+    assert subgraph_run_cfg["configurable"]["thread_id"] == "thread-123"
+    assert subgraph_run_cfg["configurable"]["session_id"] == "session-mcp"
+    assert subgraph_run_cfg["configurable"]["model_id"] == "model-c"
+    assert subgraph_run_cfg["configurable"]["mcp_server_keys"] == ["calculator"]
+    assert subgraph_run_cfg["callbacks"][0] == "outer-callback"
+    assert subgraph_run_cfg["metadata"]["source"] == "workflow-test"
+    assert captured["load_tools_kwargs"]["server_keys"] == ["calculator"]
 
 
 def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:

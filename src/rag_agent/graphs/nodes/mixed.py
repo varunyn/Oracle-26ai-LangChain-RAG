@@ -17,13 +17,9 @@ from src.rag_agent.graphs.mcp_policies import (
     mixed_tool_supplemental_context,
     oracle_retrieval_error,
     oracle_retrieval_used_without_context,
-    repeated_workflow_controller_enabled,
-    require_tool_call_enabled,
-    workflow_checkpoint_path,
     workflow_policy_for_request,
 )
 from src.rag_agent.graphs.nodes.references import (
-    assistant_message_from_exception,
     messages_from_result,
 )
 from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, get_thread_id
@@ -35,7 +31,7 @@ from src.rag_agent.prompts.mcp_agent_prompts import (
     TOOL_SUMMARY_PLACEHOLDER as _TOOL_SUMMARY_PLACEHOLDER,
 )
 from src.rag_agent.runtime import rag_runtime
-from src.rag_agent.runtime.mcp_turn import run_mcp_agent_turn, tool_failure_summary
+from src.rag_agent.runtime.mcp_turn import tool_failure_summary
 from src.rag_agent.runtime.memory import (
     chat_history_before_latest_user,
     latest_user_message,
@@ -225,134 +221,6 @@ async def run_mixed_mcp_setup(
         "messages": [SystemMessage(content=system_prompt_text), *input_messages],
         "progress": "Planning collection and tool search…",
     }
-
-
-async def run_mixed_mcp_node(
-    state: ChatGraphState,
-    config: RunnableConfig,
-    runtime: Runtime[ChatGraphContext],
-) -> ChatGraphState:
-    context = get_runtime_context(runtime)
-    thread_id = get_thread_id(runtime)
-    messages = state["messages"]
-    try:
-        question = latest_user_message(messages)
-        chat_history = chat_history_before_latest_user(messages)
-        retrieval_tool = rag_runtime.build_oracle_retrieval_tool(
-            collection_name=cast(str | None, context.get("collection_name")),
-            filter_docs=rag_runtime.filter_retrieved_docs,
-        )
-        resolved_model_id = cast(str | None, context.get("model_id")) or get_llm().model_id
-        run_cfg = build_run_config(
-            parent_config=config,
-            thread_id=thread_id,
-            mode="mixed",
-            model_id=resolved_model_id,
-            session_id=cast(str | None, context.get("session_id")),
-            enable_tracing=cast(bool | None, context.get("enable_tracing")),
-            mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
-        )
-
-        mcp_turn = await run_mcp_agent_turn(
-            question=question,
-            chat_history=chat_history,
-            resolved_model_id=resolved_model_id,
-            run_config=run_cfg,
-            mode="mixed",
-            mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
-            require_tool_call=require_tool_call_enabled(),
-            repeated_workflow_enabled=repeated_workflow_controller_enabled(),
-            workflow_checkpoint_path=workflow_checkpoint_path(),
-            extra_tools=[retrieval_tool],
-            require_mcp_tool_call_when_referenced=True,
-        )
-        final_answer = mcp_turn.answer
-        state_messages = cast(list[object], getattr(mcp_turn, "state_messages", []) or [])
-        agent_final_answer = _latest_agent_final_answer(state_messages)
-        if agent_final_answer:
-            final_answer = agent_final_answer
-        tools_used = mcp_turn.tools_used
-        tool_invocations = mcp_turn.tool_invocations
-        workflow_policy = workflow_policy_for_request(mode="mixed", question=question)
-        policy_applied, missing_capabilities, policy_failure_message = enforce_workflow_policy(
-            policy=workflow_policy,
-            tools_used=tools_used,
-            tool_invocations=cast(list[dict[str, object]], tool_invocations),
-        )
-        policy_error = policy_failure_message if policy_applied and missing_capabilities else None
-        if policy_error:
-            final_answer = policy_error
-        tool_failure_error = tool_failure_summary(cast(list[dict[str, object]], tool_invocations))
-        if not policy_error and is_trivial_answer(final_answer) and tool_failure_error:
-            final_answer = tool_failure_error
-            policy_error = tool_failure_error
-        retrieval_state = getattr(retrieval_tool, "_retrieval_state", None)
-        retrieval_docs = (
-            cast(list[object], retrieval_state.get("docs", []))
-            if isinstance(retrieval_state, dict)
-            else []
-        )
-        retrieval_error = oracle_retrieval_error(
-            retrieval_state=retrieval_state,
-            tools_used=tools_used,
-            tool_invocations=cast(list[dict[str, object]], tool_invocations),
-        )
-        if retrieval_docs and question:
-            retrieval_docs = rag_runtime.rerank_retrieved_docs(
-                question,
-                cast(list[Any], retrieval_docs),
-                enable_reranker=cast(bool | None, context.get("enable_reranker")),
-            )
-        if not policy_error and retrieval_error:
-            final_answer = ORACLE_RETRIEVAL_FAILED_ANSWER
-            policy_error = ORACLE_RETRIEVAL_FAILED_ANSWER
-        if not policy_error and oracle_retrieval_used_without_context(
-            retrieval_state=retrieval_state,
-            retrieval_docs=cast(list[Any], retrieval_docs),
-            tools_used=tools_used,
-            tool_invocations=cast(list[dict[str, object]], tool_invocations),
-        ):
-            final_answer = NO_ORACLE_CONTEXT_ANSWER
-        if not policy_error and retrieval_docs and agent_final_answer is None:
-            supplemental_context = mixed_tool_supplemental_context(
-                cast(list[dict[str, object]], tool_invocations)
-            )
-            final_answer, _rag_usage, resolved_model_id = await rag_runtime.synthesize_rag_answer(
-                question=question,
-                docs=cast(list[Any], retrieval_docs),
-                model_id=cast(str | None, context.get("model_id")),
-                run_config=run_cfg,
-                supplemental_context=supplemental_context,
-            )
-        result: dict[str, object] = {
-            "final_answer": final_answer,
-            "error": policy_error,
-            "outcome": "error" if policy_error else "success",
-            "standalone_question": question or None,
-            "citations": rag_runtime.citations_from_docs(cast(list[Any], retrieval_docs)),
-            "reranker_docs": rag_runtime.serialize_docs(cast(list[Any], retrieval_docs)),
-            "context_usage": {"retrieved_docs_count": len(retrieval_docs)}
-            if retrieval_docs
-            else None,
-            "mcp_used": bool(tools_used),
-            "mcp_tools_used": tools_used,
-            "mcp_tool_invocations": tool_invocations,
-        }
-        if isinstance(resolved_model_id, str) and resolved_model_id.strip():
-            result["model_id"] = resolved_model_id.strip()
-        return {
-            "mixed_result": result,
-            "mixed_state_messages": state_messages,
-        }
-    except Exception as exc:
-        assistant_message = assistant_message_from_exception("mixed", exc)
-        return {
-            "mixed_result": {
-                "final_answer": assistant_message.content,
-                "error": str(exc),
-            },
-            "mixed_state_messages": [],
-        }
 
 
 async def run_mixed_compose_node(
