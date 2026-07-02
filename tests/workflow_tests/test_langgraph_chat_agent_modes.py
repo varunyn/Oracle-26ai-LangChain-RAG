@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from src.rag_agent.graphs.chat_agent import build_chat_agent, route_mode
@@ -27,13 +27,6 @@ def _content(message: object) -> object:
     return getattr(message, "content", None)
 
 
-async def execute_mixed_nodes(state: dict[str, object], config: dict[str, object], runtime: object):
-    intermediate = await mixed_node_module.run_mixed_mcp_node(state, config, runtime)  # type: ignore[arg-type]
-    return await mixed_node_module.run_mixed_compose_node(
-        {**state, **intermediate}, config, runtime  # type: ignore[arg-type]
-    )
-
-
 def test_route_mode_reads_runtime_context() -> None:
     assert route_mode({"messages": []}, _runtime(context=None)) == "direct"
     assert route_mode({"messages": []}, _runtime(context={"mode": "direct"})) == "direct"
@@ -52,7 +45,7 @@ def test_build_chat_agent_exposes_mixed_mode_execution_nodes() -> None:
 
     node_names = set(graph.get_graph().nodes)
 
-    assert {"mixed_route", "mixed_retrieval", "mixed_mcp", "mixed_compose"} <= node_names
+    assert {"mixed_route", "mixed_retrieval", "mixed_mcp_setup", "mcp_sub_graph", "mixed_compose"} <= node_names
     assert "mixed" not in node_names
 
 
@@ -320,28 +313,21 @@ def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> Non
         model_id = "model-d"
 
     class FakeRetrievalTool:
+        name = "oracle_retrieval"
+        description = "Oracle retrieval tool"
         _retrieval_state = {
             "docs": [SimpleNamespace(page_content="Summit terms", metadata={"source": "summit"})]
         }
 
-    async def fake_run_mcp_agent_turn(**kwargs: object) -> object:
-        captured["mcp_turn_kwargs"] = kwargs
-        return SimpleNamespace(
-            answer="Net 45 days; plus 5 is 50.",
-            tools_used=["oracle_retrieval", "calculator"],
-            tool_invocations=[
-                {"tool_name": "oracle_retrieval", "result": "Net 45"},
-                {"tool_name": "calculator", "result": "50"},
-            ],
-            resolved_model_id="model-d",
-        )
-
-    async def fake_synthesize_rag_answer(**kwargs: object) -> tuple[str, None, str]:
-        captured["synthesize_kwargs"] = kwargs
-        return "Net 45 days; plus 5 is 50.", None, "model-d"
+    async def fake_load_adapter_tools(**kwargs: object) -> list[object]:
+        captured["load_tools_kwargs"] = kwargs
+        return []
 
     monkeypatch.setattr(mixed_node_module, "get_llm", lambda model_id=None: FakeLlm())
-    monkeypatch.setattr(mixed_node_module, "run_mcp_agent_turn", fake_run_mcp_agent_turn)
+    monkeypatch.setattr(
+        "src.rag_agent.infrastructure.mcp_adapter_runtime.load_adapter_tools",
+        fake_load_adapter_tools,
+    )
     monkeypatch.setattr(
         mixed_node_module.rag_runtime,
         "build_oracle_retrieval_tool",
@@ -349,72 +335,43 @@ def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> Non
             captured.__setitem__("retrieval_tool_kwargs", kwargs) or FakeRetrievalTool()
         ),
     )
-    monkeypatch.setattr(
-        mixed_node_module.rag_runtime,
-        "rerank_retrieved_docs",
-        lambda query, docs, *, enable_reranker: (
-            captured.__setitem__(
-                "rerank_kwargs",
-                {"query": query, "docs": docs, "enable_reranker": enable_reranker},
-            )
-            or docs
-        ),
-    )
-    monkeypatch.setattr(
-        mixed_node_module.rag_runtime,
-        "synthesize_rag_answer",
-        fake_synthesize_rag_answer,
-    )
-    monkeypatch.setattr(
-        mixed_node_module.rag_runtime,
-        "citations_from_docs",
-        lambda docs: [{"source": "summit"}],
-    )
-    monkeypatch.setattr(
-        mixed_node_module.rag_runtime,
-        "serialize_docs",
-        lambda docs: [{"id": "doc-2"}],
+
+    runtime = _runtime(
+        context={
+            "mode": "mixed",
+            "model_id": "model-d",
+            "collection_name": "ORACLE_WEB_EMBEDDINGS",
+            "enable_reranker": True,
+            "enable_tracing": True,
+            "mcp_server_keys": ["calculator"],
+            "session_id": "session-mixed",
+        }
     )
 
     result = asyncio.run(
-        execute_mixed_nodes(
+        mixed_node_module.run_mixed_mcp_setup(
             {"messages": [HumanMessage(content="payment terms plus 5")]},
             {"callbacks": ["outer-callback"], "metadata": {"source": "workflow-test"}},
-            _runtime(
-                context={
-                    "mode": "mixed",
-                    "model_id": "model-d",
-                    "collection_name": "ORACLE_WEB_EMBEDDINGS",
-                    "enable_reranker": True,
-                    "enable_tracing": True,
-                    "mcp_server_keys": ["calculator"],
-                    "session_id": "session-mixed",
-                }
-            ),
+            runtime,  # type: ignore[arg-type]
         )
     )
 
-    mcp_turn_kwargs = captured["mcp_turn_kwargs"]
-    assert mcp_turn_kwargs["resolved_model_id"] == "model-d"
-    run_config = mcp_turn_kwargs["run_config"]
-    assert isinstance(run_config, dict)
-    assert run_config["configurable"]["thread_id"] == "thread-123"
-    assert run_config["configurable"]["session_id"] == "session-mixed"
-    assert run_config["configurable"]["model_id"] == "model-d"
-    assert run_config["configurable"]["mcp_server_keys"] == ["calculator"]
-    assert run_config["configurable"]["enable_tracing"] is True
-    assert run_config["callbacks"][0] == "outer-callback"
-    assert run_config["metadata"]["source"] == "workflow-test"
+    assert "progress" in result
+    assert len(result["messages"]) >= 2
+    assert isinstance(result["messages"][0], SystemMessage)
+    assert isinstance(result["messages"][-1], HumanMessage)
+    assert runtime.context["mcp_subgraph_model_id"] == "model-d"
+    subgraph_run_cfg = runtime.context["mcp_subgraph_run_cfg"]
+    assert isinstance(subgraph_run_cfg, dict)
+    assert subgraph_run_cfg["configurable"]["thread_id"] == "thread-123"
+    assert subgraph_run_cfg["configurable"]["session_id"] == "session-mixed"
+    assert subgraph_run_cfg["configurable"]["model_id"] == "model-d"
+    assert subgraph_run_cfg["configurable"]["mcp_server_keys"] == ["calculator"]
+    assert subgraph_run_cfg["configurable"]["enable_tracing"] is True
+    assert subgraph_run_cfg["callbacks"][0] == "outer-callback"
+    assert subgraph_run_cfg["metadata"]["source"] == "workflow-test"
     assert captured["retrieval_tool_kwargs"]["collection_name"] == "ORACLE_WEB_EMBEDDINGS"
-    assert captured["rerank_kwargs"]["enable_reranker"] is True
-    assert mcp_turn_kwargs["mode"] == "mixed"
-    assert mcp_turn_kwargs["mcp_server_keys"] == ["calculator"]
-    assert captured["synthesize_kwargs"]["model_id"] == "model-d"
-    assistant = result["messages"][-1]
-    assert isinstance(assistant, AIMessage)
-    assert assistant.content == "Net 45 days; plus 5 is 50."
-    assert assistant.additional_kwargs["mode"] == "mixed"
-    assert assistant.additional_kwargs["mcp_used"] is True
+    assert captured["load_tools_kwargs"]["server_keys"] == ["calculator"]
 
 
 def test_build_chat_agent_preserves_messages_across_same_thread(tmp_path, monkeypatch) -> None:

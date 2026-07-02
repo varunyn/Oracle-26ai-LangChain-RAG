@@ -6,7 +6,6 @@ from typing import Any, cast
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph import END, StateGraph
-from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from langgraph.runtime import Runtime
 
@@ -30,6 +29,11 @@ from src.rag_agent.graphs.nodes.references import (
 from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, get_thread_id
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState, MCPSubGraphState
 from src.rag_agent.infrastructure import oci_models as _oci_models
+from src.rag_agent.infrastructure.mcp_agent_executor import _build_tool_summary
+from src.rag_agent.prompts.mcp_agent_prompts import SYSTEM_PROMPT_MIXED as _SYSTEM_PROMPT_MIXED
+from src.rag_agent.prompts.mcp_agent_prompts import (
+    TOOL_SUMMARY_PLACEHOLDER as _TOOL_SUMMARY_PLACEHOLDER,
+)
 from src.rag_agent.runtime import rag_runtime
 from src.rag_agent.runtime.mcp_turn import run_mcp_agent_turn, tool_failure_summary
 from src.rag_agent.runtime.memory import (
@@ -94,9 +98,7 @@ def _message_to_langchain(m: object) -> BaseMessage | None:
 
 
 def _build_system_prompt_tools(question: str, tools: list[object]) -> str:
-    from src.rag_agent.prompts.mcp_agent_prompts import SYSTEM_PROMPT_MIXED, TOOL_SUMMARY_PLACEHOLDER
-    from src.rag_agent.infrastructure.mcp_agent_executor import _build_tool_summary
-    return SYSTEM_PROMPT_MIXED.replace(TOOL_SUMMARY_PLACEHOLDER, _build_tool_summary(tools))
+    return _SYSTEM_PROMPT_MIXED.replace(_TOOL_SUMMARY_PLACEHOLDER, _build_tool_summary(tools))
 
 
 async def call_llm_node(

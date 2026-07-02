@@ -1,64 +1,78 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from types import SimpleNamespace
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from src.rag_agent.graphs.nodes import mcp, mixed, rag
+from src.rag_agent.graphs.nodes import mixed, rag
 
 
-@dataclass
-class FakeMcpTurn:
-    answer: str = "Tool answer"
-    tools_used: list[str] | None = None
-    tool_invocations: list[dict[str, object]] | None = None
-    resolved_model_id: str = "fake-mcp-model"
-    state_messages: list[object] | None = None
-
-    def __post_init__(self) -> None:
-        if self.tools_used is None:
-            self.tools_used = ["lookup"]
-        if self.tool_invocations is None:
-            self.tool_invocations = [{"tool_name": "lookup", "status": "success"}]
-        if self.state_messages is None:
-            self.state_messages = [
-                AIMessage(
-                    id="assistant-tool-call",
-                    content=".",
-                    tool_calls=[
-                        {"id": "call-1", "name": "lookup", "args": {"query": "invoice"}}
-                    ],
-                ),
-                ToolMessage(
-                    content="ok",
-                    tool_call_id="call-1",
-                    name="lookup",
-                ),
-                AIMessage(id="assistant-final", content=self.answer),
-            ]
-
-
-async def execute_mixed_nodes(state: dict[str, object], config: dict[str, object], runtime: object):
-    intermediate = await mixed.run_mixed_mcp_node(state, config, runtime)  # type: ignore[arg-type]
+async def run_compose_with_messages(
+    messages: list[object],
+    runtime: object,
+) -> dict[str, object]:
     return await mixed.run_mixed_compose_node(
-        {**state, **intermediate}, config, runtime  # type: ignore[arg-type]
+        {"messages": messages},
+        {},
+        runtime,  # type: ignore[arg-type]
+    )
+
+
+class FakeRetrievalTool:
+    name = "oracle_retrieval"
+    _retrieval_state: dict[str, list[object]] = {}
+
+
+async def fake_synthesize_rag_answer(**kwargs: object) -> tuple[str, None, str]:
+    return "Synthesized answer", None, "fake-model"
+
+
+def _make_runtime(*, retrieval_docs: list[object] | None = None, question: str = "test question") -> SimpleNamespace:
+    tool = FakeRetrievalTool()
+    if retrieval_docs is not None:
+        tool._retrieval_state = {"docs": retrieval_docs}
+    return SimpleNamespace(
+        context={
+            "mcp_subgraph_tools": [tool],
+            "mcp_subgraph_question": question,
+            "mcp_subgraph_run_cfg": {},
+            "enable_reranker": False,
+            "model_id": "model-1",
+        },
     )
 
 
 def test_mcp_node_runs_agent_turn_without_chat_runtime_service(monkeypatch) -> None:
-    class _FakeTrace:
-        trace_context = None
-        trace_id = None
+    """MCP (non-mixed) node test — unchanged, tests mcp module level."""
+    from dataclasses import dataclass
+    from src.rag_agent.graphs.nodes import mcp
 
-    class _FakeTraceContextManager:
-        def __enter__(self) -> _FakeTrace:
-            return _FakeTrace()
+    @dataclass
+    class FakeMcpTurn:
+        answer: str = "Tool answer"
+        tools_used: list[str] | None = None
+        tool_invocations: list[dict[str, object]] | None = None
+        resolved_model_id: str = "fake-mcp-model"
+        state_messages: list[object] | None = None
 
-        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
-            _ = exc_type, exc, tb
-            return False
+        def __post_init__(self) -> None:
+            if self.tools_used is None:
+                self.tools_used = ["lookup"]
+            if self.tool_invocations is None:
+                self.tool_invocations = [{"tool_name": "lookup", "status": "success"}]
+            if self.state_messages is None:
+                self.state_messages = [
+                    AIMessage(
+                        id="assistant-tool-call",
+                        content=".",
+                        tool_calls=[
+                            {"id": "call-1", "name": "lookup", "args": {"query": "invoice"}}
+                        ],
+                    ),
+                    ToolMessage(content="ok", tool_call_id="call-1", name="lookup"),
+                    AIMessage(id="assistant-final", content=self.answer),
+                ]
 
     async def fake_run_mcp_agent_turn(**kwargs: object) -> FakeMcpTurn:
         run_config = kwargs["run_config"]
@@ -96,278 +110,113 @@ def test_mcp_node_runs_agent_turn_without_chat_runtime_service(monkeypatch) -> N
     assert assistant.additional_kwargs["mcp_tools_used"] == ["lookup"]
 
 
-def test_mixed_nodes_run_agent_turn_without_chat_runtime_service(monkeypatch) -> None:
-    class _FakeTrace:
-        trace_context = None
-        trace_id = None
-
-    class _FakeTraceContextManager:
-        def __enter__(self) -> _FakeTrace:
-            return _FakeTrace()
-
-        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
-            _ = exc_type, exc, tb
-            return False
-
-    class FakeRetrievalTool:
-        name = "oracle_retrieval"
-        _retrieval_state = {
-            "docs": [SimpleNamespace(page_content="Context", metadata={"source": "doc.md"})]
-        }
-
-    async def fake_run_mcp_agent_turn(**kwargs: object) -> FakeMcpTurn:
-        run_config = kwargs["run_config"]
-        assert isinstance(run_config, dict)
-        assert run_config["callbacks"] == ["outer-callback"]
-        assert kwargs["require_tool_call"] is True
-        return FakeMcpTurn(
-            answer="Draft tool answer",
-            tools_used=["oracle_retrieval", "lookup"],
-            tool_invocations=[
-                {"tool_name": "oracle_retrieval", "result": "Context"},
-                {"tool_name": "lookup", "result": "Aux"},
-            ],
-            resolved_model_id="fake-mixed-model",
-        )
-
-    async def fake_synthesize_rag_answer(**kwargs: object) -> tuple[str, None, str]:
-        raise AssertionError("mixed node should not synthesize after an agent final answer")
-
-    monkeypatch.setattr(mixed, "run_mcp_agent_turn", fake_run_mcp_agent_turn)
-    monkeypatch.setattr(mixed, "get_llm", lambda model_id=None: SimpleNamespace(model_id="fake-mixed-model"))
-    monkeypatch.setattr(
-        mixed.rag_runtime,
-        "build_oracle_retrieval_tool",
-        lambda **kwargs: FakeRetrievalTool(),
-    )
-    monkeypatch.setattr(
-        mixed.rag_runtime,
-        "rerank_retrieved_docs",
-        lambda query, docs, *, enable_reranker: docs,
-    )
+def test_mixed_compose_node_extracts_tool_invocations_from_subgraph_messages(monkeypatch) -> None:
+    monkeypatch.setattr(mixed.rag_runtime, "citations_from_docs", lambda docs: [])
+    monkeypatch.setattr(mixed.rag_runtime, "serialize_docs", lambda docs: [])
+    monkeypatch.setattr(mixed.rag_runtime, "rerank_retrieved_docs", lambda q, docs, **kw: docs)
     monkeypatch.setattr(mixed.rag_runtime, "synthesize_rag_answer", fake_synthesize_rag_answer)
-    monkeypatch.setattr(mixed.rag_runtime, "citations_from_docs", lambda docs: [{"source": "doc.md"}])
-    monkeypatch.setattr(mixed.rag_runtime, "serialize_docs", lambda docs: [{"source": "doc.md"}])
 
-    runtime = SimpleNamespace(
-        context={
-            "model_id": "model-1",
-            "session_id": "session-1",
-            "collection_name": "kb",
-            "enable_reranker": False,
-            "enable_tracing": False,
-        },
-        execution_info=SimpleNamespace(thread_id="thread-1"),
-    )
+    runtime = _make_runtime()
+    subgraph_output = [
+        AIMessage(
+            id="call-llm-1",
+            content=".",
+            tool_calls=[{"id": "tc1", "name": "lookup", "args": {"key": "x"}}],
+        ),
+        ToolMessage(content="result-x", tool_call_id="tc1", name="lookup"),
+        AIMessage(id="call-llm-2", content="Final answer text."),
+    ]
 
-    result = asyncio.run(
-        execute_mixed_nodes(
-            {"messages": [HumanMessage(content="Use tools and docs")]},
-            {"callbacks": ["outer-callback"]},
-            runtime,  # type: ignore[arg-type]
-        )
-    )
+    result = asyncio.run(run_compose_with_messages(subgraph_output, runtime))
 
-    assert len(result["messages"]) == 3
-    tool_call_message = result["messages"][0]
+    assert len(result["messages"]) >= 1
     assistant = result["messages"][-1]
-    assert isinstance(tool_call_message, AIMessage)
-    assert tool_call_message.tool_calls[0]["id"] == "call-1"
-    assert isinstance(result["messages"][1], ToolMessage)
     assert isinstance(assistant, AIMessage)
-    assert assistant.content == "Draft tool answer"
+    assert assistant.content == "Final answer text."
     assert assistant.additional_kwargs["mode"] == "mixed"
     assert assistant.additional_kwargs["mcp_used"] is True
-    assert assistant.additional_kwargs["citations"] == [{"source": "doc.md"}]
+    assert assistant.additional_kwargs["mcp_tools_used"] == ["lookup"]
+    assert len(assistant.additional_kwargs["mcp_tool_invocations"]) == 1
+    assert assistant.additional_kwargs["mcp_tool_invocations"][0]["tool_name"] == "lookup"
+    assert assistant.additional_kwargs["mcp_tool_invocations"][0]["result"] == "result-x"
 
 
-def test_mixed_nodes_synthesize_when_tool_loop_has_no_final_answer(monkeypatch) -> None:
-    class _FakeTrace:
-        trace_context = None
-        trace_id = None
-
-    class _FakeTraceContextManager:
-        def __enter__(self) -> _FakeTrace:
-            return _FakeTrace()
-
-        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
-            _ = exc_type, exc, tb
-            return False
-
-    class FakeRetrievalTool:
-        name = "oracle_retrieval"
-        _retrieval_state = {
-            "docs": [SimpleNamespace(page_content="Context", metadata={"source": "doc.md"})]
-        }
-
-    async def fake_run_mcp_agent_turn(**kwargs: object) -> FakeMcpTurn:
-        _ = kwargs
-        return FakeMcpTurn(
-            answer=".",
-            tools_used=["oracle_retrieval"],
-            tool_invocations=[{"tool_name": "oracle_retrieval", "result": "Context"}],
-            resolved_model_id="fake-mixed-model",
-            state_messages=[
-                AIMessage(
-                    id="assistant-tool-call",
-                    content=".",
-                    tool_calls=[
-                        {
-                            "id": "call-1",
-                            "name": "oracle_retrieval",
-                            "args": {"query": "invoice"},
-                        }
-                    ],
-                ),
-                ToolMessage(
-                    content="Context",
-                    tool_call_id="call-1",
-                    name="oracle_retrieval",
-                ),
-            ],
-        )
-
-    async def fake_synthesize_rag_answer(**kwargs: object) -> tuple[str, None, str]:
-        assert kwargs["question"] == "Use docs"
-        return "Synthesized answer", None, "fake-mixed-model"
-
-    monkeypatch.setattr(mixed, "run_mcp_agent_turn", fake_run_mcp_agent_turn)
-    monkeypatch.setattr(mixed, "get_llm", lambda model_id=None: SimpleNamespace(model_id="fake-mixed-model"))
-    monkeypatch.setattr(
-        mixed.rag_runtime,
-        "build_oracle_retrieval_tool",
-        lambda **kwargs: FakeRetrievalTool(),
-    )
+def test_mixed_compose_synthesizes_when_subgraph_has_no_final_answer(monkeypatch) -> None:
     monkeypatch.setattr(
         mixed.rag_runtime,
         "rerank_retrieved_docs",
-        lambda query, docs, *, enable_reranker: docs,
+        lambda q, docs, **kw: docs,
     )
     monkeypatch.setattr(mixed.rag_runtime, "synthesize_rag_answer", fake_synthesize_rag_answer)
     monkeypatch.setattr(mixed.rag_runtime, "citations_from_docs", lambda docs: [{"source": "doc.md"}])
     monkeypatch.setattr(mixed.rag_runtime, "serialize_docs", lambda docs: [{"source": "doc.md"}])
 
-    runtime = SimpleNamespace(
-        context={
-            "model_id": "model-1",
-            "session_id": "session-1",
-            "collection_name": "kb",
-            "enable_reranker": False,
-            "enable_tracing": False,
-        },
-        execution_info=SimpleNamespace(thread_id="thread-1"),
+    retrieval_doc = SimpleNamespace(page_content="Context data", metadata={"source": "doc.md"})
+    runtime = _make_runtime(
+        retrieval_docs=[retrieval_doc],
+        question="Use docs",
     )
+    subgraph_output = [
+        AIMessage(
+            id="call-llm-1",
+            content=".",
+            tool_calls=[{"id": "tc1", "name": "oracle_retrieval", "args": {"q": "docs"}}],
+        ),
+        ToolMessage(content="Context data", tool_call_id="tc1", name="oracle_retrieval"),
+    ]
 
-    result = asyncio.run(
-        execute_mixed_nodes(
-            {"messages": [HumanMessage(content="Use docs")]},
-            {"callbacks": ["outer-callback"]},
-            runtime,  # type: ignore[arg-type]
-        )
-    )
+    result = asyncio.run(run_compose_with_messages(subgraph_output, runtime))
 
-    assert len(result["messages"]) == 3
+    assert len(result["messages"]) >= 1
     assistant = result["messages"][-1]
     assert isinstance(assistant, AIMessage)
     assert assistant.content == "Synthesized answer"
     assert assistant.additional_kwargs["citations"] == [{"source": "doc.md"}]
 
 
-def test_mixed_nodes_preserve_native_tool_messages_only_for_mcp_turns(monkeypatch) -> None:
-    class _FakeTrace:
-        trace_context = None
-        trace_id = None
+def test_mixed_compose_route_logic() -> None:
+    assert mixed.route({"messages": []}) == "__end__"
+    assert mixed.route({"messages": [AIMessage(content="hello")]}) == "__end__"
+    assert mixed.route({
+        "messages": [
+            AIMessage(
+                content=".",
+                tool_calls=[{"id": "tc1", "name": "lookup", "args": {}}],
+            )
+        ]
+    }) == "run_tools"
 
-    class _FakeTraceContextManager:
-        def __enter__(self) -> _FakeTrace:
-            return _FakeTrace()
 
-        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
-            _ = exc_type, exc, tb
-            return False
+def test_extract_tool_invocations(monkeypatch) -> None:
+    messages = [
+        AIMessage(
+            id="m1",
+            content=".",
+            tool_calls=[{"id": "tc1", "name": "lookup", "args": {"k": "v"}}],
+        ),
+        ToolMessage(content="result", tool_call_id="tc1", name="lookup"),
+        AIMessage(id="m2", content="Final."),
+    ]
+    result = mixed.extract_tool_invocations_from_messages(messages)
+    assert len(result) == 1
+    assert result[0]["tool_name"] == "lookup"
+    assert result[0]["args"] == {"k": "v"}
+    assert result[0]["result"] == "result"
 
-    class FakeRetrievalTool:
-        name = "oracle_retrieval"
-        _retrieval_state = {
-            "docs": [SimpleNamespace(page_content="Context", metadata={"source": "doc.md"})]
-        }
 
-    async def fake_run_mcp_agent_turn_without_mcp(**kwargs: object) -> FakeMcpTurn:
-        assert kwargs["require_mcp_tool_call_when_referenced"] is True
-        return FakeMcpTurn(
-            answer="RAG only answer",
-            tools_used=["oracle_retrieval"],
-            tool_invocations=[{"tool_name": "oracle_retrieval", "result": "Context"}],
-            resolved_model_id="fake-mixed-model",
-            state_messages=[AIMessage(id="assistant-final", content="RAG only answer")],
-        )
-
-    async def fake_run_mcp_agent_turn_with_mcp(**kwargs: object) -> FakeMcpTurn:
-        assert kwargs["require_mcp_tool_call_when_referenced"] is True
-        return FakeMcpTurn(
-            answer="Draft answer",
-            tools_used=["oracle_retrieval", "lookup"],
-            tool_invocations=[
-                {"tool_name": "oracle_retrieval", "result": "Context"},
-                {"tool_name": "lookup", "result": "ok"},
-            ],
-            resolved_model_id="fake-mixed-model",
-        )
-
-    async def fake_synthesize_rag_answer(**kwargs: object) -> tuple[str, None, str]:
-        raise AssertionError("mixed node should not synthesize after an agent final answer")
-
-    monkeypatch.setattr(mixed, "get_llm", lambda model_id=None: SimpleNamespace(model_id="fake-mixed-model"))
-    monkeypatch.setattr(
-        mixed.rag_runtime,
-        "build_oracle_retrieval_tool",
-        lambda **kwargs: FakeRetrievalTool(),
-    )
-    monkeypatch.setattr(
-        mixed.rag_runtime,
-        "rerank_retrieved_docs",
-        lambda query, docs, *, enable_reranker: docs,
-    )
-    monkeypatch.setattr(mixed.rag_runtime, "synthesize_rag_answer", fake_synthesize_rag_answer)
-    monkeypatch.setattr(mixed.rag_runtime, "citations_from_docs", lambda docs: [{"source": "doc.md"}])
-    monkeypatch.setattr(mixed.rag_runtime, "serialize_docs", lambda docs: [{"source": "doc.md"}])
-
-    runtime = SimpleNamespace(
-        context={
-            "model_id": "model-1",
-            "session_id": "session-1",
-            "collection_name": "kb",
-            "enable_reranker": False,
-            "enable_tracing": False,
-        },
-        execution_info=SimpleNamespace(thread_id="thread-1"),
-    )
-
-    monkeypatch.setattr(mixed, "run_mcp_agent_turn", fake_run_mcp_agent_turn_without_mcp)
-    retrieval_only_result = asyncio.run(
-        execute_mixed_nodes(
-            {"messages": [HumanMessage(content="Use docs only")]},
-            {"callbacks": ["outer-callback"]},
-            runtime,  # type: ignore[arg-type]
-        )
-    )
-
-    monkeypatch.setattr(mixed, "run_mcp_agent_turn", fake_run_mcp_agent_turn_with_mcp)
-    mcp_turn_result = asyncio.run(
-        execute_mixed_nodes(
-            {"messages": [HumanMessage(content="Use docs and tools")]},
-            {"callbacks": ["outer-callback"]},
-            runtime,  # type: ignore[arg-type]
-        )
-    )
-
-    assert len(retrieval_only_result["messages"]) == 1
-    assert isinstance(retrieval_only_result["messages"][0], AIMessage)
-    assert all(not isinstance(message, ToolMessage) for message in retrieval_only_result["messages"])
-    assert len(mcp_turn_result["messages"]) == 3
-    assert isinstance(mcp_turn_result["messages"][0], AIMessage)
-    assert mcp_turn_result["messages"][0].tool_calls[0]["id"] == "call-1"
-    assert isinstance(mcp_turn_result["messages"][1], ToolMessage)
+def test_extract_tool_invocations_handles_errors() -> None:
+    messages = [
+        AIMessage(
+            id="m1",
+            content=".",
+            tool_calls=[{"id": "tc1", "name": "lookup", "args": {}}],
+        ),
+        ToolMessage(content="error occurred", tool_call_id="tc1", name="lookup", status="error"),
+        AIMessage(id="m2", content="Final."),
+    ]
+    result = mixed.extract_tool_invocations_from_messages(messages)
+    assert len(result) == 1
+    assert result[0]["error"] == "error occurred"
 
 
 def test_mixed_node_does_not_emit_tool_messages_for_retrieval_only(monkeypatch) -> None:
