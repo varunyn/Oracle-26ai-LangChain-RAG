@@ -261,11 +261,13 @@ async def run_mixed_mcp_setup(
     runtime.context["mcp_subgraph_model_id"] = resolved_model_id
     runtime.context["mcp_subgraph_question"] = question
     runtime.context["mcp_subgraph_run_cfg"] = run_cfg
-    runtime.context["mcp_subgraph_input_count"] = 1 + len(input_messages)
+    input_count = 1 + len(input_messages)
+    runtime.context["mcp_subgraph_input_count"] = input_count
 
     return {
         "messages": [SystemMessage(content=system_prompt_text), *input_messages],
         "progress": "Planning collection and tool search…",
+        "mcp_input_count": input_count,
     }
 
 
@@ -280,7 +282,7 @@ async def run_mixed_compose_node(
         return {"messages": messages_from_result("mixed", result, []), "references": {}}
 
     context = get_runtime_context(_runtime) if _runtime else {}
-    input_count = cast(int, context.get("mcp_subgraph_input_count", 0))
+    input_count = cast(int, state.get("mcp_input_count", 0))
     tool_messages = messages[input_count:] if input_count > 0 and len(messages) > input_count else messages
     question = cast(str | None, context.get("mcp_subgraph_question")) or latest_user_message(messages) or ""
     tool_invocations = extract_tool_invocations_from_messages(tool_messages)

@@ -67,8 +67,10 @@ async def run_mcp_setup(
     runtime.context["mcp_subgraph_run_cfg"] = run_cfg
     runtime.context["mcp_subgraph_input_count"] = 1 + len(input_messages)
 
+    input_count = 1 + len(input_messages)
     return {
         "messages": [SystemMessage(content=system_prompt_text), *input_messages],
+        "mcp_input_count": input_count,
     }
 
 
@@ -82,8 +84,7 @@ async def run_mcp_compose(
         result = {"final_answer": "MCP execution did not produce a result."}
         return {"messages": messages_from_result("mcp", result, []), "references": {}}
 
-    context = get_runtime_context(_runtime) if _runtime else {}
-    input_count = cast(int, context.get("mcp_subgraph_input_count", 0))
+    input_count = cast(int, state.get("mcp_input_count", 0))
     tool_messages = messages[input_count:] if input_count > 0 and len(messages) > input_count else messages
 
     context = get_runtime_context(_runtime) if _runtime else {}
