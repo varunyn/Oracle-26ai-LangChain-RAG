@@ -1,0 +1,3 @@
+- Check how user feedback from frontend is used? We should use that for evals and score.
+- Create Evaluation loop to improve
+-
