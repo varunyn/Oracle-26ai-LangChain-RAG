@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-07-31
+
+- Aligned the application Langfuse integration with the self-hosted v4 stack: upgraded the Python SDK to 4.14.1, removed the legacy `LANGFUSE_ENVIRONMENT` alias, and now provide environment/release through the v4 environment-variable contract.
+- Normalized Langfuse metadata to v4's string and 200-character attribute limit without truncating trace input or output.
+- Updated Langfuse investigation guidance to use the v4 Observations API instead of the deprecated trace-list endpoint.
+
 ## 2026-07-02
 
 - Bumped version to 0.2.0 (significant refactoring: MCP sub-graph architecture, LangGraph Agent Server adoption, data flow cleanup).

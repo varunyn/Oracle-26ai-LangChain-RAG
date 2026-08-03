@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -193,7 +194,6 @@ def test_get_langfuse_client_passes_sample_rate_when_configured(monkeypatch: Any
             LANGFUSE_PUBLIC_KEY="pk-test",
             LANGFUSE_SECRET_KEY="sk-test",
             LANGFUSE_TRACING_ENVIRONMENT="test",
-            LANGFUSE_ENVIRONMENT=None,
             LANGFUSE_RELEASE=None,
             LANGFUSE_SAMPLE_RATE=0.25,
         ),
@@ -227,7 +227,6 @@ def test_get_langfuse_client_prefers_environment_over_settings(monkeypatch: Any)
             LANGFUSE_PUBLIC_KEY="pk-settings",
             LANGFUSE_SECRET_KEY="sk-settings",
             LANGFUSE_TRACING_ENVIRONMENT="test",
-            LANGFUSE_ENVIRONMENT=None,
             LANGFUSE_RELEASE=None,
             LANGFUSE_SAMPLE_RATE=None,
         ),
@@ -333,6 +332,46 @@ def test_start_langfuse_chat_trace_propagates_trace_attributes(monkeypatch: Any)
     assert captured["propagation_exited"] is True
     assert captured["observation_exited"] is True
     assert captured["observation_update"] == {"output": {"answer": "hi"}}
+
+
+def test_langfuse_metadata_is_v4_compatible() -> None:
+    assert langfuse_tracing._langfuse_metadata(
+        {"number": 3, "none": None, "long": "x" * 201}
+    ) == {"number": "3", "long": "x" * 200}
+
+
+def test_get_langfuse_client_uses_v4_environment_variables(monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    class _LangfuseRuntime:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    _set_langfuse_enabled(monkeypatch, True)
+    monkeypatch.setattr(langfuse_tracing, "LangfuseRuntime", _LangfuseRuntime)
+    monkeypatch.delenv("LANGFUSE_TRACING_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("LANGFUSE_RELEASE", raising=False)
+    monkeypatch.setattr(
+        langfuse_tracing,
+        "get_settings",
+        lambda: SimpleNamespace(
+            ENABLE_LANGFUSE_TRACING=True,
+            LANGFUSE_HOST="http://localhost:3300",
+            LANGFUSE_PUBLIC_KEY="pk-test",
+            LANGFUSE_SECRET_KEY="sk-test",
+            LANGFUSE_TRACING_ENVIRONMENT="test",
+            LANGFUSE_RELEASE="v4-migration",
+            LANGFUSE_SAMPLE_RATE=None,
+        ),
+    )
+    langfuse_tracing.set_langfuse_client(None, disabled=False)
+
+    assert langfuse_tracing.get_langfuse_client() is not None
+    assert captured["base_url"] == "http://localhost:3300"
+    assert "environment" not in captured
+    assert "release" not in captured
+    assert os.environ["LANGFUSE_TRACING_ENVIRONMENT"] == "test"
+    assert os.environ["LANGFUSE_RELEASE"] == "v4-migration"
 
 
 def test_update_generation_usage_sends_usage_and_cost_details() -> None:
