@@ -5,6 +5,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
+from src.rag_agent.graphs import tool_agent_turn
 from src.rag_agent.graphs.chat_agent import build_chat_agent, route_mode
 from src.rag_agent.graphs.nodes import direct as direct_node_module
 from src.rag_agent.graphs.nodes import mcp as mcp_node_module
@@ -45,7 +46,13 @@ def test_build_chat_agent_exposes_mixed_mode_execution_nodes() -> None:
 
     node_names = set(graph.get_graph().nodes)
 
-    assert {"mixed_route", "mixed_retrieval", "mixed_setup", "mixed_agent", "mixed_compose"} <= node_names
+    assert {
+        "mixed_route",
+        "mixed_retrieval",
+        "mixed_setup",
+        "mixed_agent",
+        "mixed_compose",
+    } <= node_names
     assert {"mcp_setup", "mcp_agent", "mcp_compose"} <= node_names
     assert "mixed" not in node_names
 
@@ -157,9 +164,15 @@ def test_run_rag_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> N
             or docs
         ),
     )
-    monkeypatch.setattr(rag_node_module.rag_runtime, "synthesize_rag_answer", fake_synthesize_rag_answer)
-    monkeypatch.setattr(rag_node_module.rag_runtime, "citations_from_docs", lambda docs: [{"source": "doc"}])
-    monkeypatch.setattr(rag_node_module.rag_runtime, "serialize_docs", lambda docs: [{"id": "doc-1"}])
+    monkeypatch.setattr(
+        rag_node_module.rag_runtime, "synthesize_rag_answer", fake_synthesize_rag_answer
+    )
+    monkeypatch.setattr(
+        rag_node_module.rag_runtime, "citations_from_docs", lambda docs: [{"source": "doc"}]
+    )
+    monkeypatch.setattr(
+        rag_node_module.rag_runtime, "serialize_docs", lambda docs: [{"id": "doc-1"}]
+    )
     monkeypatch.setattr(
         rag_node_module,
         "emit_usage_observability",
@@ -247,15 +260,11 @@ def test_mcp_setup_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None
             _ = exc_type, exc, tb
             return False
 
-    class FakeLlm:
-        model_id = "model-c"
-
     async def fake_load_adapter_tools(**kwargs: object) -> list[object]:
         captured["load_tools_kwargs"] = kwargs
         return []
 
-    monkeypatch.setattr(mcp_node_module, "get_llm", lambda model_id=None: FakeLlm())
-    monkeypatch.setattr(mcp_node_module, "load_adapter_tools", fake_load_adapter_tools)
+    monkeypatch.setattr(tool_agent_turn, "load_adapter_tools", fake_load_adapter_tools)
 
     runtime = _runtime(
         context={
@@ -274,9 +283,10 @@ def test_mcp_setup_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None
         )
     )
 
-    assert isinstance(runtime.context["mcp_subgraph_system_prompt"], str)
-    assert runtime.context["mcp_subgraph_model_id"] == "model-c"
-    subgraph_run_cfg = runtime.context["mcp_subgraph_run_cfg"]
+    turn = runtime.context["tool_agent_turn"]
+    assert turn["model_id"] == "model-c"
+    assert isinstance(turn["system_prompt"], str)
+    subgraph_run_cfg = turn["run_config"]
     assert isinstance(subgraph_run_cfg, dict)
     assert subgraph_run_cfg["configurable"]["thread_id"] == "thread-123"
     assert subgraph_run_cfg["configurable"]["session_id"] == "session-mcp"
@@ -302,9 +312,6 @@ def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> Non
             _ = exc_type, exc, tb
             return False
 
-    class FakeLlm:
-        model_id = "model-d"
-
     class FakeRetrievalTool:
         name = "oracle_retrieval"
         description = "Oracle retrieval tool"
@@ -316,11 +323,7 @@ def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> Non
         captured["load_tools_kwargs"] = kwargs
         return []
 
-    monkeypatch.setattr(mixed_node_module, "get_llm", lambda model_id=None: FakeLlm())
-    monkeypatch.setattr(
-        "src.rag_agent.infrastructure.mcp_adapter_runtime.load_adapter_tools",
-        fake_load_adapter_tools,
-    )
+    monkeypatch.setattr(tool_agent_turn, "load_adapter_tools", fake_load_adapter_tools)
     monkeypatch.setattr(
         mixed_node_module.rag_runtime,
         "build_oracle_retrieval_tool",
@@ -350,9 +353,11 @@ def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> Non
     )
 
     assert "progress" in result
-    assert isinstance(runtime.context["mcp_subgraph_system_prompt"], str)
-    assert runtime.context["mcp_subgraph_model_id"] == "model-d"
-    subgraph_run_cfg = runtime.context["mcp_subgraph_run_cfg"]
+    turn = runtime.context["tool_agent_turn"]
+    assert turn["model_id"] == "model-d"
+    assert isinstance(turn["system_prompt"], str)
+    assert turn["tools"][0].name == "oracle_retrieval"
+    subgraph_run_cfg = turn["run_config"]
     assert isinstance(subgraph_run_cfg, dict)
     assert subgraph_run_cfg["configurable"]["thread_id"] == "thread-123"
     assert subgraph_run_cfg["configurable"]["session_id"] == "session-mixed"

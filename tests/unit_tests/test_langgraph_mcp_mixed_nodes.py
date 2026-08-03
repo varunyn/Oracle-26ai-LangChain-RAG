@@ -28,20 +28,26 @@ async def fake_synthesize_rag_answer(**kwargs: object) -> tuple[str, None, str]:
     return "Synthesized answer", None, "fake-model"
 
 
-def _make_runtime(*, retrieval_docs: list[object] | None = None, question: str = "test question") -> SimpleNamespace:
+def _make_runtime(
+    *, retrieval_docs: list[object] | None = None, question: str = "test question"
+) -> SimpleNamespace:
     tool = FakeRetrievalTool()
     if retrieval_docs is not None:
         tool._retrieval_state = {"docs": retrieval_docs}
     return SimpleNamespace(
         context={
-            "mcp_subgraph_tools": [tool],
-            "mcp_subgraph_question": question,
-            "mcp_subgraph_run_cfg": {},
+            "tool_agent_turn": {
+                "chat_history": [],
+                "model_id": "model-1",
+                "question": question,
+                "run_config": {},
+                "system_prompt": "Use tools.",
+                "tools": [tool],
+            },
             "enable_reranker": False,
             "model_id": "model-1",
         },
     )
-
 
 
 def test_mixed_compose_node_extracts_tool_invocations_from_subgraph_messages(monkeypatch) -> None:
@@ -82,7 +88,9 @@ def test_mixed_compose_synthesizes_when_subgraph_has_no_final_answer(monkeypatch
         lambda q, docs, **kw: docs,
     )
     monkeypatch.setattr(mixed.rag_runtime, "synthesize_rag_answer", fake_synthesize_rag_answer)
-    monkeypatch.setattr(mixed.rag_runtime, "citations_from_docs", lambda docs: [{"source": "doc.md"}])
+    monkeypatch.setattr(
+        mixed.rag_runtime, "citations_from_docs", lambda docs: [{"source": "doc.md"}]
+    )
     monkeypatch.setattr(mixed.rag_runtime, "serialize_docs", lambda docs: [{"source": "doc.md"}])
 
     retrieval_doc = SimpleNamespace(page_content="Context data", metadata={"source": "doc.md"})
@@ -111,14 +119,19 @@ def test_mixed_compose_synthesizes_when_subgraph_has_no_final_answer(monkeypatch
 def test_mixed_compose_route_logic() -> None:
     assert mixed.route({"messages": []}) == "__end__"
     assert mixed.route({"messages": [AIMessage(content="hello")]}) == "__end__"
-    assert mixed.route({
-        "messages": [
-            AIMessage(
-                content=".",
-                tool_calls=[{"id": "tc1", "name": "lookup", "args": {}}],
-            )
-        ]
-    }) == "run_tools"
+    assert (
+        mixed.route(
+            {
+                "messages": [
+                    AIMessage(
+                        content=".",
+                        tool_calls=[{"id": "tc1", "name": "lookup", "args": {}}],
+                    )
+                ]
+            }
+        )
+        == "run_tools"
+    )
 
 
 def test_extract_tool_invocations(monkeypatch) -> None:
@@ -185,7 +198,9 @@ def test_mixed_node_does_not_emit_tool_messages_for_retrieval_only(monkeypatch) 
     )
     monkeypatch.setattr(rag.rag_runtime, "rerank_retrieved_docs", lambda *args, **kwargs: args[1])
     monkeypatch.setattr(rag.rag_runtime, "synthesize_rag_answer", fake_synthesize_rag_answer)
-    monkeypatch.setattr(rag.rag_runtime, "citations_from_docs", lambda docs: [{"source": "terms.pdf"}])
+    monkeypatch.setattr(
+        rag.rag_runtime, "citations_from_docs", lambda docs: [{"source": "terms.pdf"}]
+    )
     monkeypatch.setattr(rag.rag_runtime, "serialize_docs", lambda docs: [{"source": "terms.pdf"}])
     monkeypatch.setattr(rag, "emit_usage_observability", lambda **kwargs: (None, None))
 

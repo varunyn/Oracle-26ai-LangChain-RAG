@@ -2,6 +2,7 @@
 
 ## 2026-08-03
 
+- Deepened MCP and mixed-mode tool preparation into one typed tool-turn module, eliminating the duplicated multi-key runtime-context protocol while preserving tool execution, mode-specific Oracle retrieval, and chat outcome contracts.
 - Fixed frontend retry, recovery-mode, and resume actions to fork from the latest user turn's parent LangGraph checkpoint, so a rerun replaces the failed branch instead of appending a duplicate user message to the thread.
 
 ## 2026-07-31

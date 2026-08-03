@@ -21,6 +21,7 @@ class ChatGraphContext(TypedDict, total=False):
     enable_reranker: bool
     enable_tracing: bool
     mcp_server_keys: list[str]
+    tool_agent_turn: dict[str, object]
 
 
 class ChatGraphState(TypedDict, total=False):

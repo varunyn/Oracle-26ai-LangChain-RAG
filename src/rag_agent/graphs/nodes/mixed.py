@@ -22,20 +22,13 @@ from src.rag_agent.graphs.mcp_policies import (
 from src.rag_agent.graphs.nodes.references import (
     messages_from_result,
 )
-from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, get_thread_id
+from src.rag_agent.graphs.runtime import get_runtime_context
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState, MCPSubGraphState
-from src.rag_agent.infrastructure.mcp_agent_executor import _build_tool_summary
+from src.rag_agent.graphs.tool_agent_turn import get_tool_agent_turn, prepare_tool_agent_turn
 from src.rag_agent.infrastructure.oci_models import get_llm
-from src.rag_agent.prompts.mcp_agent_prompts import SYSTEM_PROMPT_MIXED as _SYSTEM_PROMPT_MIXED
-from src.rag_agent.prompts.mcp_agent_prompts import (
-    TOOL_SUMMARY_PLACEHOLDER as _TOOL_SUMMARY_PLACEHOLDER,
-)
 from src.rag_agent.runtime import rag_runtime
 from src.rag_agent.runtime.mcp_turn import tool_failure_summary
-from src.rag_agent.runtime.memory import (
-    chat_history_before_latest_user,
-    latest_user_message,
-)
+from src.rag_agent.runtime.memory import latest_user_message
 
 MCP_MAX_ROUNDS = 10
 
@@ -88,13 +81,17 @@ def message_to_langchain(m: object) -> BaseMessage | None:
     return HumanMessage(content=content)
 
 
-def _build_system_prompt_tools(question: str, tools: list[object]) -> str:
-    return _SYSTEM_PROMPT_MIXED.replace(_TOOL_SUMMARY_PLACEHOLDER, _build_tool_summary(tools))
-
-
 _OCI_SUPPORTED_CONTENT_TYPES = {
-    "text", "image_url", "document_url", "document",
-    "file", "video_url", "video", "audio_url", "audio", "media",
+    "text",
+    "image_url",
+    "document_url",
+    "document",
+    "file",
+    "video_url",
+    "video",
+    "audio_url",
+    "audio",
+    "media",
 }
 
 
@@ -141,9 +138,9 @@ async def call_llm_node(
     config: RunnableConfig,
     runtime: Runtime[ChatGraphContext],
 ) -> MCPSubGraphState:
-    context = get_runtime_context(runtime)
-    tools = cast(list | None, context.get("mcp_subgraph_tools"))
-    model_id = cast(str | None, context.get("mcp_subgraph_model_id")) or get_llm().model_id
+    turn = get_tool_agent_turn(runtime)
+    tools = turn["tools"]
+    model_id = turn["model_id"]
     model = get_llm(model_id=model_id)
     if tools:
         model = model.bind_tools(list(tools))
@@ -151,23 +148,22 @@ async def call_llm_node(
     if remaining <= 0:
         return {"messages": [AIMessage(content="Tool call limit reached.")]}
 
-    system_prompt = cast(str | None, context.get("mcp_subgraph_system_prompt"))
-    chat_history = cast(list[object] | None, context.get("mcp_subgraph_chat_history"))
-    question = cast(str | None, context.get("mcp_subgraph_question"))
     full_messages: list[object] = []
-    if system_prompt:
-        full_messages.append(SystemMessage(content=system_prompt))
-    for item in chat_history or []:
+    full_messages.append(SystemMessage(content=turn["system_prompt"]))
+    for item in turn["chat_history"]:
         converted = message_to_langchain(item)
         if converted is not None:
             full_messages.append(converted)
-    if question:
-        full_messages.append(HumanMessage(content=question))
+    full_messages.append(HumanMessage(content=turn["question"]))
     full_messages.extend(state.get("messages", []))
 
     sanitized = [_sanitize_for_oci(m) for m in full_messages]
     response = await model.ainvoke(sanitized, config=config)
-    if isinstance(response, AIMessage) and response.tool_calls and _content_text(response.content) == ".":
+    if (
+        isinstance(response, AIMessage)
+        and response.tool_calls
+        and _content_text(response.content) == "."
+    ):
         response = AIMessage(
             content="",
             additional_kwargs=dict(response.additional_kwargs),
@@ -184,8 +180,7 @@ async def run_tools_node(
     config: RunnableConfig,
     runtime: Runtime[ChatGraphContext],
 ) -> MCPSubGraphState:
-    context = get_runtime_context(runtime)
-    tools = cast(list | None, context.get("mcp_subgraph_tools"))
+    tools = get_tool_agent_turn(runtime)["tools"]
     if not tools:
         return {"messages": []}
     tool_node = ToolNode(list(tools))
@@ -244,44 +239,18 @@ async def run_mixed_mcp_setup(
     runtime: Runtime[ChatGraphContext],
 ) -> ChatGraphState:
     context = get_runtime_context(runtime)
-    thread_id = get_thread_id(runtime)
-    messages = state.get("messages", [])
-    question = latest_user_message(messages)
-    chat_history = chat_history_before_latest_user(messages)
     retrieval_tool = rag_runtime.build_oracle_retrieval_tool(
         collection_name=cast(str | None, context.get("collection_name")),
         filter_docs=rag_runtime.filter_retrieved_docs,
     )
-    resolved_model_id = cast(str | None, context.get("model_id")) or get_llm().model_id
-    run_cfg = build_run_config(
+    turn = await prepare_tool_agent_turn(
+        state=state,
         parent_config=config,
-        thread_id=thread_id,
+        runtime=runtime,
         mode="mixed",
-        model_id=resolved_model_id,
-        session_id=cast(str | None, context.get("session_id")),
-        enable_tracing=cast(bool | None, context.get("enable_tracing")),
-        mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
+        extra_tools=[retrieval_tool] if retrieval_tool else [],
     )
-    from src.rag_agent.infrastructure.mcp_adapter_runtime import load_adapter_tools
-    mcp_tools = await load_adapter_tools(
-        server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
-        run_config=run_cfg,
-    )
-    agent_tools = [retrieval_tool, *mcp_tools] if retrieval_tool else list(mcp_tools)
-    system_prompt_text = _build_system_prompt_tools(question, agent_tools)
-    input_messages: list[BaseMessage] = []
-    for item in chat_history or []:
-        converted = message_to_langchain(item)
-        if converted is not None:
-            input_messages.append(converted)
-    input_messages.append(HumanMessage(content=question))
-
-    runtime.context["mcp_subgraph_tools"] = agent_tools
-    runtime.context["mcp_subgraph_model_id"] = resolved_model_id
-    runtime.context["mcp_subgraph_question"] = question
-    runtime.context["mcp_subgraph_run_cfg"] = run_cfg
-    runtime.context["mcp_subgraph_system_prompt"] = system_prompt_text
-    runtime.context["mcp_subgraph_chat_history"] = chat_history
+    runtime.context["tool_agent_turn"] = turn
 
     return {
         "messages": [],
@@ -300,15 +269,15 @@ async def run_mixed_compose_node(
         return {"messages": messages_from_result("mixed", result, []), "references": {}}
 
     context = get_runtime_context(_runtime) if _runtime else {}
-    question = cast(str | None, context.get("mcp_subgraph_question")) or latest_user_message(messages) or ""
+    turn = get_tool_agent_turn(_runtime) if _runtime else None
+    question = turn["question"] if turn else latest_user_message(messages) or ""
     tool_invocations = extract_tool_invocations_from_messages(messages)
     tools_used = list({inv["tool_name"] for inv in tool_invocations})
     final_answer = _latest_agent_final_answer(messages) or ""
 
     retrieval_state = None
-    raw_tools = context.get("mcp_subgraph_tools")
-    if isinstance(raw_tools, list):
-        for tool in raw_tools:
+    if turn:
+        for tool in turn["tools"]:
             if hasattr(tool, "_retrieval_state"):
                 retrieval_state = getattr(tool, "_retrieval_state", None)
                 break
@@ -360,7 +329,7 @@ async def run_mixed_compose_node(
             question=question,
             docs=cast(list[Any], retrieval_docs),
             model_id=cast(str | None, context.get("model_id")),
-            run_config=cast(RunnableConfig | None, context.get("mcp_subgraph_run_cfg")),
+            run_config=turn["run_config"] if turn else None,
             supplemental_context=supplemental_context,
         )
 
@@ -371,9 +340,7 @@ async def run_mixed_compose_node(
         "standalone_question": question or None,
         "citations": rag_runtime.citations_from_docs(cast(list[Any], retrieval_docs)),
         "reranker_docs": rag_runtime.serialize_docs(cast(list[Any], retrieval_docs)),
-        "context_usage": {"retrieved_docs_count": len(retrieval_docs)}
-        if retrieval_docs
-        else None,
+        "context_usage": {"retrieved_docs_count": len(retrieval_docs)} if retrieval_docs else None,
         "mcp_used": bool(tools_used),
         "mcp_tools_used": tools_used,
         "mcp_tool_invocations": tool_invocations,
