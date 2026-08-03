@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-03
+
+- Fixed frontend retry, recovery-mode, and resume actions to fork from the latest user turn's parent LangGraph checkpoint, so a rerun replaces the failed branch instead of appending a duplicate user message to the thread.
+
 ## 2026-07-31
 
 - Aligned the application Langfuse integration with the self-hosted v4 stack: upgraded the Python SDK to 4.14.1, removed the legacy `LANGFUSE_ENVIRONMENT` alias, and now provide environment/release through the v4 environment-variable contract.

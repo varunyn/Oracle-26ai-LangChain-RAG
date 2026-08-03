@@ -1,3 +1,4 @@
+import { useMessageMetadata } from "@langchain/react";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import type { UseChatControllerArgs } from "@/hooks/chat/controller-types";
 import { debugChatStage, summarizeMessages } from "@/hooks/chat/debug";
@@ -120,6 +121,15 @@ export function useChatController({
     });
     return selectedMessages;
   }, [stateMessages, status, streamMessages]);
+  const lastUserMessageId = useMemo(
+    () =>
+      [...messages].reverse().find((message) => message.role === "user")?.id,
+    [messages]
+  );
+  const retryCheckpointId = useMessageMetadata(
+    stream,
+    lastUserMessageId
+  )?.parentCheckpointId;
 
   useEffect(() => {
     if (stream.error == null) {
@@ -255,6 +265,7 @@ export function useChatController({
     setSubmitError,
     stream,
     threadId,
+    retryCheckpointId,
     toast,
   });
   const {

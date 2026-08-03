@@ -19,6 +19,7 @@ export type MessageLike = {
 export type ChatStatus = "submitted" | "streaming" | "ready" | "error";
 
 export type SendOverrides = {
+  forkFromCheckpointId?: string;
   mode?: FlowMode;
 };
 

@@ -22,6 +22,16 @@ import type { ContextUsage } from "@/lib/types/chat";
 type StreamType = ReturnType<typeof useStream>;
 type SubmitOptions = Parameters<StreamType["submit"]>[1];
 
+export function buildSubmitOptions(
+  config: NonNullable<SubmitOptions>["config"],
+  forkFromCheckpointId?: string
+): SubmitOptions {
+  return {
+    config,
+    ...(forkFromCheckpointId ? { forkFrom: forkFromCheckpointId } : {}),
+  };
+}
+
 export function useChatActions(args: {
   bodyParams: ChatBodyParams;
   clearSessionChat: ClearSessionChat;
@@ -36,6 +46,7 @@ export function useChatActions(args: {
   setSubmitError: Dispatch<SetStateAction<Error | null>>;
   stream: StreamType;
   threadId: string | null;
+  retryCheckpointId?: string;
   toast: ToastApi;
 }): {
   sendUserMessage: (text: string, overrides?: SendOverrides) => void;
@@ -63,6 +74,7 @@ export function useChatActions(args: {
     setSubmitError,
     stream,
     threadId,
+    retryCheckpointId,
     toast,
   } = args;
 
@@ -87,9 +99,10 @@ export function useChatActions(args: {
           ? payload.input.messages.length
           : 0,
       });
-      const submitOptions: SubmitOptions = {
-        config: payload.config,
-      };
+      const submitOptions = buildSubmitOptions(
+        payload.config,
+        overrides?.forkFromCheckpointId
+      );
       setSubmitError(null);
       void Promise.resolve(stream.submit(payload.input, submitOptions)).catch(
         (error: unknown) => {
@@ -122,41 +135,43 @@ export function useChatActions(args: {
     ]
   );
 
+  const rerunLatestUserTurn = useCallback(
+    (overrides?: SendOverrides) => {
+      const text = getLastUserMessageText(messages);
+      if (!text) {
+        return;
+      }
+      if (!retryCheckpointId) {
+        toast.error(
+          "The conversation state is still syncing. Please try again in a moment.",
+          "Retry unavailable"
+        );
+        return;
+      }
+      setFeedbackSubmitted(false);
+      sendUserMessage(text, {
+        ...overrides,
+        forkFromCheckpointId: retryCheckpointId,
+      });
+    },
+    [messages, retryCheckpointId, sendUserMessage, setFeedbackSubmitted, toast]
+  );
+
   const handleRetry = useCallback(() => {
-    const text = getLastUserMessageText(messages);
-    if (!text) {
-      return;
-    }
-    setFeedbackSubmitted(false);
-    sendUserMessage(text);
-  }, [messages, sendUserMessage, setFeedbackSubmitted]);
+    rerunLatestUserTurn();
+  }, [rerunLatestUserTurn]);
 
   const handleRecoverDirect = useCallback(() => {
-    const text = getLastUserMessageText(messages);
-    if (!text) {
-      return;
-    }
-    setFeedbackSubmitted(false);
-    sendUserMessage(text, { mode: "direct" });
-  }, [messages, sendUserMessage, setFeedbackSubmitted]);
+    rerunLatestUserTurn({ mode: "direct" });
+  }, [rerunLatestUserTurn]);
 
   const handleRecoverRagOnly = useCallback(() => {
-    const text = getLastUserMessageText(messages);
-    if (!text) {
-      return;
-    }
-    setFeedbackSubmitted(false);
-    sendUserMessage(text, { mode: "rag" });
-  }, [messages, sendUserMessage, setFeedbackSubmitted]);
+    rerunLatestUserTurn({ mode: "rag" });
+  }, [rerunLatestUserTurn]);
 
   const handleResumeTurn = useCallback(() => {
-    const text = getLastUserMessageText(messages);
-    if (!text) {
-      return;
-    }
-    setFeedbackSubmitted(false);
-    sendUserMessage(text);
-  }, [messages, sendUserMessage, setFeedbackSubmitted]);
+    rerunLatestUserTurn();
+  }, [rerunLatestUserTurn]);
 
   const handleStopStream = useCallback(() => {
     void stream.stop?.();
