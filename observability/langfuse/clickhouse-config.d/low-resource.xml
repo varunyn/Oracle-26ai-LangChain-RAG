@@ -1,4 +1,15 @@
 <clickhouse>
+  <!-- Work around a ClickHouse 26.6 analyzer bug in Langfuse's scores.all
+       aggregate predicate; Langfuse migrations do not require the analyzer. -->
+  <profiles>
+    <default>
+      <enable_analyzer>0</enable_analyzer>
+    </default>
+    <clickhouse>
+      <enable_analyzer>0</enable_analyzer>
+    </clickhouse>
+  </profiles>
+
   <!-- Local laptop defaults: Langfuse does not need ClickHouse's verbose internal logs. -->
   <logger>
     <level>warning</level>

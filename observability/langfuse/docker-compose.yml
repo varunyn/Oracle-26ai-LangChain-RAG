@@ -1,4 +1,4 @@
-# Langfuse self-hosted stack (v3).
+# Langfuse self-hosted stack (v4 migration in dual-write mode).
 # Usage: from repo root run `docker compose -f observability/langfuse/docker-compose.yml up -d`
 # Copy .env.example → .env first and change all CHANGEME secrets.
 
@@ -16,7 +16,7 @@ x-local-log-rotation: &local-log-rotation
 
 services:
   langfuse-worker:
-    image: docker.io/langfuse/langfuse-worker:3
+    image: docker.io/langfuse/langfuse-worker:4.1.0
     restart: always
     logging: *local-log-rotation
     depends_on: &langfuse-depends-on
@@ -39,6 +39,13 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
       TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
       LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: ${LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES:-false}
+      # v3 -> v4 migration: retain legacy reads/evaluator behavior while
+      # dual-writing and backfilling the new events tables.
+      LANGFUSE_MIGRATION_V4_WRITE_MODE: ${LANGFUSE_MIGRATION_V4_WRITE_MODE:-dual}
+      LANGFUSE_MIGRATION_V4_ALLOW_PREVIEW_OPT_IN: ${LANGFUSE_MIGRATION_V4_ALLOW_PREVIEW_OPT_IN:-true}
+      # Historic backfill is paused: the local ClickHouse async query cannot
+      # start the root-span backfill. Dual-write preserves all new data.
+      LANGFUSE_BACKGROUND_MIGRATION_V4_ENABLE_HISTORIC_BACKFILL: ${LANGFUSE_BACKGROUND_MIGRATION_V4_ENABLE_HISTORIC_BACKFILL:-false}
       CLICKHOUSE_MIGRATION_URL: ${CLICKHOUSE_MIGRATION_URL:-clickhouse://clickhouse:9000}
       CLICKHOUSE_URL: ${CLICKHOUSE_URL:-http://clickhouse:8123}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
@@ -81,7 +88,7 @@ services:
       SMTP_CONNECTION_URL: ${SMTP_CONNECTION_URL:-}
 
   langfuse-web:
-    image: docker.io/langfuse/langfuse:3
+    image: docker.io/langfuse/langfuse:4.1.0
     restart: always
     logging: *local-log-rotation
     depends_on: *langfuse-depends-on
@@ -110,7 +117,9 @@ services:
       LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
 
   clickhouse:
-    image: docker.io/clickhouse/clickhouse-server
+    # Pin the server version so a future `latest` pull cannot silently change
+    # the ClickHouse query/schema behavior under the Langfuse v3 stack.
+    image: docker.io/clickhouse/clickhouse-server:26.6.1
     restart: always
     user: "101:101"
     cpus: ${CLICKHOUSE_CPUS:-1.0}
@@ -126,6 +135,7 @@ services:
       - langfuse_clickhouse_data:/var/lib/clickhouse
       - langfuse_clickhouse_logs:/var/log/clickhouse-server
       - ./clickhouse-config.d/low-resource.xml:/etc/clickhouse-server/config.d/low-resource.xml:ro
+      - ./clickhouse-config.d/analyzer-off-users.xml:/etc/clickhouse-server/users.d/analyzer-off-users.xml:ro
     ports:
       - 127.0.0.1:8123:8123
       - 127.0.0.1:9000:9000
