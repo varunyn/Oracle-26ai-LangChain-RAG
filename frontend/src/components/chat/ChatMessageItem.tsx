@@ -98,6 +98,7 @@ function ChatMessageItemInner({
   feedbackSubmitted,
   enableUserFeedback,
 }: ChatMessageItemProps): React.ReactElement {
+  "use memo";
   const { toast } = useToast();
   const showToolCards = toolCalls.length > 0;
   const hasRefs =

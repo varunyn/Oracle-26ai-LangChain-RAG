@@ -74,6 +74,44 @@ describe("projectStreamMessages", () => {
     ]);
   });
 
+  it("keeps one optimistic user message when an id-less graph copy follows it", () => {
+    const projected = projectStreamMessages({
+      streamMessages: [
+        new HumanMessage({
+          id: "optimistic-user",
+          content: "Tell me about Oracle 26ai Database.",
+        }),
+        new HumanMessage({
+          content: "Tell me about Oracle 26ai Database.",
+        }),
+      ],
+    });
+
+    expect(projected).toEqual([
+      {
+        id: "optimistic-user",
+        role: "user",
+        content: "Tell me about Oracle 26ai Database.",
+        references: null,
+      },
+    ]);
+  });
+
+  it("drops an id-less user echo that follows the assistant response", () => {
+    const projected = projectStreamMessages({
+      streamMessages: [
+        new HumanMessage({ content: "Tell me about Oracle 26ai Database." }),
+        new AIMessage({ content: "Oracle 26ai deployment details." }),
+        new HumanMessage({ content: "Tell me about Oracle 26ai Database." }),
+      ],
+    });
+
+    expect(projected.map((message) => message.content)).toEqual([
+      "Tell me about Oracle 26ai Database.",
+      "Oracle 26ai deployment details.",
+    ]);
+  });
+
   it("keeps the latest copy when the stream replays the same id with updated content", () => {
     const question = new HumanMessage({
       id: "user-1",
@@ -168,7 +206,7 @@ describe("projectStreamMessages", () => {
     ]);
   });
 
-  it("uses canonical graph state only after the live RAG stream is ready", () => {
+  it("uses native stream.values only after the live RAG stream is ready", () => {
     const user = new HumanMessage({
       id: "user-1",
       content: "What are the payment terms?",
@@ -183,6 +221,8 @@ describe("projectStreamMessages", () => {
       additional_kwargs: {
         mode: "rag",
         citations: [{ source: "terms.pdf", page: null }],
+        mcp_used: true,
+        mcp_tools_used: ["oracle_retrieval"],
       },
     });
 
@@ -205,6 +245,10 @@ describe("projectStreamMessages", () => {
     ]);
     expect(projected[1]?.references?.citations).toEqual([
       { source: "terms.pdf", page: null },
+    ]);
+    expect(projected[1]?.references?.mcp_used).toBe(true);
+    expect(projected[1]?.references?.mcp_tools_used).toEqual([
+      "oracle_retrieval",
     ]);
   });
 

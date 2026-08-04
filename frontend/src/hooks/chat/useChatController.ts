@@ -58,14 +58,12 @@ export function useChatController({
     flowMode,
   });
 
-  const { authoritativeThreadMessages, stream, transportError } =
-    useLangGraphStream();
+  const { stream, transportError } = useLangGraphStream();
   const effectiveThreadId = threadId ?? stream.threadId ?? null;
 
   const streamMessages = stream.messages;
-  const stateMessages =
-    authoritativeThreadMessages ??
-    (stream.values as { messages?: unknown } | undefined)?.messages;
+  const stateMessages = (stream.values as { messages?: unknown } | undefined)
+    ?.messages;
   const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
   const toolCallsFromMessages = useMemo(
     () => deriveToolCallsFromMessages(streamMessages as BaseMessageWithKwargs[]),

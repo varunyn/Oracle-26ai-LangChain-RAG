@@ -8,6 +8,9 @@ const backendUrl = process.env.FASTAPI_BACKEND_URL || langgraphUrl;
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  reactCompiler: {
+    compilationMode: "annotation",
+  },
   async rewrites() {
     return [
       {

@@ -4,6 +4,8 @@
 
 - Deepened MCP and mixed-mode tool preparation into one typed tool-turn module, eliminating the duplicated multi-key runtime-context protocol while preserving tool execution, mode-specific Oracle retrieval, and chat outcome contracts.
 - Fixed frontend retry, recovery-mode, and resume actions to fork from the latest user turn's parent LangGraph checkpoint, so a rerun replaces the failed branch instead of appending a duplicate user message to the thread.
+- Fixed the Stop control to wait for LangGraph cancellation before confirming success and to surface cancellation failures.
+- Removed the redundant post-completion thread-state request; finalized chat rendering now uses the native LangGraph `stream.values.messages` projection while `stream.messages` continues to supply live token and tool activity.
 
 ## 2026-07-31
 

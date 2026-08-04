@@ -32,6 +32,19 @@ export function buildSubmitOptions(
   };
 }
 
+export async function stopStreamWithToast(
+  stop: () => Promise<void>,
+  toast: ToastApi
+): Promise<void> {
+  try {
+    await stop();
+    toast.success("Generation stopped");
+  } catch (error) {
+    console.error("Generation stop failed:", error);
+    toast.error("The generation could not be stopped. Please try again.");
+  }
+}
+
 export function useChatActions(args: {
   bodyParams: ChatBodyParams;
   clearSessionChat: ClearSessionChat;
@@ -173,10 +186,10 @@ export function useChatActions(args: {
     rerunLatestUserTurn();
   }, [rerunLatestUserTurn]);
 
-  const handleStopStream = useCallback(() => {
-    void stream.stop?.();
-    toast.success("Generation stopped");
-  }, [stream, toast]);
+  const handleStopStream = useCallback(
+    () => stopStreamWithToast(() => stream.stop(), toast),
+    [stream, toast]
+  );
 
   const handleFeedback = useCallback(
     async (stars: number, messageIndex: number) => {
