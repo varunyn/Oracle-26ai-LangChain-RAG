@@ -20,6 +20,7 @@ from src.rag_agent.runtime.memory import (
     chat_history_before_latest_user,
     latest_user_message,
 )
+from src.rag_agent.runtime.oracle_retrieval_evidence import OracleRetrievalEvidenceStore
 
 
 class ToolAgentTurn(TypedDict):
@@ -29,6 +30,7 @@ class ToolAgentTurn(TypedDict):
     run_config: RunnableConfig
     system_prompt: str
     tools: list[object]
+    oracle_retrieval_evidence: OracleRetrievalEvidenceStore | None
 
 
 def get_tool_agent_turn(runtime: Runtime[ChatGraphContext]) -> ToolAgentTurn:
@@ -52,6 +54,7 @@ async def prepare_tool_agent_turn(
     runtime: Runtime[ChatGraphContext],
     mode: Literal["mcp", "mixed"],
     extra_tools: Sequence[object] = (),
+    oracle_retrieval_evidence: OracleRetrievalEvidenceStore | None = None,
 ) -> ToolAgentTurn:
     context = get_runtime_context(runtime)
     messages = state.get("messages", [])
@@ -79,6 +82,7 @@ async def prepare_tool_agent_turn(
         "run_config": run_config,
         "system_prompt": build_tool_agent_system_prompt(tools),
         "tools": tools,
+        "oracle_retrieval_evidence": oracle_retrieval_evidence,
     }
 
 

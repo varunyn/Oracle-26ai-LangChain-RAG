@@ -3,9 +3,15 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from src.rag_agent.graphs.mcp_policies import (
+    NO_ORACLE_CONTEXT_ANSWER,
+    ORACLE_RETRIEVAL_FAILED_ANSWER,
+)
 from src.rag_agent.graphs.nodes import mixed, rag
+from src.rag_agent.runtime.oracle_retrieval_evidence import OracleRetrievalEvidenceStore
 
 
 async def run_compose_with_messages(
@@ -19,21 +25,24 @@ async def run_compose_with_messages(
     )
 
 
-class FakeRetrievalTool:
-    name = "oracle_retrieval"
-    _retrieval_state: dict[str, list[object]] = {}
-
-
 async def fake_synthesize_rag_answer(**kwargs: object) -> tuple[str, None, str]:
     return "Synthesized answer", None, "fake-model"
 
 
 def _make_runtime(
-    *, retrieval_docs: list[object] | None = None, question: str = "test question"
+    *,
+    retrieval_docs: list[Document] | None = None,
+    retrieval_error: str | None = None,
+    question: str = "test question",
 ) -> SimpleNamespace:
-    tool = FakeRetrievalTool()
-    if retrieval_docs is not None:
-        tool._retrieval_state = {"docs": retrieval_docs}
+    evidence = OracleRetrievalEvidenceStore()
+    if retrieval_docs is not None or retrieval_error is not None:
+        evidence.record(
+            invocation_id="tc1",
+            query=question,
+            documents=retrieval_docs or [],
+            error=retrieval_error,
+        )
     return SimpleNamespace(
         context={
             "tool_agent_turn": {
@@ -42,7 +51,8 @@ def _make_runtime(
                 "question": question,
                 "run_config": {},
                 "system_prompt": "Use tools.",
-                "tools": [tool],
+                "tools": [],
+                "oracle_retrieval_evidence": evidence,
             },
             "enable_reranker": False,
             "model_id": "model-1",
@@ -93,7 +103,7 @@ def test_mixed_compose_synthesizes_when_subgraph_has_no_final_answer(monkeypatch
     )
     monkeypatch.setattr(mixed.rag_runtime, "serialize_docs", lambda docs: [{"source": "doc.md"}])
 
-    retrieval_doc = SimpleNamespace(page_content="Context data", metadata={"source": "doc.md"})
+    retrieval_doc = Document(page_content="Context data", metadata={"source": "doc.md"})
     runtime = _make_runtime(
         retrieval_docs=[retrieval_doc],
         question="Use docs",
@@ -114,6 +124,47 @@ def test_mixed_compose_synthesizes_when_subgraph_has_no_final_answer(monkeypatch
     assert isinstance(assistant, AIMessage)
     assert assistant.content == "Synthesized answer"
     assert assistant.additional_kwargs["citations"] == [{"source": "doc.md"}]
+
+
+def test_mixed_compose_returns_no_context_for_empty_oracle_evidence(monkeypatch) -> None:
+    monkeypatch.setattr(mixed.rag_runtime, "citations_from_docs", lambda docs: [])
+    monkeypatch.setattr(mixed.rag_runtime, "serialize_docs", lambda docs: [])
+
+    runtime = _make_runtime(retrieval_docs=[])
+    messages = [
+        AIMessage(
+            content=".",
+            tool_calls=[{"id": "tc1", "name": "oracle_retrieval", "args": {}}],
+        ),
+        ToolMessage(content="", tool_call_id="tc1", name="oracle_retrieval"),
+        AIMessage(content="Made-up answer."),
+    ]
+
+    result = asyncio.run(run_compose_with_messages(messages, runtime))
+
+    assistant = result["messages"][-1]
+    assert isinstance(assistant, AIMessage)
+    assert assistant.content == NO_ORACLE_CONTEXT_ANSWER
+
+
+def test_mixed_compose_returns_retrieval_failure_for_error_evidence(monkeypatch) -> None:
+    monkeypatch.setattr(mixed.rag_runtime, "citations_from_docs", lambda docs: [])
+    monkeypatch.setattr(mixed.rag_runtime, "serialize_docs", lambda docs: [])
+
+    runtime = _make_runtime(retrieval_error="Oracle connection timed out")
+    messages = [
+        AIMessage(
+            content=".",
+            tool_calls=[{"id": "tc1", "name": "oracle_retrieval", "args": {}}],
+        ),
+        ToolMessage(content="failed", tool_call_id="tc1", name="oracle_retrieval"),
+    ]
+
+    result = asyncio.run(run_compose_with_messages(messages, runtime))
+
+    assistant = result["messages"][-1]
+    assert isinstance(assistant, AIMessage)
+    assert assistant.content == ORACLE_RETRIEVAL_FAILED_ANSWER
 
 
 def test_mixed_compose_route_logic() -> None:

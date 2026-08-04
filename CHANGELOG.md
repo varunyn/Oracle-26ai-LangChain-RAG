@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-04
+
+- Replaced mixed-mode Oracle retrieval's private tool-state handoff with invocation-linked, turn-scoped retrieval evidence, preserving existing reranking, citations, synthesis fallback, no-context, and retrieval-failure outcomes.
+
 ## 2026-08-03
 
 - Deepened MCP and mixed-mode tool preparation into one typed tool-turn module, eliminating the duplicated multi-key runtime-context protocol while preserving tool execution, mode-specific Oracle retrieval, and chat outcome contracts.

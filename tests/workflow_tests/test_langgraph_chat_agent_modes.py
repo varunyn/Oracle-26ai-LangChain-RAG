@@ -315,9 +315,6 @@ def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> Non
     class FakeRetrievalTool:
         name = "oracle_retrieval"
         description = "Oracle retrieval tool"
-        _retrieval_state = {
-            "docs": [SimpleNamespace(page_content="Summit terms", metadata={"source": "summit"})]
-        }
 
     async def fake_load_adapter_tools(**kwargs: object) -> list[object]:
         captured["load_tools_kwargs"] = kwargs
@@ -367,6 +364,7 @@ def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> Non
     assert subgraph_run_cfg["callbacks"][0] == "outer-callback"
     assert subgraph_run_cfg["metadata"]["source"] == "workflow-test"
     assert captured["retrieval_tool_kwargs"]["collection_name"] == "ORACLE_WEB_EMBEDDINGS"
+    assert captured["retrieval_tool_kwargs"]["evidence"] is turn["oracle_retrieval_evidence"]
     assert captured["load_tools_kwargs"]["server_keys"] == ["calculator"]
 
 

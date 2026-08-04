@@ -29,6 +29,7 @@ from src.rag_agent.infrastructure.oci_models import get_llm
 from src.rag_agent.runtime import rag_runtime
 from src.rag_agent.runtime.mcp_turn import tool_failure_summary
 from src.rag_agent.runtime.memory import latest_user_message
+from src.rag_agent.runtime.oracle_retrieval_evidence import OracleRetrievalEvidenceStore
 
 MCP_MAX_ROUNDS = 10
 
@@ -207,14 +208,21 @@ def extract_tool_invocations_from_messages(messages: list[object]) -> list[dict[
                 tc_id = str(tc.get("id", "") or "")
                 name = str(tc.get("name", "") or "")
                 if name:
-                    pending[tc_id] = {"tool_name": name, "args": tc.get("args", {})}
+                    pending[tc_id] = {
+                        "invocation_id": tc_id,
+                        "tool_name": name,
+                        "args": tc.get("args", {}),
+                    }
             continue
         if isinstance(msg, ToolMessage):
             tc_id = str(getattr(msg, "tool_call_id", "") or "")
             content = str(getattr(msg, "content", "") or "")
             name = str(getattr(msg, "name", "") or "")
             error_text = content if getattr(msg, "status", "") == "error" else None
-            rec = pending.pop(tc_id, {"tool_name": name, "args": None})
+            rec = pending.pop(
+                tc_id,
+                {"invocation_id": tc_id, "tool_name": name, "args": None},
+            )
             rec["result"] = content
             if error_text:
                 rec["error"] = error_text
@@ -239,9 +247,11 @@ async def run_mixed_mcp_setup(
     runtime: Runtime[ChatGraphContext],
 ) -> ChatGraphState:
     context = get_runtime_context(runtime)
+    retrieval_evidence = OracleRetrievalEvidenceStore()
     retrieval_tool = rag_runtime.build_oracle_retrieval_tool(
         collection_name=cast(str | None, context.get("collection_name")),
         filter_docs=rag_runtime.filter_retrieved_docs,
+        evidence=retrieval_evidence,
     )
     turn = await prepare_tool_agent_turn(
         state=state,
@@ -249,6 +259,7 @@ async def run_mixed_mcp_setup(
         runtime=runtime,
         mode="mixed",
         extra_tools=[retrieval_tool] if retrieval_tool else [],
+        oracle_retrieval_evidence=retrieval_evidence,
     )
     runtime.context["tool_agent_turn"] = turn
 
@@ -275,17 +286,9 @@ async def run_mixed_compose_node(
     tools_used = list({inv["tool_name"] for inv in tool_invocations})
     final_answer = _latest_agent_final_answer(messages) or ""
 
-    retrieval_state = None
-    if turn:
-        for tool in turn["tools"]:
-            if hasattr(tool, "_retrieval_state"):
-                retrieval_state = getattr(tool, "_retrieval_state", None)
-                break
-    retrieval_docs = (
-        cast(list[object], retrieval_state.get("docs", []))
-        if isinstance(retrieval_state, dict)
-        else []
-    )
+    evidence_store = turn["oracle_retrieval_evidence"] if turn else None
+    retrieval_evidence = evidence_store.read() if evidence_store else None
+    retrieval_docs = list(retrieval_evidence.documents) if retrieval_evidence else []
 
     workflow_policy = workflow_policy_for_request(mode="mixed", question=question)
     policy_applied, missing_capabilities, policy_failure_message = enforce_workflow_policy(
@@ -307,7 +310,7 @@ async def run_mixed_compose_node(
             enable_reranker=cast(bool | None, context.get("enable_reranker")),
         )
     retrieval_error = oracle_retrieval_error(
-        retrieval_state=retrieval_state,
+        retrieval_evidence=retrieval_evidence,
         tools_used=tools_used,
         tool_invocations=cast(list[dict[str, object]], tool_invocations),
     )
@@ -315,8 +318,7 @@ async def run_mixed_compose_node(
         final_answer = ORACLE_RETRIEVAL_FAILED_ANSWER
         policy_error = ORACLE_RETRIEVAL_FAILED_ANSWER
     if not policy_error and oracle_retrieval_used_without_context(
-        retrieval_state=retrieval_state,
-        retrieval_docs=cast(list[Any], retrieval_docs),
+        retrieval_evidence=retrieval_evidence,
         tools_used=tools_used,
         tool_invocations=cast(list[dict[str, object]], tool_invocations),
     ):

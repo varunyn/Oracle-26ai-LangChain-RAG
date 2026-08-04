@@ -5,6 +5,7 @@ from types import TracebackType
 from langchain_core.documents import Document
 
 from src.rag_agent.runtime import rag_runtime
+from src.rag_agent.runtime.oracle_retrieval_evidence import OracleRetrievalEvidenceStore
 
 
 class FakeSettings:
@@ -35,19 +36,31 @@ def test_oracle_retrieval_tool_returns_error_content_when_vector_search_fails(
     monkeypatch.setattr(rag_runtime, "get_embedding_model", lambda: object())
     monkeypatch.setattr(rag_runtime, "search_documents", failing_search_documents)
 
+    evidence = OracleRetrievalEvidenceStore()
     tool = rag_runtime.build_oracle_retrieval_tool(
         collection_name="ORACLE_WEB_EMBEDDINGS",
         filter_docs=lambda query, docs: docs,
+        evidence=evidence,
     )
 
-    content = tool.invoke({"query": "Northway Solutions payment terms"})
+    content = tool.invoke(
+        {
+            "type": "tool_call",
+            "id": "oracle-call-1",
+            "name": "oracle_retrieval",
+            "args": {"query": "Northway Solutions payment terms"},
+        }
+    )
 
-    assert "Oracle retrieval failed" in content
-    assert "ORA-22275" in content
-    assert getattr(tool, "_retrieval_state") == {
-        "docs": [],
-        "error": "Failed due to a DB error: ORA-22275: invalid LOB locator specified",
-    }
+    assert "Oracle retrieval failed" in content.content
+    assert "ORA-22275" in content.content
+    selected = evidence.read()
+    assert selected is not None
+    assert selected.invocation_id == "oracle-call-1"
+    assert selected.collection_name == "ORACLE_WEB_EMBEDDINGS"
+    assert selected.query == "Northway Solutions payment terms"
+    assert selected.documents == []
+    assert selected.error == "Failed due to a DB error: ORA-22275: invalid LOB locator specified"
 
 
 def test_oracle_retrieval_tool_uses_configured_top_k(monkeypatch) -> None:
@@ -65,10 +78,17 @@ def test_oracle_retrieval_tool_uses_configured_top_k(monkeypatch) -> None:
     tool = rag_runtime.build_oracle_retrieval_tool(
         collection_name="ORACLE_WEB_EMBEDDINGS",
         filter_docs=lambda query, docs: docs,
+        evidence=OracleRetrievalEvidenceStore(),
     )
 
-    content = tool.invoke({"query": "Northway Solutions payment terms"})
+    content = tool.invoke(
+        {
+            "type": "tool_call",
+            "id": "oracle-call-2",
+            "name": "oracle_retrieval",
+            "args": {"query": "Northway Solutions payment terms"},
+        }
+    )
 
-    assert "Payment terms are Net 30" in content
+    assert "Payment terms are Net 30" in content.content
     assert captured["top_k"] == 3
-
