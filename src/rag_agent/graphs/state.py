@@ -20,6 +20,7 @@ class ChatGraphContext(TypedDict, total=False):
     mode: Mode
     enable_reranker: bool
     enable_tracing: bool
+    max_rounds: int
     mcp_server_keys: list[str]
     tool_agent_turn: dict[str, object]
 

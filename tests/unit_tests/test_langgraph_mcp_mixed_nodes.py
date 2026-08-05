@@ -185,6 +185,69 @@ def test_mixed_compose_route_logic() -> None:
     )
 
 
+def test_call_llm_node_uses_configured_mcp_round_limit(monkeypatch) -> None:
+    class FakeModel:
+        async def ainvoke(self, messages: object, *, config: object) -> AIMessage:
+            _ = messages, config
+            return AIMessage(content="Final answer")
+
+    monkeypatch.setattr(mixed, "get_llm", lambda **kwargs: FakeModel())
+    monkeypatch.setattr(
+        mixed,
+        "get_tool_agent_turn",
+        lambda runtime: {
+            "tools": [],
+            "model_id": "model-1",
+            "system_prompt": "Use tools when needed.",
+            "chat_history": [],
+            "question": "test question",
+        },
+    )
+    runtime = SimpleNamespace(context={"max_rounds": 3})
+
+    result = asyncio.run(
+        mixed.call_llm_node(
+            {},
+            {},
+            runtime,  # type: ignore[arg-type]
+        )
+    )
+
+    assert result["remaining_steps"] == 2
+
+
+def test_call_llm_node_uses_mcp_round_setting_by_default(monkeypatch) -> None:
+    class FakeModel:
+        async def ainvoke(self, messages: object, *, config: object) -> AIMessage:
+            _ = messages, config
+            return AIMessage(content="Final answer")
+
+    monkeypatch.setattr(mixed, "get_llm", lambda **kwargs: FakeModel())
+    monkeypatch.setattr(mixed, "get_settings", lambda: SimpleNamespace(MCP_MAX_ROUNDS=3))
+    monkeypatch.setattr(
+        mixed,
+        "get_tool_agent_turn",
+        lambda runtime: {
+            "tools": [],
+            "model_id": "model-1",
+            "system_prompt": "Use tools when needed.",
+            "chat_history": [],
+            "question": "test question",
+        },
+    )
+    runtime = SimpleNamespace(context={})
+
+    result = asyncio.run(
+        mixed.call_llm_node(
+            {},
+            {},
+            runtime,  # type: ignore[arg-type]
+        )
+    )
+
+    assert result["remaining_steps"] == 2
+
+
 def test_extract_tool_invocations(monkeypatch) -> None:
     messages = [
         AIMessage(

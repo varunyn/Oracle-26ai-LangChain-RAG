@@ -9,6 +9,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.runtime import Runtime
 
+from api.settings import get_settings
 from src.rag_agent.graphs.mcp_policies import (
     NO_ORACLE_CONTEXT_ANSWER,
     ORACLE_RETRIEVAL_FAILED_ANSWER,
@@ -30,8 +31,6 @@ from src.rag_agent.runtime import rag_runtime
 from src.rag_agent.runtime.mcp_turn import tool_failure_summary
 from src.rag_agent.runtime.memory import latest_user_message
 from src.rag_agent.runtime.oracle_retrieval_evidence import OracleRetrievalEvidenceStore
-
-MCP_MAX_ROUNDS = 10
 
 
 def _content_text(content: object) -> str:
@@ -134,6 +133,13 @@ def _sanitize_for_oci(message: object) -> object:
     )
 
 
+def _max_tool_rounds(runtime: Runtime[ChatGraphContext]) -> int:
+    configured = get_runtime_context(runtime).get("max_rounds")
+    if isinstance(configured, int) and not isinstance(configured, bool) and configured > 0:
+        return configured
+    return max(1, get_settings().MCP_MAX_ROUNDS)
+
+
 async def call_llm_node(
     state: MCPSubGraphState,
     config: RunnableConfig,
@@ -145,7 +151,7 @@ async def call_llm_node(
     model = get_llm(model_id=model_id)
     if tools:
         model = model.bind_tools(list(tools))
-    remaining = state.get("remaining_steps", MCP_MAX_ROUNDS)
+    remaining = state.get("remaining_steps", _max_tool_rounds(runtime))
     if remaining <= 0:
         return {"messages": [AIMessage(content="Tool call limit reached.")]}
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-05
+
+- Fixed LangGraph MCP and mixed-mode tool loops to honor the configured `MCP_MAX_ROUNDS` limit instead of using a hard-coded ten-round cap.
+
 ## 2026-08-04
 
 - Replaced mixed-mode Oracle retrieval's private tool-state handoff with invocation-linked, turn-scoped retrieval evidence, preserving existing reranking, citations, synthesis fallback, no-context, and retrieval-failure outcomes.
