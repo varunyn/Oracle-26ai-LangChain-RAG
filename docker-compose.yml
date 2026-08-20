@@ -87,6 +87,31 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Ingestion service (separate image with heavy deps: docling, torch, OCR).
+  # Build: docker compose build ingestion
+  # Run:   docker compose run --rm ingestion --collection RAG_KNOWLEDGE_BASE /path/to/files
+  ingestion:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: ingestion-runner
+    image: custom-rag-agent-ingestion:latest
+    container_name: rag-ingestion
+    profiles:
+      - ingestion
+    networks:
+      - rag-network
+    env_file:
+      - .env
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./local-config:/app/local-config:ro
+      - ./local-config/wallet:/app/wallet:ro
+      - ./uploaded_files:/app/uploaded_files
+    secrets:
+      - oci_api_key
+    restart: no
+
   # Observability stack (optional). Start with: docker compose --profile observability up
   # Disable by omitting the profile. Set ENABLE_OBSERVABILITY_STACK=False in config to avoid auto-starting it from helper scripts.
   loki:

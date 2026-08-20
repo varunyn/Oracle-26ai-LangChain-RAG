@@ -82,24 +82,19 @@ The graph id is `chat_agent`, and `langgraph.json` keeps FastAPI mounted through
 
 ## Data Flow
 
-```
-User Query
-    ↓
-[Normalize Messages] → stable ChatMessage payload
-    ↓
-[Mode Dispatch] → rag | mcp | mixed | direct
-    ↓
-[RAG Path] Oracle retrieval + answer prompt
-        OR
-[MCP Path] configured MCP tools
-        OR
-[Mixed Path] Oracle retrieval tool + MCP tools in one agent loop
-        OR
-[Direct Path] LLM on chat history only
-    ↓
-[References + State] → citations, context usage, MCP metadata, thread memory
-    ↓
-Next.js UI → streamed answer + citations
+```mermaid
+flowchart TD
+    A[User Query] --> B[Normalize Messages]
+    B --> C{Mode Dispatch}
+    C -->|rag| D[RAG Path<br/>Oracle retrieval + answer prompt]
+    C -->|mcp| E[MCP Path<br/>configured MCP tools]
+    C -->|mixed| F[Mixed Path<br/>Oracle retrieval + MCP tools]
+    C -->|direct| G[Direct Path<br/>LLM on chat history only]
+    D --> H[References & State<br/>citations, context usage,<br/>MCP metadata, thread memory]
+    E --> H
+    F --> H
+    G --> H
+    H --> I[Next.js UI<br/>streamed answer + citations]
 ```
 
 ## Technology Stack

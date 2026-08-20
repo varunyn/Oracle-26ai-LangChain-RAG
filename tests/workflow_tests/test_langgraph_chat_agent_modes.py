@@ -268,6 +268,11 @@ def test_mcp_setup_records_recipe_without_runtime_turn_handoff(
         return []
 
     monkeypatch.setattr(tool_agent_turn, "load_adapter_tools", fake_load_adapter_tools)
+    monkeypatch.setattr(
+        tool_agent_turn,
+        "_mcp_definitions",
+        lambda: {"calculator": {"transport": "stdio", "command": "calculator"}},
+    )
 
     runtime = _runtime(
         context={
@@ -325,6 +330,11 @@ def test_mixed_setup_records_recipe_without_runtime_turn_handoff(
         return []
 
     monkeypatch.setattr(tool_agent_turn, "load_adapter_tools", fake_load_adapter_tools)
+    monkeypatch.setattr(
+        tool_agent_turn,
+        "_mcp_definitions",
+        lambda: {"calculator": {"transport": "stdio", "command": "calculator"}},
+    )
     monkeypatch.setattr(
         mixed_node_module.rag_runtime,
         "build_oracle_retrieval_tool",

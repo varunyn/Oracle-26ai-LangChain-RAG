@@ -33,6 +33,11 @@ def test_prepare_tool_agent_turn_builds_one_execution_value_from_durable_recipe(
         "load_adapter_tools",
         fake_load_adapter_tools,
     )
+    monkeypatch.setattr(
+        tool_agent_turn,
+        "_mcp_definitions",
+        lambda: {"calculator": {"transport": "stdio", "command": "calculator"}},
+    )
     runtime = SimpleNamespace(
         context={
             "model_id": "model-c",

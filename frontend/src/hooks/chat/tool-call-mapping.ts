@@ -199,6 +199,30 @@ function extractContent(value: unknown): unknown {
   return String(value);
 }
 
+function extractToolCallsFromContentBlocks(
+  content: unknown
+): Array<{ id: string; name: string; args: Record<string, unknown> }> {
+  if (!Array.isArray(content)) return [];
+  return content
+    .filter(
+      (block): block is Record<string, unknown> =>
+        typeof block === "object" &&
+        block != null &&
+        (block.type === "tool_call" || block.type === "tool_use")
+    )
+    .map((block) => ({
+      id: typeof block.id === "string" ? block.id : "",
+      name: typeof block.name === "string" ? block.name : "",
+      args:
+        block.args && typeof block.args === "object"
+          ? (block.args as Record<string, unknown>)
+          : block.input && typeof block.input === "object"
+            ? (block.input as Record<string, unknown>)
+            : {},
+    }))
+    .filter((tc): tc is { id: string; name: string; args: Record<string, unknown> } => tc.id.length > 0 && tc.name.length > 0);
+}
+
 export function deriveToolCallsFromMessages(
   messages: readonly BaseMessageWithKwargs[]
 ): NativeToolCall[] {
@@ -241,8 +265,15 @@ export function deriveToolCallsFromMessages(
       }>;
     };
     if (raw.type !== "ai") continue;
-    const toolCalls = raw.tool_calls;
-    if (!Array.isArray(toolCalls) || toolCalls.length === 0) continue;
+    let toolCalls = raw.tool_calls;
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+      toolCalls = extractToolCallsFromContentBlocks(raw.content) as unknown as Array<{
+        id?: string;
+        name?: string;
+        args?: Record<string, unknown>;
+      }>;
+      if (toolCalls.length === 0) continue;
+    }
 
     for (const toolCall of toolCalls) {
       const id =

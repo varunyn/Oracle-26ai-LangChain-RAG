@@ -19,6 +19,11 @@ from api.settings import get_settings
 from src.rag_agent.infrastructure.oci_models import get_embedding_model
 from src.rag_agent.utils.utils import get_console_logger
 
+try:
+    from docling.document_converter import DocumentConverter as _DocumentConverter
+except ImportError:
+    _DocumentConverter = None  # type: ignore[assignment]
+
 if TYPE_CHECKING:
     from docling.document_converter import DocumentConverter
 
@@ -61,6 +66,8 @@ def copy_file_to_uploaded(file_path: str | Path) -> str:
 
 @lru_cache(maxsize=1)
 def _build_docling_converter() -> DocumentConverter:
+    if _DocumentConverter is None:
+        raise ImportError("docling is not installed. Install it with: uv sync --extra ingestion")
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
