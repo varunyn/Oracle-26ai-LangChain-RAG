@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -5,6 +6,7 @@ import pytest
 from mcp.types import CallToolResult, TextContent
 
 from src.rag_agent.infrastructure import mcp_adapter_runtime as mod
+from src.rag_agent.infrastructure import mcp_oauth
 from src.rag_agent.infrastructure.mcp_settings import get_mcp_settings
 
 
@@ -60,7 +62,7 @@ def test_build_adapter_server_configs_applies_jwt_headers_when_enabled(monkeypat
         },
     )
 
-    out = mod.build_adapter_server_configs(server_keys=None, run_config=None)
+    out = asyncio.run(mod.build_adapter_server_configs(server_keys=None, run_config=None))
 
     assert "default" in out
     headers = out["default"].get("headers")
@@ -91,7 +93,7 @@ def test_build_adapter_server_configs_applies_bearer_auth(monkeypatch) -> None:
         },
     )
 
-    out = mod.build_adapter_server_configs(server_keys=None, run_config=None)
+    out = asyncio.run(mod.build_adapter_server_configs(server_keys=None, run_config=None))
 
     assert out["secure"]["headers"] == {"Authorization": "Bearer server-token"}
     assert "auth" not in out["secure"]
@@ -122,7 +124,7 @@ def test_per_server_auth_overrides_global_jwt(monkeypatch) -> None:
         },
     )
 
-    out = mod.build_adapter_server_configs(server_keys=None, run_config=None)
+    out = asyncio.run(mod.build_adapter_server_configs(server_keys=None, run_config=None))
 
     assert out["secure"]["headers"] == {"Authorization": "Bearer server-token"}
 
@@ -161,7 +163,7 @@ def test_build_adapter_server_configs_applies_per_server_oauth(monkeypatch) -> N
 
     monkeypatch.setattr(mod, "build_oauth_headers_supplier", fake_build_oauth_headers_supplier)
 
-    out = mod.build_adapter_server_configs(server_keys=None, run_config=None)
+    out = asyncio.run(mod.build_adapter_server_configs(server_keys=None, run_config=None))
 
     assert captured["client_id"] == "client-id"
     assert captured["client_secret"] == "client-secret"
@@ -169,6 +171,79 @@ def test_build_adapter_server_configs_applies_per_server_oauth(monkeypatch) -> N
     assert captured["audience"] == "mcp-api"
     assert out["secure"]["headers"] == {"Authorization": "Bearer oauth-token"}
     assert "auth" not in out["secure"]
+
+
+def test_oauth_provider_cache_spans_repeated_concurrent_config_builds(monkeypatch) -> None:
+    mcp_oauth.clear_oauth_provider_cache()
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_settings",
+        lambda: SimpleNamespace(enable_mcp_tools=True, enable_mcp_client_jwt=False),
+    )
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_servers_config",
+        lambda: {
+            "secure": {
+                "transport": "streamable-http",
+                "url": "https://mcp.example.com/mcp",
+                "auth": {
+                    "type": "oauth_client_credentials",
+                    "token_url": "https://auth.example.com/oauth/token",
+                    "client_id": "client-id",
+                    "client_secret": "client-secret",
+                    "scope": "read:mcp",
+                    "audience": "mcp-api",
+                    "grant_type": "client_credentials",
+                    "refresh_skew_seconds": 30,
+                },
+            }
+        },
+    )
+    calls = {"count": 0}
+
+    class FakeResponse:
+        def __init__(self, access_token: str) -> None:
+            self.text = json.dumps({"access_token": access_token, "expires_in": 3600})
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout: int) -> None:
+            del timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, *args, **kwargs):
+            del args, kwargs
+            calls["count"] += 1
+            await asyncio.sleep(0)
+            return FakeResponse(f"token-{calls['count']}")
+
+    monkeypatch.setattr(mcp_oauth.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def exercise() -> None:
+        await asyncio.gather(
+            *(mod.build_adapter_server_configs(server_keys=None, run_config=None) for _ in range(5))
+        )
+        assert calls["count"] == 1
+        for provider in mcp_oauth._oauth_provider_cache.values():
+            provider._cached_token = mcp_oauth.OAuthTokenResponse("expired-token", "Bearer", 0.0)
+        await asyncio.gather(
+            *(mod.build_adapter_server_configs(server_keys=None, run_config=None) for _ in range(5))
+        )
+
+    try:
+        asyncio.run(exercise())
+        assert calls["count"] == 2
+        assert all("client-secret" not in repr(key) for key in mcp_oauth._oauth_provider_cache)
+    finally:
+        mcp_oauth.clear_oauth_provider_cache()
 
 
 def test_build_adapter_server_configs_uses_run_config_override(monkeypatch) -> None:
@@ -188,18 +263,20 @@ def test_build_adapter_server_configs_uses_run_config_override(monkeypatch) -> N
         },
     )
 
-    out = mod.build_adapter_server_configs(
-        server_keys=["draft"],
-        run_config={
-            "configurable": {
-                "mcp_servers_config_override": {
-                    "draft": {
-                        "transport": "streamable-http",
-                        "url": "http://localhost:9100/mcp",
+    out = asyncio.run(
+        mod.build_adapter_server_configs(
+            server_keys=["draft"],
+            run_config={
+                "configurable": {
+                    "mcp_servers_config_override": {
+                        "draft": {
+                            "transport": "streamable-http",
+                            "url": "http://localhost:9100/mcp",
+                        }
                     }
                 }
-            }
-        },
+            },
+        )
     )
 
     assert out == {
@@ -288,7 +365,45 @@ def test_build_adapter_server_configs_raises_when_supplier_fails(monkeypatch) ->
     )
 
     with pytest.raises(RuntimeError, match="token fetch failed"):
-        mod.build_adapter_server_configs(server_keys=None, run_config=None)
+        asyncio.run(mod.build_adapter_server_configs(server_keys=None, run_config=None))
+
+
+def test_load_adapter_tools_evicts_and_closes_client_on_cancellation(monkeypatch) -> None:
+    mod._client_cache.clear()
+    mod._tool_cache.clear()
+    closed = {"value": False}
+
+    class CancelledClient:
+        async def get_tools(self):
+            raise asyncio.CancelledError
+
+        async def aclose(self):
+            closed["value"] = True
+
+    client = CancelledClient()
+    monkeypatch.setattr(
+        mod,
+        "get_mcp_settings",
+        lambda: SimpleNamespace(
+            enable_mcp_tools=True,
+            mcp_client_callbacks=None,
+            mcp_tool_interceptors=None,
+        ),
+    )
+
+    async def fake_build_adapter_server_configs(**kwargs):
+        del kwargs
+        return {"default": {"transport": "streamable-http", "url": "http://mcp"}}
+
+    monkeypatch.setattr(mod, "build_adapter_server_configs", fake_build_adapter_server_configs)
+    monkeypatch.setattr(mod, "_create_client", lambda connections, settings: client)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(mod.load_adapter_tools())
+
+    assert closed["value"] is True
+    assert mod._client_cache == {}
+    assert mod._tool_cache == {}
 
 
 def test_create_client_raises_when_callbacks_supplier_fails() -> None:

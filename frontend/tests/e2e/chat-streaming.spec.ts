@@ -155,6 +155,10 @@ test.describe("chat streaming", () => {
       "Payment terms are net 45 with a 1.5% early-payment discount.";
     let submittedMessageId: string | undefined;
 
+    await page.addInitScript((threadId) => {
+      window.localStorage.setItem("rag_agent_thread_id", threadId);
+    }, HISTORY_THREAD_ID);
+
     await page.route("**/threads/search**", (route) => {
       route.fulfill({
         status: 200,
@@ -189,16 +193,15 @@ test.describe("chat streaming", () => {
         method?: string;
         params?: {
           input?: {
-            messages?: Array<{ id?: string; content?: string; role?: string }>;
+            messages?: Array<{ content?: string; type?: string }>;
           };
         };
       };
       expect(body.method).toBe("run.start");
       const submittedMessage = body.params?.input?.messages?.[0];
-      submittedMessageId = submittedMessage?.id;
-      expect(submittedMessage?.role).toBe("user");
+      expect(submittedMessage?.type).toBe("human");
       expect(submittedMessage?.content).toBe(prompt);
-      expect(submittedMessageId).toBeTruthy();
+      submittedMessageId = "submitted-user";
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -215,7 +218,7 @@ test.describe("chat streaming", () => {
             method: "values",
             data: {
               messages: [
-                { id: submittedMessageId, type: "human", content: prompt },
+                { type: "human", content: prompt },
                 { type: "ai", content: answer },
               ],
             },
@@ -1235,12 +1238,20 @@ test.describe("chat streaming", () => {
         "00000000-0000-4000-8000-000000000006"
       );
     });
-    let searchCount = 0;
+    let cleared = false;
     await page.route("**/threads/search**", (route) => {
-      searchCount += 1;
-      const threads =
-        searchCount === 1
-          ? [
+      const threads = cleared
+        ? [
+            {
+              thread_id: KEEP_THREAD_ID,
+              created_at: "2026-06-26T09:00:00Z",
+              updated_at: "2026-06-26T09:00:00Z",
+              values: {
+                messages: [{ type: "human", content: "Keep this chat" }],
+              },
+            },
+          ]
+        : [
               {
                 thread_id: CLEAR_ACTIVE_THREAD_ID,
                 created_at: "2026-06-26T10:00:00Z",
@@ -1259,16 +1270,6 @@ test.describe("chat streaming", () => {
                   messages: [{ type: "human", content: "Keep this chat" }],
                 },
               },
-            ]
-          : [
-              {
-                thread_id: KEEP_THREAD_ID,
-                created_at: "2026-06-26T09:00:00Z",
-                updated_at: "2026-06-26T09:00:00Z",
-                values: {
-                  messages: [{ type: "human", content: "Keep this chat" }],
-                },
-              },
             ];
       route.fulfill({
         status: 200,
@@ -1277,6 +1278,7 @@ test.describe("chat streaming", () => {
       });
     });
     await page.route(`**/threads/${CLEAR_ACTIVE_THREAD_ID}`, (route) => {
+      cleared = true;
       route.fulfill({ status: 204 });
     });
 
@@ -1284,7 +1286,10 @@ test.describe("chat streaming", () => {
 
     const history = page.getByLabel("Chat history");
     await expect(
-      history.getByRole("button", { name: "Active chat to clear" })
+      history.getByRole("button", {
+        name: "Active chat to clear",
+        exact: true,
+      })
     ).toBeVisible();
     await page.getByRole("button", { name: "Clear Chat History" }).click();
 
@@ -1292,10 +1297,13 @@ test.describe("chat streaming", () => {
       page.getByText("Ask a question about your documents")
     ).toBeVisible();
     await expect(
-      history.getByRole("button", { name: "Active chat to clear" })
+      history.getByRole("button", {
+        name: "Active chat to clear",
+        exact: true,
+      })
     ).toHaveCount(0);
     await expect(
-      history.getByRole("button", { name: "Keep this chat" })
+      history.getByRole("button", { name: "Keep this chat", exact: true })
     ).toBeVisible();
     await expect(history.getByRole("button", { name: "New chat" })).toHaveCount(
       0

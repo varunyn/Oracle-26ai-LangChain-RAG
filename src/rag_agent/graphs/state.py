@@ -20,7 +20,9 @@ class ChatGraphContext(TypedDict, total=False):
     mode: Mode
     enable_reranker: bool
     enable_tracing: bool
+    max_rounds: int
     mcp_server_keys: list[str]
+    mcp_config_digest: str
 
 
 class ChatGraphState(TypedDict, total=False):

@@ -106,6 +106,43 @@ function isEphemeralStreamMessageId(id: string): boolean {
   return id.startsWith("lc_run--");
 }
 
+function isGeneratedProjectionId(id: string | undefined): boolean {
+  return typeof id === "string" && /^message-\d+$/.test(id);
+}
+
+function removeOptimisticUserEchoes(messages: MessageLike[]): MessageLike[] {
+  const result: MessageLike[] = [];
+  const firstUserByContent = new Map<string, number>();
+
+  for (const message of messages) {
+    if (message.role !== "user") {
+      result.push(message);
+      continue;
+    }
+
+    const content = message.content?.trim() ?? "";
+    const existingIndex = firstUserByContent.get(content);
+    if (existingIndex == null) {
+      firstUserByContent.set(content, result.length);
+      result.push(message);
+      continue;
+    }
+
+    const existing = result[existingIndex];
+    const isGeneratedMessage = isGeneratedProjectionId(message.id);
+    const isGeneratedExisting = isGeneratedProjectionId(existing?.id);
+    if (!isGeneratedMessage && !isGeneratedExisting) {
+      result.push(message);
+      continue;
+    }
+    if (!isGeneratedMessage && isGeneratedExisting) {
+      result[existingIndex] = message;
+    }
+  }
+
+  return result;
+}
+
 function removeDuplicateAssistantProjections(
   messages: MessageLike[]
 ): MessageLike[] {
@@ -193,13 +230,13 @@ export function projectStreamMessages(args: {
       return {
         id: typeof message.id === "string" ? message.id : `message-${index}`,
         role: toRole(message),
-        content: content,
+        content: toolCallIds && content === "." ? "" : content,
         ...(toolCallIds ? { toolCallIds } : {}),
         references: toReferences(message),
       };
     });
   const normalized = removeDuplicateAssistantProjections(
-    replaceReplayedMessagesById(mapped)
+    removeOptimisticUserEchoes(replaceReplayedMessagesById(mapped))
   );
   debugChatStage("projectStreamMessages", {
     rawCount: streamMessages?.length ?? 0,

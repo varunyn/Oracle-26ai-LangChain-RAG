@@ -1,15 +1,13 @@
-from __future__ import annotations
-
 import logging
 import re
 import time
 from collections.abc import Callable
-from typing import cast
+from typing import Annotated, Literal, TypedDict, cast
 
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.config import RunnableConfig
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import InjectedToolCallId, StructuredTool
 
 from src.rag_agent.core.citations import citations_from_documents
 from src.rag_agent.infrastructure.db_utils import get_pooled_connection
@@ -28,19 +26,33 @@ from .llm_invocation import (
     message_text,
 )
 from .observability import extract_usage
+from .oracle_retrieval_evidence import OracleRetrievalEvidenceStore
 
 logger = logging.getLogger(__name__)
+
+
+class OracleRetrievalErrorArtifact(TypedDict):
+    """Serializable artifact that distinguishes a failed retrieval from no hits."""
+
+    type: Literal["oracle_retrieval_error"]
+    error: str
+
+
+OracleRetrievalArtifact = list[Document | OracleRetrievalErrorArtifact]
 
 
 def build_oracle_retrieval_tool(
     *,
     collection_name: str | None,
     filter_docs: Callable[[str, list[Document]], list[Document]],
+    evidence: OracleRetrievalEvidenceStore,
 ) -> StructuredTool:
-    state: dict[str, object] = {"docs": []}
     collection = collection_name or "RAG_KNOWLEDGE_BASE"
 
-    def retrieve_context(query: str) -> tuple[str, list[Document]]:
+    def retrieve_context(
+        query: str,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+    ) -> tuple[str, OracleRetrievalArtifact]:
         """Retrieve Oracle knowledge-base and documentation context for a user question."""
         try:
             from api.settings import get_settings
@@ -70,8 +82,12 @@ def build_oracle_retrieval_tool(
             filtered = filter_docs(query, docs)
             filter_ms = (time.perf_counter() - filter_started_at) * 1000
             serialize_started_at = time.perf_counter()
-            state["docs"] = filtered
-            state.pop("error", None)
+            evidence.record(
+                invocation_id=tool_call_id,
+                query=query,
+                documents=filtered,
+                collection_name=collection,
+            )
             serialized = "\n\n".join(
                 f"Source: {doc.metadata}\nContent: {doc.page_content}" for doc in filtered
             )
@@ -91,7 +107,8 @@ def build_oracle_retrieval_tool(
                 serialize_ms,
                 total_ms,
             )
-            return serialized, filtered
+            artifact: OracleRetrievalArtifact = [*filtered]
+            return serialized, artifact
         except Exception as exc:
             message = str(exc) or exc.__class__.__name__
             logger.exception(
@@ -99,11 +116,16 @@ def build_oracle_retrieval_tool(
                 collection,
                 len(query or ""),
             )
-            state["docs"] = []
-            state["error"] = message
+            evidence.record(
+                invocation_id=tool_call_id,
+                query=query,
+                documents=[],
+                error=message,
+                collection_name=collection,
+            )
             return (
                 "Oracle retrieval failed while searching the knowledge base. " f"Error: {message}",
-                [],
+                [{"type": "oracle_retrieval_error", "error": message}],
             )
 
     tool = StructuredTool.from_function(
@@ -112,7 +134,6 @@ def build_oracle_retrieval_tool(
         description="Retrieve Oracle knowledge-base and documentation context for a user question.",
         response_format="content_and_artifact",
     )
-    setattr(tool, "_retrieval_state", state)
     return tool
 
 

@@ -76,6 +76,7 @@ export function ChatMessageList({
   feedbackSubmittedMessageIndexes,
   enableUserFeedback,
 }: ChatMessageListProps): React.ReactElement {
+  "use memo";
   const isStreamingTurn = status === "submitted" || status === "streaming";
   const showStreamingIndicator =
     isStreamingTurn && !hasActiveAssistantOutput(messages, toolCalls);

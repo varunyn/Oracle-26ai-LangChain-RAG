@@ -13,6 +13,7 @@ def test_rag_node_retrieves_and_returns_citations_without_chat_runtime_service(
     monkeypatch,
 ) -> None:
     docs = [Document(page_content="Payment is due in 45 days.", metadata={"source": "terms.md"})]
+    retrieve_kwargs: dict[str, object] = {}
 
     class _FakeTrace:
         trace_context = None
@@ -35,7 +36,11 @@ def test_rag_node_retrieves_and_returns_citations_without_chat_runtime_service(
         return "Payment is due in 45 days.", None, "fake-rag-model"
 
     monkeypatch.setattr(rag, "contextualize_question", fake_contextualize_question)
-    monkeypatch.setattr(rag.rag_runtime, "retrieve_oracle_docs", lambda **kwargs: docs)
+    def fake_retrieve_oracle_docs(**kwargs: object) -> list[Document]:
+        retrieve_kwargs.update(kwargs)
+        return docs
+
+    monkeypatch.setattr(rag.rag_runtime, "retrieve_oracle_docs", fake_retrieve_oracle_docs)
     monkeypatch.setattr(
         rag.rag_runtime,
         "rerank_retrieved_docs",
@@ -81,3 +86,4 @@ def test_rag_node_retrieves_and_returns_citations_without_chat_runtime_service(
     assert assistant.id == "user-1:assistant"
     assert assistant.additional_kwargs["mode"] == "rag"
     assert assistant.additional_kwargs["citations"] == [{"source": "terms.md"}]
+    assert retrieve_kwargs["k"] == 10

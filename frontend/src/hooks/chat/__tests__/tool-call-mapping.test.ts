@@ -17,7 +17,10 @@ describe("filterToolCallsForChatStatus", () => {
     namespace: [],
     name: "WorkflowIntentDecision",
     input: { intent: "calculator" },
+    args: { intent: "calculator" },
+    output: null,
     status: "running",
+    error: undefined,
   };
   const finished: NativeToolCall = {
     callId: "finished-1",
@@ -25,8 +28,10 @@ describe("filterToolCallsForChatStatus", () => {
     namespace: [],
     name: "Calculator_linear_regression",
     input: { data: [[1, 2]] },
+    args: { data: [[1, 2]] },
     output: { slope: 1, intercept: 1 },
     status: "finished",
+    error: undefined,
   };
 
   it("keeps running calls while a turn is active", () => {
@@ -54,6 +59,10 @@ describe("toolCallsForMessage", () => {
       namespace: [],
       name,
       input: {},
+      args: {},
+      output: null,
+      status: "running",
+      error: undefined,
       ...overrides,
     };
   }

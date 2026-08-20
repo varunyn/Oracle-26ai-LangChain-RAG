@@ -300,7 +300,6 @@ class Settings(BaseSettings):
     LANGFUSE_PUBLIC_KEY: str = "pk-lf-your-project-key"
     LANGFUSE_SECRET_KEY: str = "sk-lf-your-secret-key"
     LANGFUSE_TRACING_ENVIRONMENT: str = "development"
-    LANGFUSE_ENVIRONMENT: str | None = None
     LANGFUSE_RELEASE: str | None = None
     LANGFUSE_SAMPLE_RATE: float | None = Field(default=None, ge=0.0, le=1.0)
 

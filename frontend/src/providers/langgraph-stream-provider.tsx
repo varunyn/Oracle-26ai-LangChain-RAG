@@ -14,27 +14,10 @@ import {
   useState,
 } from "react";
 import { debugChatStage } from "@/hooks/chat/debug";
-import type { BaseMessageWithKwargs } from "@/hooks/chat/references";
 import { resolveLanggraphApiUrl } from "@/hooks/chat/stream-config";
 
 type StreamValue = ReturnType<typeof useStream>;
 type RunCreatedInfo = { runId: string };
-type RunCompletedInfo = {
-  runId?: string;
-  reason: "success" | "error" | "interrupt" | "stopped";
-};
-
-function threadMessagesFromStatePayload(
-  payload: unknown
-): BaseMessageWithKwargs[] | undefined {
-  if (!payload || typeof payload !== "object") {
-    return;
-  }
-  const values = (payload as { values?: { messages?: unknown } }).values;
-  return Array.isArray(values?.messages)
-    ? (values.messages as BaseMessageWithKwargs[])
-    : undefined;
-}
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -53,7 +36,6 @@ type LangGraphStreamContextValue = {
   setThreadId:
     | Dispatch<SetStateAction<string | null>>
     | ((threadId: string | null) => void);
-  authoritativeThreadMessages: BaseMessageWithKwargs[] | undefined;
   stream: StreamValue;
   transportError: Error | null;
 };
@@ -80,13 +62,6 @@ export function LangGraphStreamProvider({
     error: null,
     threadId,
   });
-  const [
-    authoritativeThreadMessagesState,
-    setAuthoritativeThreadMessagesState,
-  ] = useState<{
-    messages: BaseMessageWithKwargs[] | undefined;
-    threadId: string | null;
-  }>({ messages: undefined, threadId });
   const threadIdRef = useRef<string | null>(threadId);
   const mountedRef = useRef(false);
 
@@ -102,10 +77,6 @@ export function LangGraphStreamProvider({
     transportErrorState.threadId === threadId
       ? transportErrorState.error
       : null;
-  const authoritativeThreadMessages =
-    authoritativeThreadMessagesState.threadId === threadId
-      ? authoritativeThreadMessagesState.messages
-      : undefined;
 
   const instrumentedFetch = useMemo(
     () =>
@@ -162,59 +133,12 @@ export function LangGraphStreamProvider({
     debugChatStage("LangGraphStreamProvider.onCreated", { runId: info.runId });
   }, []);
 
-  const hydrateAuthoritativeThread = useCallback(
-    async (completedThreadId: string) => {
-      const response = await instrumentedFetch(
-        `${langgraphApiUrl}/threads/${completedThreadId}/state`
-      );
-      const payload = await response.json();
-      const messages = threadMessagesFromStatePayload(payload);
-      if (!(messages && mountedRef.current)) {
-        return;
-      }
-
-      setAuthoritativeThreadMessagesState({
-        messages,
-        threadId: completedThreadId,
-      });
-      debugChatStage("LangGraphStreamProvider.authoritativeState", {
-        threadId: completedThreadId,
-        messageCount: messages.length,
-        messageIds: messages.map((message) => message.id),
-      });
-    },
-    [instrumentedFetch, langgraphApiUrl]
-  );
-
-  const handleCompleted = useCallback(
-    (info: RunCompletedInfo) => {
-      const completedThreadId = threadIdRef.current;
-      debugChatStage("LangGraphStreamProvider.onCompleted", {
-        threadId: completedThreadId,
-        reason: info.reason,
-        runId: info.runId,
-      });
-      if (info.reason !== "success" || !completedThreadId) {
-        return;
-      }
-
-      void hydrateAuthoritativeThread(completedThreadId).catch((error) => {
-        debugChatStage("LangGraphStreamProvider.authoritativeStateError", {
-          threadId: completedThreadId,
-          error: String(error),
-        });
-      });
-    },
-    [hydrateAuthoritativeThread]
-  );
-
   const stream = useStream({
     apiUrl: langgraphApiUrl,
     assistantId: "chat_agent",
     fetch: instrumentedFetch,
     threadId,
     onCreated: handleCreated,
-    onCompleted: handleCompleted,
     onThreadId: (id) => {
       if (id) {
         threadIdRef.current = id;
@@ -252,7 +176,6 @@ export function LangGraphStreamProvider({
       value={{
         threadId,
         setThreadId,
-        authoritativeThreadMessages,
         stream,
         transportError,
       }}

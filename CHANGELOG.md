@@ -1,5 +1,47 @@
 # Changelog
 
+## 2026-08-20
+
+- Upgraded the LangGraph Agent Server runtime from `langgraph-api` 0.10.0 to 0.12.6, including its resolved in-memory runtime and command-line dependencies. Aligned the directly pinned OpenTelemetry packages to the API-required 1.37/0.58 series and updated logging imports for that SDK's `LogData` handler interface.
+- Deepened shared MCP/mixed tool-agent execution into `tool_agent_execution`, preserving native frontend tool streaming, persisted thread history, graph node names, and current chat result contracts. Added typed transient tool-execution transcript coverage for normal, failed, and incomplete tool sequences.
+- Scoped MCP and mixed-mode transcript analysis to the latest user turn, preventing prior tool activity and answers from affecting current-turn policy, result metadata, or synthesis decisions.
+- Treat unmatched tool calls as explicit incomplete-execution failures, so MCP outcome policy no longer silently drops an interrupted tool invocation.
+- Preserve original tool-call order in MCP invocation metadata when completed and incomplete calls are mixed.
+- Added the phase-two design plan for a typed, ephemeral `ToolAgentTurn` handoff that cannot leak live tool objects or retrieval evidence into persisted chat state.
+- Hardened that plan with explicit SSE stream-exclusion and interrupted-run reconstruction requirements after LangGraph state-behavior review.
+- Recorded ADR-0001: durable `ToolAgentTurn` reconstruction requires a saver-owned backend store; private LangGraph state cannot meet the streaming and resume constraints in the current topology.
+- Revised the SQLite-backed `ToolAgentTurnRecipeStore` design after Agent Server lifecycle review: durable user-turn keys replace unstable run-only lookup, leases use renewal and fencing, terminal cleanup waits for a durable checkpoint, and the specification covers idempotent setup, rollback, pruning, thread copy, orphan reconciliation, configuration drift, and at-least-once tool execution.
+- Added the saver-owned durable recipe-store foundation with canonical immutable recipes, shared-connection SQLite schema, renewable fenced leases, origin-run/thread cleanup primitives, transactional Agent Server run rollback cleanup, continuation-link reachability protection, and no graph-node or stream-contract integration yet.
+- Reconstructed MCP and mixed tool turns from saver-owned immutable recipes at setup, tool-loop, and composition boundaries; added checkpointed interrupt/resume coverage, explicit MCP configuration-drift rejection, and removed the legacy mutable runtime-context turn handoff.
+- Restored mixed-mode Oracle evidence across reconstruction by reading persisted `ToolMessage` artifacts, with exception-safe composition lease release and regression coverage for citations/reranking inputs.
+- Hardened Ticket 03 replay semantics: checkpointed Document artifacts normalize after the latest HumanMessage, setup remains conflict-detecting while reconstruction is load-only, recipe mode/round limits are immutable, leases renew before external calls, and mixed synthesis uses the stored model.
+- Completed Ticket 04 replay fidelity: checkpointed Oracle retrieval failures retain an explicit error discriminator, implicit MCP selection records all configured servers and rejects deleted definitions, load-only reconstruction avoids mutable defaults, and additive reranker recipe fields remain backward compatible.
+- Completed Ticket 05 conservative recipe lifecycle: checkpoint writes atomically record saver-owned turn reachability; startup/periodic reconciliation expires only retention-aged run provenance and logs identifier/reason pairs; thread/run/prune/copy cleanup respects retained checkpoints and active leases; terminal recipes are retained until reachability is removed because the pinned SQLite saver cannot prove post-checkpoint quiescence.
+- Completed durable recipe-store validation for Tickets 04–05: 106 focused tests and 5 live Agent Server MCP/mixed tests passed; MCP SSE returned `42`, mixed SSE returned retrieval plus calculator output with 2 citations, and static `mcp_compose` interruption resumed. A local process restart against the same checkpoint database resumed composition with a stable terminal ID, cleared lease, retained checkpoint links, and local-dev ephemeral thread-catalog recreation under the same ID; this is not a production restart guarantee. Langfuse trace `aced01a5a7d6770577b0378503fd632f` preserved the expected `chat_agent -> mcp_setup -> mcp_agent -> call_llm -> calculator_basic_arithmetic -> call_llm -> mcp_compose` hierarchy with all four IO-marker scans false.
+- Final audit hardening delivered a reducer-safe single stable terminal answer, off-thread reranking under lease heartbeat, a secret-free MCP compatibility digest, reusable OAuth providers, and cancellation-safe MCP client eviction; final validation was 276 passed/20 skipped plus 5 live tests, including reranker-enabled mixed live success.
+- Increased the RAG-mode retrieval candidate count from five to ten so reranking and answer synthesis have a broader set of Oracle documentation excerpts.
+
+## 2026-08-05
+
+- Fixed LangGraph MCP and mixed-mode tool loops to honor the configured `MCP_MAX_ROUNDS` limit instead of using a hard-coded ten-round cap.
+
+## 2026-08-04
+
+- Replaced mixed-mode Oracle retrieval's private tool-state handoff with invocation-linked, turn-scoped retrieval evidence, preserving existing reranking, citations, synthesis fallback, no-context, and retrieval-failure outcomes.
+
+## 2026-08-03
+
+- Deepened MCP and mixed-mode tool preparation into one typed tool-turn module, eliminating the duplicated multi-key runtime-context protocol while preserving tool execution, mode-specific Oracle retrieval, and chat outcome contracts.
+- Fixed frontend retry, recovery-mode, and resume actions to fork from the latest user turn's parent LangGraph checkpoint, so a rerun replaces the failed branch instead of appending a duplicate user message to the thread.
+- Fixed the Stop control to wait for LangGraph cancellation before confirming success and to surface cancellation failures.
+- Removed the redundant post-completion thread-state request; finalized chat rendering now uses the native LangGraph `stream.values.messages` projection while `stream.messages` continues to supply live token and tool activity.
+
+## 2026-07-31
+
+- Aligned the application Langfuse integration with the self-hosted v4 stack: upgraded the Python SDK to 4.14.1, removed the legacy `LANGFUSE_ENVIRONMENT` alias, and now provide environment/release through the v4 environment-variable contract.
+- Normalized Langfuse metadata to v4's string and 200-character attribute limit without truncating trace input or output.
+- Updated Langfuse investigation guidance to use the v4 Observations API instead of the deprecated trace-list endpoint.
+
 ## 2026-07-02
 
 - Bumped version to 0.2.0 (significant refactoring: MCP sub-graph architecture, LangGraph Agent Server adoption, data flow cleanup).

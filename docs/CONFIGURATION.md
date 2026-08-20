@@ -262,7 +262,6 @@ Optional tracing, logging, and local Docker stacks.
 | `LANGFUSE_PUBLIC_KEY`          | —                       | Langfuse public key.                                    |
 | `LANGFUSE_SECRET_KEY`          | —                       | Langfuse secret key.                                    |
 | `LANGFUSE_TRACING_ENVIRONMENT` | `development`           | Langfuse tracing environment name.                      |
-| `LANGFUSE_ENVIRONMENT`         | —                       | Optional compatibility environment name.                |
 | `LANGFUSE_RELEASE`             | —                       | Optional release/version label for traces.              |
 | `LANGFUSE_SAMPLE_RATE`         | —                       | Optional trace sampling rate from `0.0` to `1.0`.       |
 

@@ -301,7 +301,7 @@ export function deriveToolCallsFromMessages(
         output,
         status,
         error,
-      } as unknown as NativeToolCall);
+      });
     }
   }
 

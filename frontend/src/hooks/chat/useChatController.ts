@@ -1,3 +1,4 @@
+import { useMessageMetadata } from "@langchain/react";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import type { UseChatControllerArgs } from "@/hooks/chat/controller-types";
 import { debugChatStage, summarizeMessages } from "@/hooks/chat/debug";
@@ -57,14 +58,12 @@ export function useChatController({
     flowMode,
   });
 
-  const { authoritativeThreadMessages, stream, transportError } =
-    useLangGraphStream();
+  const { stream, transportError } = useLangGraphStream();
   const effectiveThreadId = threadId ?? stream.threadId ?? null;
 
   const streamMessages = stream.messages;
-  const stateMessages =
-    authoritativeThreadMessages ??
-    (stream.values as { messages?: unknown } | undefined)?.messages;
+  const stateMessages = (stream.values as { messages?: unknown } | undefined)
+    ?.messages;
   const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
   const toolCallsFromMessages = useMemo(
     () => deriveToolCallsFromMessages(streamMessages as BaseMessageWithKwargs[]),
@@ -132,6 +131,15 @@ export function useChatController({
     });
     return selectedMessages;
   }, [stateMessages, status, streamMessages]);
+  const lastUserMessageId = useMemo(
+    () =>
+      [...messages].reverse().find((message) => message.role === "user")?.id,
+    [messages]
+  );
+  const retryCheckpointId = useMessageMetadata(
+    stream,
+    lastUserMessageId
+  )?.parentCheckpointId;
 
   useEffect(() => {
     if (stream.error == null) {
@@ -267,6 +275,7 @@ export function useChatController({
     setSubmitError,
     stream,
     threadId,
+    retryCheckpointId,
     toast,
   });
   const {

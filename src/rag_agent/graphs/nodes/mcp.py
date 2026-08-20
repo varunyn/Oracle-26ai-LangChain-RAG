@@ -1,28 +1,31 @@
 from __future__ import annotations
 
+import logging
 from typing import cast
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import AnyMessage
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.runtime import Runtime
 
 from src.rag_agent.graphs.mcp_policies import is_trivial_answer
-from src.rag_agent.graphs.nodes.mixed import (
-    _build_system_prompt_tools,
-    _latest_agent_final_answer,
-    extract_tool_invocations_from_messages,
-    message_to_langchain,
-)
 from src.rag_agent.graphs.nodes.references import messages_from_result
-from src.rag_agent.graphs.runtime import build_run_config, get_runtime_context, get_thread_id
+from src.rag_agent.graphs.runtime import stable_terminal_message_id
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
-from src.rag_agent.infrastructure.mcp_adapter_runtime import load_adapter_tools
-from src.rag_agent.infrastructure.oci_models import get_llm
-from src.rag_agent.runtime.mcp_turn import tool_failure_summary
-from src.rag_agent.runtime.memory import (
-    chat_history_before_latest_user,
-    latest_user_message,
+from src.rag_agent.graphs.tool_agent_execution import (
+    analyze_tool_execution,
+    messages_since_latest_user,
 )
+from src.rag_agent.graphs.tool_agent_turn import (
+    ToolAgentTurn,
+    mark_tool_agent_turn_terminal,
+    prepare_tool_agent_turn,
+    reconstruct_tool_agent_turn,
+    release_tool_agent_turn,
+    release_tool_agent_turn_after_failure,
+)
+from src.rag_agent.runtime.mcp_turn import tool_failure_summary
+
+logger = logging.getLogger(__name__)
 
 
 async def run_mcp_setup(
@@ -30,40 +33,10 @@ async def run_mcp_setup(
     config: RunnableConfig,
     runtime: Runtime[ChatGraphContext],
 ) -> ChatGraphState:
-    context = get_runtime_context(runtime)
-    thread_id = get_thread_id(runtime)
-    messages = state.get("messages", [])
-    question = latest_user_message(messages)
-    chat_history = chat_history_before_latest_user(messages)
-    resolved_model_id = cast(str | None, context.get("model_id")) or get_llm().model_id
-    run_cfg = build_run_config(
-        parent_config=config,
-        thread_id=thread_id,
-        mode="mcp",
-        model_id=resolved_model_id,
-        session_id=cast(str | None, context.get("session_id")),
-        enable_tracing=cast(bool | None, context.get("enable_tracing")),
-        mcp_server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
+    turn = await prepare_tool_agent_turn(
+        state=state, parent_config=config, runtime=runtime, mode="mcp"
     )
-    mcp_tools = await load_adapter_tools(
-        server_keys=cast(list[str] | None, context.get("mcp_server_keys")),
-        run_config=run_cfg,
-    )
-    system_prompt_text = _build_system_prompt_tools(question, mcp_tools)
-    input_messages: list[BaseMessage] = []
-    for item in chat_history or []:
-        converted = message_to_langchain(item)
-        if converted is not None:
-            input_messages.append(converted)
-    input_messages.append(HumanMessage(content=question))
-
-    runtime.context["mcp_subgraph_tools"] = mcp_tools
-    runtime.context["mcp_subgraph_model_id"] = resolved_model_id
-    runtime.context["mcp_subgraph_question"] = question
-    runtime.context["mcp_subgraph_run_cfg"] = run_cfg
-    runtime.context["mcp_subgraph_system_prompt"] = system_prompt_text
-    runtime.context["mcp_subgraph_chat_history"] = chat_history
-
+    await release_tool_agent_turn(config, turn)
     return {
         "messages": [],
     }
@@ -75,14 +48,48 @@ async def run_mcp_compose(
     _runtime: Runtime[ChatGraphContext] | None = None,
 ) -> ChatGraphState:
     messages = state.get("messages", [])
-    if not messages:
-        result = {"final_answer": "MCP execution did not produce a result."}
-        return {"messages": messages_from_result("mcp", result, []), "references": {}}
+    turn = None
+    if messages and _runtime and _config:
+        turn = await reconstruct_tool_agent_turn(
+            state=state, parent_config=_config, runtime=_runtime, mode="mcp"
+        )
+    try:
+        result = await _compose_mcp_result(state, turn)
+    except BaseException:
+        if turn and _config:
+            await _release_after_failure(_config, turn)
+        raise
+    if turn and _config:
+        try:
+            await _mark_terminal(_config, turn)
+            await release_tool_agent_turn(_config, turn)
+        except BaseException:
+            await _release_after_failure(_config, turn)
+            raise
+    return result
 
-    context = get_runtime_context(_runtime) if _runtime else {}
-    tool_invocations = extract_tool_invocations_from_messages(messages)
-    tools_used = list({inv["tool_name"] for inv in tool_invocations})
-    final_answer = _latest_agent_final_answer(messages) or ""
+
+async def _compose_mcp_result(
+    state: ChatGraphState, turn: ToolAgentTurn | None = None
+) -> ChatGraphState:
+    messages = state.get("messages", [])
+    message_id = _terminal_message_id("mcp", turn)
+    if not messages:
+        empty_result: dict[str, object] = {
+            "final_answer": "MCP execution did not produce a result."
+        }
+        return {
+            "messages": cast(
+                list[AnyMessage],
+                messages_from_result("mcp", empty_result, [], message_id=message_id),
+            ),
+            "references": {},
+        }
+
+    transcript = analyze_tool_execution(messages_since_latest_user(cast(list[object], messages)))
+    tool_invocations = transcript["tool_invocations"]
+    tools_used = transcript["tools_used"]
+    final_answer = transcript["final_answer"]
 
     tool_failure_error = tool_failure_summary(cast(list[dict[str, object]], tool_invocations))
     if is_trivial_answer(final_answer) and tool_failure_error:
@@ -91,7 +98,7 @@ async def run_mcp_compose(
     result: dict[str, object] = {
         "final_answer": final_answer,
         "error": None,
-        "standalone_question": cast(str | None, context.get("mcp_subgraph_question")),
+        "standalone_question": turn["question"] if turn else None,
         "citations": [],
         "reranker_docs": [],
         "context_usage": None,
@@ -99,12 +106,32 @@ async def run_mcp_compose(
         "mcp_tools_used": tools_used,
         "mcp_tool_invocations": tool_invocations,
     }
-    messages_out = messages_from_result("mcp", result, messages)
+    messages_out = messages_from_result("mcp", result, messages, message_id=message_id)
     references = cast(dict[str, object], getattr(messages_out[-1], "additional_kwargs", {}) or {})
     return {
-        "messages": messages_out,
+        "messages": cast(list[AnyMessage], messages_out),
         "references": references,
     }
 
 
+def _terminal_message_id(mode: str, turn: ToolAgentTurn | None) -> str | None:
+    lease = turn.get("lease") if turn else None
+    thread_id = getattr(lease, "thread_id", None)
+    turn_id = getattr(lease, "turn_id", None)
+    if isinstance(thread_id, str) and isinstance(turn_id, str):
+        return cast(str, stable_terminal_message_id(mode, thread_id, turn_id))
+    return None
 
+
+async def _mark_terminal(config: RunnableConfig, turn: ToolAgentTurn) -> None:
+    message_id = _terminal_message_id("mcp", turn)
+    if message_id is None:
+        return
+    await mark_tool_agent_turn_terminal(config, turn, message_id)
+
+
+async def _release_after_failure(config: RunnableConfig, turn: ToolAgentTurn) -> None:
+    try:
+        await release_tool_agent_turn_after_failure(config, turn)
+    except BaseException:
+        logger.warning("Failed stale tool-agent lease cleanup", exc_info=True)

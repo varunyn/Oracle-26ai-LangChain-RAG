@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from langchain_core.documents import Document
-
 from src.rag_agent.graphs import mcp_policies as mod
+from src.rag_agent.runtime.oracle_retrieval_evidence import OracleRetrievalEvidenceStore
 
 
 def test_workflow_policy_for_request_activates_only_for_matching_mode_and_terms(
@@ -59,22 +58,36 @@ def test_enforce_workflow_policy_reports_missing_capabilities() -> None:
     assert "missing required steps: create" in message.lower()
 
 
-def test_oracle_retrieval_helpers_use_tool_state_and_tool_calls() -> None:
-    retrieval_state = {
-        "docs": [Document(page_content="Net 30", metadata={"source": "northway.md"})],
-        "error": "database unavailable",
-    }
-    tool_invocations = [{"tool_name": "oracle_retrieval", "result": "Net 30"}]
+def test_oracle_retrieval_helpers_use_explicit_evidence_and_tool_calls() -> None:
+    evidence = OracleRetrievalEvidenceStore()
+    tool_invocations = [
+        {
+            "invocation_id": "oracle-call-1",
+            "tool_name": "oracle_retrieval",
+            "result": "Net 30",
+        }
+    ]
+
+    evidence.record(
+        invocation_id="oracle-call-1",
+        query="payment terms",
+        documents=[],
+    )
 
     assert mod.oracle_retrieval_used_without_context(
-        retrieval_state={"docs": []},
-        retrieval_docs=[],
+        retrieval_evidence=evidence.read(),
         tools_used=["oracle_retrieval"],
         tool_invocations=tool_invocations,
     )
+    evidence.record(
+        invocation_id="oracle-call-1",
+        query="payment terms",
+        documents=[],
+        error="database unavailable",
+    )
     assert (
         mod.oracle_retrieval_error(
-            retrieval_state=retrieval_state,
+            retrieval_evidence=evidence.read(),
             tools_used=["oracle_retrieval"],
             tool_invocations=tool_invocations,
         )

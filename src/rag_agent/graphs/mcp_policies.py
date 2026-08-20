@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from typing import cast
 
-from langchain_core.documents import Document
-
 from api.settings import get_settings
+from src.rag_agent.runtime.oracle_retrieval_evidence import OracleRetrievalEvidence
 
 ORACLE_RETRIEVAL_TOOL_NAME = "oracle_retrieval"
 NO_ORACLE_CONTEXT_ANSWER = "I don't know the answer from the selected Oracle collection."
@@ -138,19 +137,16 @@ def _tool_was_called(
 
 def oracle_retrieval_used_without_context(
     *,
-    retrieval_state: object,
-    retrieval_docs: list[Document],
+    retrieval_evidence: OracleRetrievalEvidence | None,
     tools_used: list[str],
     tool_invocations: list[dict[str, object]],
 ) -> bool:
-    if retrieval_docs:
+    if retrieval_evidence is None or retrieval_evidence.documents:
         return False
-    if not isinstance(retrieval_state, dict):
+    if retrieval_evidence.error:
         return False
-    if str(retrieval_state.get("error") or "").strip():
-        return False
-    return _tool_was_called(
-        tool_name=ORACLE_RETRIEVAL_TOOL_NAME,
+    return _evidence_matches_oracle_invocation(
+        retrieval_evidence=retrieval_evidence,
         tools_used=tools_used,
         tool_invocations=tool_invocations,
     )
@@ -158,22 +154,41 @@ def oracle_retrieval_used_without_context(
 
 def oracle_retrieval_error(
     *,
-    retrieval_state: object,
+    retrieval_evidence: OracleRetrievalEvidence | None,
     tools_used: list[str],
     tool_invocations: list[dict[str, object]],
 ) -> str | None:
-    if not isinstance(retrieval_state, dict):
+    if retrieval_evidence is None:
         return None
-    error = str(retrieval_state.get("error") or "").strip()
+    error = str(retrieval_evidence.error or "").strip()
     if not error:
         return None
-    if not _tool_was_called(
-        tool_name=ORACLE_RETRIEVAL_TOOL_NAME,
+    if not _evidence_matches_oracle_invocation(
+        retrieval_evidence=retrieval_evidence,
         tools_used=tools_used,
         tool_invocations=tool_invocations,
     ):
         return None
     return error
+
+
+def _evidence_matches_oracle_invocation(
+    *,
+    retrieval_evidence: OracleRetrievalEvidence,
+    tools_used: list[str],
+    tool_invocations: list[dict[str, object]],
+) -> bool:
+    if not _tool_was_called(
+        tool_name=ORACLE_RETRIEVAL_TOOL_NAME,
+        tools_used=tools_used,
+        tool_invocations=tool_invocations,
+    ):
+        return False
+    return any(
+        invocation.get("tool_name") == ORACLE_RETRIEVAL_TOOL_NAME
+        and invocation.get("invocation_id") == retrieval_evidence.invocation_id
+        for invocation in tool_invocations
+    )
 
 
 def mixed_tool_supplemental_context(

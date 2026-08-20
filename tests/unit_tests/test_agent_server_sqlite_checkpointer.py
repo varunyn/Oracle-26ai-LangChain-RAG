@@ -2,6 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 
+import src.rag_agent.runtime.agent_server_checkpointer as checkpointer_module
 from src.rag_agent.runtime.agent_server_checkpointer import (
     LocalAsyncSqliteSaver,
     generate_checkpointer,
@@ -48,6 +49,36 @@ def test_generate_checkpointer_yields_async_sqlite_saver(
     asyncio.run(_run())
 
     assert db_path.exists()
+
+
+def test_generate_checkpointer_cancels_and_awaits_periodic_reconciliation_task(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "langgraph.sqlite"
+    monkeypatch.setenv("LANGGRAPH_SQLITE_PATH", str(db_path))
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def block_until_cancelled(_saver: LocalAsyncSqliteSaver) -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(
+        checkpointer_module,
+        "_reconcile_recipes_periodically",
+        block_until_cancelled,
+    )
+
+    async def _run() -> None:
+        async with generate_checkpointer():
+            await asyncio.wait_for(started.wait(), timeout=0.1)
+        assert cancelled.is_set()
+
+    asyncio.run(_run())
 
 
 def test_local_sqlite_saver_prunes_old_checkpoints(tmp_path: Path) -> None:

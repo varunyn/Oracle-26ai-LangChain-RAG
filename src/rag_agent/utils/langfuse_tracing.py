@@ -37,6 +37,7 @@ else:
 logger = logging.getLogger(__name__)
 
 DEFAULT_FLUSH_TIMEOUT = 0.2
+LANGFUSE_METADATA_VALUE_MAX_LENGTH = 200
 
 
 _CLIENT_LOCK = threading.Lock()
@@ -79,6 +80,30 @@ def _resolve_langfuse_host() -> str:
         )
         return rewritten
     return host
+
+
+def _configure_langfuse_sdk_environment() -> None:
+    """Expose Pydantic-loaded v4 SDK settings through the SDK's env contract."""
+    settings = get_settings()
+    values = {
+        "LANGFUSE_TRACING_ENVIRONMENT": getattr(
+            settings, "LANGFUSE_TRACING_ENVIRONMENT", None
+        ),
+        "LANGFUSE_RELEASE": getattr(settings, "LANGFUSE_RELEASE", None),
+    }
+    for key, value in values.items():
+        normalized = _clean_optional_identifier(value)
+        if normalized and not os.environ.get(key):
+            os.environ[key] = normalized
+
+
+def _langfuse_metadata(metadata: dict[str, object]) -> dict[str, str]:
+    """Return v4-compatible metadata without truncating trace input or output."""
+    return {
+        str(key): str(value)[:LANGFUSE_METADATA_VALUE_MAX_LENGTH]
+        for key, value in metadata.items()
+        if value is not None and str(value)
+    }
 
 
 @dataclass
@@ -124,6 +149,9 @@ class LangfuseChatTrace:
         if not callable(update):
             return
         try:
+            metadata = kwargs.get("metadata")
+            if isinstance(metadata, dict):
+                kwargs["metadata"] = _langfuse_metadata(cast(dict[str, object], metadata))
             update(**kwargs)
         except Exception as exc:
             logger.debug("Langfuse observation update failed: %s", exc)
@@ -133,7 +161,7 @@ class LangfuseChatTrace:
             return
         payload = {"outcome": outcome, **metadata}
         level = "WARNING" if outcome == "truncated" else ("ERROR" if outcome == "error" else "DEFAULT")
-        self.update(level=level, metadata={str(key): str(value) for key, value in payload.items()})
+        self.update(level=level, metadata=_langfuse_metadata(payload))
 
     def update_metadata(self, metadata: dict[str, str]) -> None:
         if self._observation is None:
@@ -141,7 +169,7 @@ class LangfuseChatTrace:
         update = getattr(self._observation, "update", None)
         try:
             if callable(update):
-                update(metadata=metadata)
+                update(metadata=_langfuse_metadata(cast(dict[str, object], metadata)))
         except Exception as exc:
             logger.debug("Langfuse root trace metadata update failed: %s", exc)
 
@@ -243,15 +271,8 @@ def get_langfuse_client() -> Any | None:
         _disable("missing LANGFUSE config")
         return None
 
+    _configure_langfuse_sdk_environment()
     extra_kwargs: dict[str, Any] = {}
-    environment = getattr(get_settings(), "LANGFUSE_TRACING_ENVIRONMENT", None) or getattr(
-        get_settings(), "LANGFUSE_ENVIRONMENT", None
-    )
-    if environment:
-        extra_kwargs["environment"] = environment
-    release = _clean_optional_identifier(getattr(get_settings(), "LANGFUSE_RELEASE", None))
-    if release:
-        extra_kwargs["release"] = release
     sample_rate = getattr(get_settings(), "LANGFUSE_SAMPLE_RATE", None)
     if isinstance(sample_rate, (int, float)) and not isinstance(sample_rate, bool):
         extra_kwargs["sample_rate"] = float(sample_rate)
@@ -307,7 +328,7 @@ def start_langfuse_chat_trace(
         )
         if tag is not None
     ]
-    trace_metadata = {
+    trace_metadata = _langfuse_metadata({
         key: value
         for key, value in {
             "mode": mode,
@@ -319,9 +340,9 @@ def start_langfuse_chat_trace(
             "release": resolved_release,
         }.items()
         if isinstance(value, str) and value
-    }
+    })
     if metadata:
-        trace_metadata.update({key: value for key, value in metadata.items() if value})
+        trace_metadata.update(_langfuse_metadata(metadata))
     try:
         manager = client.start_as_current_observation(
             name=resolved_trace_name,

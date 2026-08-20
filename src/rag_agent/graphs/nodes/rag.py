@@ -57,7 +57,7 @@ async def run_rag_node(
             rag_runtime.retrieve_oracle_docs,
             query=standalone_question,
             collection_name=cast(str | None, context.get("collection_name")),
-            k=5,
+            k=10,
         )
         docs = await asyncio.to_thread(
             rag_runtime.rerank_retrieved_docs,
