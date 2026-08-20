@@ -61,7 +61,7 @@ def test_otlp_handler_installed_and_idempotent(monkeypatch: pytest.MonkeyPatch):
     root = logging.getLogger()
 
     # Exactly one non-deprecated OpenTelemetry logging instrumentation handler present
-    from opentelemetry.instrumentation.logging.handler import LoggingHandler
+    from opentelemetry.sdk._logs import LoggingHandler
 
     handlers = [h for h in root.handlers if isinstance(h, LoggingHandler)]
     assert len(handlers) == 1
@@ -78,7 +78,7 @@ def test_no_otlp_handler_when_otel_disabled(monkeypatch: pytest.MonkeyPatch):
     lc.setup_logging(console=False)
     root = logging.getLogger()
 
-    from opentelemetry.instrumentation.logging.handler import LoggingHandler
+    from opentelemetry.sdk._logs import LoggingHandler
 
     handlers = [h for h in root.handlers if isinstance(h, LoggingHandler)]
     assert len(handlers) == 0

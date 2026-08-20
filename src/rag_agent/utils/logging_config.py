@@ -44,18 +44,20 @@ from opentelemetry.exporter.otlp.proto.common._internal._log_encoder import (
 )
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
-from opentelemetry.instrumentation.logging.handler import LoggingHandler
 from opentelemetry.proto.logs.v1.logs_pb2 import SeverityNumber
+from opentelemetry.sdk._logs import (
+    LogData as ReadableLogRecord,
+)
 from opentelemetry.sdk._logs import (
     LoggerProvider as SDKLoggerProvider,
 )
 from opentelemetry.sdk._logs import (
-    ReadableLogRecord,
+    LoggingHandler,
 )
 from opentelemetry.sdk._logs.export import (
     BatchLogRecordProcessor,
-    LogRecordExporter,
-    LogRecordExportResult,
+    LogExporter,
+    LogExportResult,
 )
 from opentelemetry.sdk.resources import Resource
 
@@ -383,10 +385,7 @@ def _get_logging_analytics_settings() -> LoggingAnalyticsSettings | None:
     config_file = os.getenv("OCI_CONFIG_FILE") or _load_settings_attr(
         "OCI_CONFIG_FILE", "~/.oci/config"
     )
-    min_level = (
-        os.getenv("LOGGING_ANALYTICS_MIN_LEVEL")
-        or "WARNING"
-    )
+    min_level = os.getenv("LOGGING_ANALYTICS_MIN_LEVEL") or "WARNING"
     min_severity = _min_severity_from_level_name(str(min_level).strip().upper())
     return LoggingAnalyticsSettings(
         namespace=namespace,
@@ -400,7 +399,7 @@ def _get_logging_analytics_settings() -> LoggingAnalyticsSettings | None:
     )
 
 
-class LoggingAnalyticsExporter(LogRecordExporter):
+class LoggingAnalyticsExporter(LogExporter):
     """Custom exporter that uploads OTLP JSON payloads to OCI Logging Analytics."""
 
     def __init__(self, settings: LoggingAnalyticsSettings, service_name: str) -> None:
@@ -447,7 +446,7 @@ class LoggingAnalyticsExporter(LogRecordExporter):
             pieces.append(f"resourceCategory:{self._settings.resource_category}")
         return ";".join(pieces) if pieces else None
 
-    def export(self, batch: Sequence[ReadableLogRecord]) -> LogRecordExportResult:
+    def export(self, batch: Sequence[ReadableLogRecord]) -> LogExportResult:
         mode = _get_logging_analytics_mode()
         batch = [r for r in batch if not _is_export_confirmation_record(r)]
         if mode == "auto":
@@ -457,7 +456,7 @@ class LoggingAnalyticsExporter(LogRecordExporter):
                 if _is_query_event_record(r) or _severity_number_from_record(r) >= _SEVERITY_WARN
             ]
         if not batch:
-            return LogRecordExportResult.SUCCESS
+            return LogExportResult.SUCCESS
         try:
             # OTLP JSON format per Oracle Log Analytics and OTel spec (resourceLogs / scopeLogs / logRecords).
             payload = encode_logs(batch)
@@ -490,14 +489,14 @@ class LoggingAnalyticsExporter(LogRecordExporter):
                 len(batch),
                 self._settings.namespace,
             )
-            return LogRecordExportResult.SUCCESS
+            return LogExportResult.SUCCESS
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "OCI Logging Analytics export failed (check region/namespace/log group OCID and IAM): %s",
                 exc,
                 exc_info=True,
             )
-            return LogRecordExportResult.FAILURE
+            return LogExportResult.FAILURE
 
     def shutdown(self) -> None:
         close_fn = getattr(self._client, "close", None)
@@ -544,6 +543,11 @@ class RequestIdFilter(logging.Filter):
                     setattr(record, key, value)
             delattr(record, "otel_attributes")
         return True
+
+
+def _inject_request_id(_span: object, record: logging.LogRecord) -> None:
+    """Add the request id when OpenTelemetry creates each standard log record."""
+    record.request_id = REQUEST_ID_CTX.get()
 
 
 def _compute_logs_endpoint() -> str:
@@ -625,7 +629,7 @@ def setup_logging(console: bool = True) -> None:
     if not any(isinstance(f, RequestIdFilter) for f in getattr(root_logger, "filters", [])):
         root_logger.addFilter(RequestIdFilter())
 
-    exporters: list[LogRecordExporter] = []
+    exporters: list[LogExporter] = []
     exporter_descriptions: list[str] = []
 
     if otel_enabled:
@@ -701,11 +705,14 @@ def setup_logging(console: bool = True) -> None:
             LoggingInstrumentor().instrument(
                 set_logging_format=False,
                 log_level=logging.NOTSET,
-                logger_provider=provider,
+                log_hook=_inject_request_id,
             )
+            root_logger.addHandler(LoggingHandler(logger_provider=provider))
         for otel_handler in (h for h in root_logger.handlers if isinstance(h, LoggingHandler)):
             # The filter ensures record has request_id attribute before export
-            if not any(isinstance(f, RequestIdFilter) for f in getattr(otel_handler, "filters", [])):
+            if not any(
+                isinstance(f, RequestIdFilter) for f in getattr(otel_handler, "filters", [])
+            ):
                 otel_handler.addFilter(RequestIdFilter())
 
     if not exporters:

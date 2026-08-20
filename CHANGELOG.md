@@ -2,6 +2,7 @@
 
 ## 2026-08-20
 
+- Upgraded the LangGraph Agent Server runtime from `langgraph-api` 0.10.0 to 0.12.6, including its resolved in-memory runtime and command-line dependencies. Aligned the directly pinned OpenTelemetry packages to the API-required 1.37/0.58 series and updated logging imports for that SDK's `LogData` handler interface.
 - Deepened shared MCP/mixed tool-agent execution into `tool_agent_execution`, preserving native frontend tool streaming, persisted thread history, graph node names, and current chat result contracts. Added typed transient tool-execution transcript coverage for normal, failed, and incomplete tool sequences.
 - Scoped MCP and mixed-mode transcript analysis to the latest user turn, preventing prior tool activity and answers from affecting current-turn policy, result metadata, or synthesis decisions.
 - Treat unmatched tool calls as explicit incomplete-execution failures, so MCP outcome policy no longer silently drops an interrupted tool invocation.
