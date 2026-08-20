@@ -1,22 +1,21 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.runnables.config import RunnableConfig
+from langgraph.config import get_config
 from langgraph.graph import END, StateGraph
-from langgraph.graph.state import CompiledStateGraph
+from langgraph.graph.state import CompiledStateGraph, StateNode
 from langgraph.prebuilt import ToolCallTransformer
 from langgraph.runtime import Runtime
+from langgraph.types import Checkpointer
 
 from src.rag_agent.graphs.nodes.direct import run_direct_node
 from src.rag_agent.graphs.nodes.mcp import run_mcp_compose, run_mcp_setup
-from src.rag_agent.graphs.nodes.mixed import (
-    build_tool_agent_sub_graph,
-    run_mixed_compose_node,
-    run_mixed_mcp_setup,
-)
+from src.rag_agent.graphs.nodes.mixed import run_mixed_compose_node, run_mixed_mcp_setup
 from src.rag_agent.graphs.nodes.rag import run_rag_node
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
+from src.rag_agent.graphs.tool_agent_execution import build_tool_agent_sub_graph
 from src.rag_agent.utils.langfuse_tracing import add_langfuse_callbacks
 
 
@@ -32,8 +31,56 @@ def _mixed_retrieval_node(state: ChatGraphState) -> ChatGraphState:
     return {"progress": "Searching your collection and tools…"}
 
 
-def _rag_progress_node(_state: ChatGraphState) -> ChatGraphState:
+def _rag_progress_node(_state: ChatGraphState) -> dict[str, str]:
     return {"progress": "Searching your collection…"}
+
+
+async def _run_direct_graph_node(
+    state: ChatGraphState,
+    *,
+    runtime: Runtime[ChatGraphContext],
+) -> ChatGraphState:
+    return await run_direct_node(state, get_config(), runtime)
+
+
+async def _run_mcp_setup_graph_node(
+    state: ChatGraphState,
+    *,
+    runtime: Runtime[ChatGraphContext],
+) -> ChatGraphState:
+    return await run_mcp_setup(state, get_config(), runtime)
+
+
+async def _run_mcp_compose_graph_node(
+    state: ChatGraphState,
+    *,
+    runtime: Runtime[ChatGraphContext],
+) -> ChatGraphState:
+    return await run_mcp_compose(state, get_config(), runtime)
+
+
+async def _run_mixed_setup_graph_node(
+    state: ChatGraphState,
+    *,
+    runtime: Runtime[ChatGraphContext],
+) -> ChatGraphState:
+    return await run_mixed_mcp_setup(state, get_config(), runtime)
+
+
+async def _run_mixed_compose_graph_node(
+    state: ChatGraphState,
+    *,
+    runtime: Runtime[ChatGraphContext],
+) -> ChatGraphState:
+    return await run_mixed_compose_node(state, get_config(), runtime)
+
+
+async def _run_rag_graph_node(
+    state: ChatGraphState,
+    *,
+    runtime: Runtime[ChatGraphContext],
+) -> ChatGraphState:
+    return await run_rag_node(state, get_config(), runtime)
 
 
 def _runtime_context(runtime: Runtime[ChatGraphContext]) -> ChatGraphContext:
@@ -45,27 +92,34 @@ def _runtime_context(runtime: Runtime[ChatGraphContext]) -> ChatGraphContext:
 
 def route_mode(_state: ChatGraphState, runtime: Runtime[ChatGraphContext]) -> str:
     mode = _runtime_context(runtime).get("mode", "direct")
-    if mode in {"direct", "rag", "mcp", "mixed"}:
+    if isinstance(mode, str) and mode in {"direct", "rag", "mcp", "mixed"}:
         return mode
     raise NotImplementedError(f"Graph mode '{mode}' is not implemented yet.")
 
 
-def build_chat_agent(*, checkpointer: Any | None = None) -> CompiledStateGraph:
-    graph = StateGraph(ChatGraphState, context_schema=ChatGraphContext)
+def build_chat_agent(
+    *, checkpointer: Checkpointer = None
+) -> CompiledStateGraph[ChatGraphState, ChatGraphContext, ChatGraphState, ChatGraphState]:
+    graph: StateGraph[ChatGraphState, ChatGraphContext, ChatGraphState, ChatGraphState] = (
+        StateGraph(ChatGraphState, context_schema=ChatGraphContext)
+    )
     graph.add_node("bootstrap", _bootstrap_node)
     graph.add_node("mixed_route", _mixed_route_node)
     graph.add_node("mixed_retrieval", _mixed_retrieval_node)
-    graph.add_node("rag_progress", _rag_progress_node)
-    graph.add_node("direct", run_direct_node)
-    graph.add_node("mcp_setup", run_mcp_setup)
+    graph.add_node(
+        "rag_progress",
+        cast(StateNode[ChatGraphState, ChatGraphContext], _rag_progress_node),
+    )
+    graph.add_node("direct", _run_direct_graph_node)
+    graph.add_node("mcp_setup", _run_mcp_setup_graph_node)
     mcp_agent = build_tool_agent_sub_graph()
     graph.add_node("mcp_agent", mcp_agent)
-    graph.add_node("mcp_compose", run_mcp_compose)
-    graph.add_node("mixed_setup", run_mixed_mcp_setup)
+    graph.add_node("mcp_compose", _run_mcp_compose_graph_node)
+    graph.add_node("mixed_setup", _run_mixed_setup_graph_node)
     mixed_agent = build_tool_agent_sub_graph()
     graph.add_node("mixed_agent", mixed_agent)
-    graph.add_node("mixed_compose", run_mixed_compose_node)
-    graph.add_node("rag", run_rag_node)
+    graph.add_node("mixed_compose", _run_mixed_compose_graph_node)
+    graph.add_node("rag", _run_rag_graph_node)
     graph.set_entry_point("bootstrap")
     graph.add_conditional_edges(
         "bootstrap",
@@ -112,15 +166,17 @@ def make_chat_agent(config: RunnableConfig | None = None) -> Any:
                 for tag in (
                     "chat",
                     f"mode:{configurable.get('mode')}" if configurable.get("mode") else None,
-                    f"model:{configurable.get('model_id')}"
-                    if configurable.get("model_id")
-                    else None,
+                    (
+                        f"model:{configurable.get('model_id')}"
+                        if configurable.get("model_id")
+                        else None
+                    ),
                 )
                 if tag is not None
             ],
         )
 
-    return build_chat_agent().with_config(run_config)
+    return build_chat_agent().with_config(cast(RunnableConfig, run_config))
 
 
 chat_agent = build_chat_agent()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any, cast
 
 from langchain_core.messages import AIMessage
@@ -47,7 +48,7 @@ def build_run_config(
     user_id: str | None = None,
     release: str | None = None,
 ) -> RunnableConfig:
-    resolved_request_id = request_id or get_request_id()
+    resolved_request_id: str | None = request_id or get_request_id()
     if resolved_request_id == "-":
         resolved_request_id = None
     resolved_release = _clean_optional_value(
@@ -58,10 +59,12 @@ def build_run_config(
     configurable: dict[str, Any] = (
         dict(parent_configurable) if isinstance(parent_configurable, dict) else {}
     )
-    configurable.update({
-        "mode": mode,
-        "enable_tracing": bool(enable_tracing),
-    })
+    configurable.update(
+        {
+            "mode": mode,
+            "enable_tracing": bool(enable_tracing),
+        }
+    )
     if thread_id:
         configurable["thread_id"] = thread_id
     if model_id:
@@ -118,10 +121,19 @@ def references_from_result(result: dict[str, object], *, mode: str) -> dict[str,
     return references
 
 
+def stable_terminal_message_id(mode: str, thread_id: str, turn_id: str) -> str:
+    """Return the replay-stable assistant ID for a durable tool-agent turn."""
+
+    identity = f"tool-agent-terminal:{mode}:{thread_id}:{turn_id}".encode()
+    digest = hashlib.sha256(identity).hexdigest()
+    return f"tool-agent-{mode}-{digest}"
+
+
 def result_to_assistant_message(
     mode: str, result: dict[str, object], *, message_id: str | None = None
 ) -> AIMessage:
     final_answer = result.get("final_answer")
+    content: str | list[Any]
     if isinstance(final_answer, str):
         content = final_answer
     elif isinstance(final_answer, list):

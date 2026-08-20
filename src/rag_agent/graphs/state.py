@@ -22,7 +22,7 @@ class ChatGraphContext(TypedDict, total=False):
     enable_tracing: bool
     max_rounds: int
     mcp_server_keys: list[str]
-    tool_agent_turn: dict[str, object]
+    mcp_config_digest: str
 
 
 class ChatGraphState(TypedDict, total=False):

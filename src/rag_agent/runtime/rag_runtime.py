@@ -2,7 +2,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from typing import Annotated, cast
+from typing import Annotated, Literal, TypedDict, cast
 
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
@@ -31,6 +31,16 @@ from .oracle_retrieval_evidence import OracleRetrievalEvidenceStore
 logger = logging.getLogger(__name__)
 
 
+class OracleRetrievalErrorArtifact(TypedDict):
+    """Serializable artifact that distinguishes a failed retrieval from no hits."""
+
+    type: Literal["oracle_retrieval_error"]
+    error: str
+
+
+OracleRetrievalArtifact = list[Document | OracleRetrievalErrorArtifact]
+
+
 def build_oracle_retrieval_tool(
     *,
     collection_name: str | None,
@@ -42,7 +52,7 @@ def build_oracle_retrieval_tool(
     def retrieve_context(
         query: str,
         tool_call_id: Annotated[str, InjectedToolCallId],
-    ) -> tuple[str, list[Document]]:
+    ) -> tuple[str, OracleRetrievalArtifact]:
         """Retrieve Oracle knowledge-base and documentation context for a user question."""
         try:
             from api.settings import get_settings
@@ -97,7 +107,8 @@ def build_oracle_retrieval_tool(
                 serialize_ms,
                 total_ms,
             )
-            return serialized, filtered
+            artifact: OracleRetrievalArtifact = [*filtered]
+            return serialized, artifact
         except Exception as exc:
             message = str(exc) or exc.__class__.__name__
             logger.exception(
@@ -114,7 +125,7 @@ def build_oracle_retrieval_tool(
             )
             return (
                 "Oracle retrieval failed while searching the knowledge base. " f"Error: {message}",
-                [],
+                [{"type": "oracle_retrieval_error", "error": message}],
             )
 
     tool = StructuredTool.from_function(

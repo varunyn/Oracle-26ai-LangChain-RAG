@@ -11,6 +11,7 @@ from src.rag_agent.graphs.nodes import direct as direct_node_module
 from src.rag_agent.graphs.nodes import mcp as mcp_node_module
 from src.rag_agent.graphs.nodes import mixed as mixed_node_module
 from src.rag_agent.graphs.nodes import rag as rag_node_module
+from src.rag_agent.runtime.agent_server_checkpointer import LocalAsyncSqliteSaver
 
 
 def _runtime(
@@ -245,7 +246,9 @@ def test_run_rag_node_returns_assistant_error_when_runtime_fails(
     assert "DPY-6005" in assistant.additional_kwargs["error"]["message"]
 
 
-def test_mcp_setup_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mcp_setup_records_recipe_without_runtime_turn_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     class _FakeTrace:
@@ -275,29 +278,30 @@ def test_mcp_setup_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None
         }
     )
 
-    asyncio.run(
-        mcp_node_module.run_mcp_setup(
-            {"messages": [HumanMessage(content="19 + 23")]},
-            {"callbacks": ["outer-callback"], "metadata": {"source": "workflow-test"}},
-            runtime,  # type: ignore[arg-type]
-        )
-    )
+    async def run():
+        async with LocalAsyncSqliteSaver.from_conn_string(":memory:") as saver:
+            runtime.execution_info.run_id = "run-1"
+            config = {
+                "callbacks": ["outer-callback"],
+                "metadata": {"source": "workflow-test"},
+                "configurable": {"__pregel_checkpointer": saver},
+            }
+            await mcp_node_module.run_mcp_setup(
+                {"messages": [HumanMessage(id="human-mcp", content="19 + 23")]}, config, runtime
+            )
+            return await saver.recipe_store.load(("thread-123", "human-mcp"))
 
-    turn = runtime.context["tool_agent_turn"]
-    assert turn["model_id"] == "model-c"
-    assert isinstance(turn["system_prompt"], str)
-    subgraph_run_cfg = turn["run_config"]
-    assert isinstance(subgraph_run_cfg, dict)
-    assert subgraph_run_cfg["configurable"]["thread_id"] == "thread-123"
-    assert subgraph_run_cfg["configurable"]["session_id"] == "session-mcp"
-    assert subgraph_run_cfg["configurable"]["model_id"] == "model-c"
-    assert subgraph_run_cfg["configurable"]["mcp_server_keys"] == ["calculator"]
-    assert subgraph_run_cfg["callbacks"][0] == "outer-callback"
-    assert subgraph_run_cfg["metadata"]["source"] == "workflow-test"
+    recipe = asyncio.run(run())
+    assert recipe is not None
+    assert recipe.model_key == "model-c"
+    assert recipe.session_id == "session-mcp"
+    assert recipe.mcp_server_keys == ("calculator",)
     assert captured["load_tools_kwargs"]["server_keys"] == ["calculator"]
 
 
-def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mixed_setup_records_recipe_without_runtime_turn_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     class _FakeTrace:
@@ -341,30 +345,28 @@ def test_mixed_nodes_use_runtime_context(monkeypatch: pytest.MonkeyPatch) -> Non
         }
     )
 
-    result = asyncio.run(
-        mixed_node_module.run_mixed_mcp_setup(
-            {"messages": [HumanMessage(content="payment terms plus 5")]},
-            {"callbacks": ["outer-callback"], "metadata": {"source": "workflow-test"}},
-            runtime,  # type: ignore[arg-type]
-        )
-    )
+    async def run():
+        async with LocalAsyncSqliteSaver.from_conn_string(":memory:") as saver:
+            runtime.execution_info.run_id = "run-1"
+            config = {
+                "callbacks": ["outer-callback"],
+                "metadata": {"source": "workflow-test"},
+                "configurable": {"__pregel_checkpointer": saver},
+            }
+            result = await mixed_node_module.run_mixed_mcp_setup(
+                {"messages": [HumanMessage(id="human-mixed", content="payment terms plus 5")]},
+                config,
+                runtime,
+            )
+            return result, await saver.recipe_store.load(("thread-123", "human-mixed"))
 
+    result, recipe = asyncio.run(run())
     assert "progress" in result
-    turn = runtime.context["tool_agent_turn"]
-    assert turn["model_id"] == "model-d"
-    assert isinstance(turn["system_prompt"], str)
-    assert turn["tools"][0].name == "oracle_retrieval"
-    subgraph_run_cfg = turn["run_config"]
-    assert isinstance(subgraph_run_cfg, dict)
-    assert subgraph_run_cfg["configurable"]["thread_id"] == "thread-123"
-    assert subgraph_run_cfg["configurable"]["session_id"] == "session-mixed"
-    assert subgraph_run_cfg["configurable"]["model_id"] == "model-d"
-    assert subgraph_run_cfg["configurable"]["mcp_server_keys"] == ["calculator"]
-    assert subgraph_run_cfg["configurable"]["enable_tracing"] is True
-    assert subgraph_run_cfg["callbacks"][0] == "outer-callback"
-    assert subgraph_run_cfg["metadata"]["source"] == "workflow-test"
+    assert recipe is not None
+    assert recipe.model_key == "model-d"
+    assert recipe.collection_key == "ORACLE_WEB_EMBEDDINGS"
+    assert recipe.mcp_server_keys == ("calculator",)
     assert captured["retrieval_tool_kwargs"]["collection_name"] == "ORACLE_WEB_EMBEDDINGS"
-    assert captured["retrieval_tool_kwargs"]["evidence"] is turn["oracle_retrieval_evidence"]
     assert captured["load_tools_kwargs"]["server_keys"] == ["calculator"]
 
 

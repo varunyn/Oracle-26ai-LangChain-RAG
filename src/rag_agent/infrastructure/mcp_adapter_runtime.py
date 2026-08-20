@@ -112,7 +112,7 @@ def _coerce_headers(raw_headers: object) -> dict[str, Any]:
     }
 
 
-def _resolve_server_auth_headers(server_config: Mapping[str, Any]) -> dict[str, str]:
+async def _resolve_server_auth_headers(server_config: Mapping[str, Any]) -> dict[str, str]:
     raw_auth = server_config.get("auth")
     if not isinstance(raw_auth, Mapping):
         return {}
@@ -136,18 +136,23 @@ def _resolve_server_auth_headers(server_config: Mapping[str, Any]) -> dict[str, 
             grant_type=str(raw_auth.get("grant_type") or "").strip() or "client_credentials",
             refresh_skew_seconds=refresh_skew_seconds,
         )
-        return _coerce_headers(supplier())
+        supplied = supplier()
+        if inspect.isawaitable(supplied):
+            supplied = await supplied
+        return _coerce_headers(supplied)
 
     return {}
 
 
-def _resolve_jwt_headers(settings: object) -> dict[str, str]:
+async def _resolve_jwt_headers(settings: object) -> dict[str, str]:
     if not bool(getattr(settings, "enable_mcp_client_jwt", False)):
         return {}
     supplier = getattr(settings, "jwt_headers_supplier", None)
     if not callable(supplier):
         return {}
     supplied = supplier()
+    if inspect.isawaitable(supplied):
+        supplied = await supplied
     return _coerce_headers(supplied)
 
 
@@ -320,7 +325,7 @@ async def _successful_tool_result_warning_interceptor(
     return _normalize_call_tool_result(result)
 
 
-def build_adapter_server_configs(
+async def build_adapter_server_configs(
     *,
     server_keys: Sequence[str] | None = None,
     run_config: Mapping[str, Any] | None = None,
@@ -341,7 +346,7 @@ def build_adapter_server_configs(
     if not selected_keys:
         return {}
 
-    jwt_headers = _resolve_jwt_headers(settings)
+    jwt_headers = await _resolve_jwt_headers(settings)
     resolved: dict[str, AdapterConnectionConfig] = {}
     for key in selected_keys:
         if not isinstance(configured.get(key), Mapping):
@@ -351,7 +356,7 @@ def build_adapter_server_configs(
         if jwt_headers:
             existing_headers = normalized.get("headers", {})
             normalized["headers"] = {**existing_headers, **jwt_headers}
-        auth_headers = _resolve_server_auth_headers(server_config)
+        auth_headers = await _resolve_server_auth_headers(server_config)
         if auth_headers:
             existing_headers = normalized.get("headers", {})
             normalized["headers"] = {**existing_headers, **auth_headers}
@@ -374,6 +379,26 @@ def _create_client(
     )
 
 
+async def _evict_failed_client(cache_key: str, client: MultiServerMCPClient) -> None:
+    _client_cache.pop(cache_key, None)
+    _tool_cache.pop(cache_key, None)
+    for close_name in ("aclose", "close"):
+        close_method = getattr(client, close_name, None)
+        if not callable(close_method):
+            continue
+        try:
+            close_result = close_method()
+            if inspect.isawaitable(close_result):
+                await cast(Awaitable[Any], close_result)
+        except Exception as close_exc:  # noqa: BLE001
+            logger.debug(
+                "MCP: client cleanup via %s failed after get_tools error: %s",
+                close_name,
+                close_exc,
+            )
+        break
+
+
 def _connections_cache_key(connections: dict[str, AdapterConnectionConfig]) -> str:
     payload = {k: dict(v) for k, v in sorted(connections.items())}
     return json.dumps(payload, sort_keys=True, default=str)
@@ -385,7 +410,7 @@ async def load_adapter_tools(
     run_config: Mapping[str, Any] | None = None,
 ) -> list[BaseTool]:
     settings = get_mcp_settings()
-    connections = build_adapter_server_configs(server_keys=server_keys, run_config=run_config)
+    connections = await build_adapter_server_configs(server_keys=server_keys, run_config=run_config)
     if not connections:
         return []
     cache_key = _connections_cache_key(connections)
@@ -410,25 +435,14 @@ async def load_adapter_tools(
             )
         try:
             tools = cast(list[BaseTool], await client.get_tools())
+        except asyncio.CancelledError:
+            # Evict before cleanup and re-raise cancellation so a partially started
+            # client cannot be reused by a later tool load.
+            await _evict_failed_client(cache_key, client)
+            raise
         except Exception:
             # Avoid leaking broken clients/sessions in cache when adapter startup fails.
-            _client_cache.pop(cache_key, None)
-            _tool_cache.pop(cache_key, None)
-            for close_name in ("aclose", "close"):
-                close_method = getattr(client, close_name, None)
-                if not callable(close_method):
-                    continue
-                try:
-                    close_result = close_method()
-                    if inspect.isawaitable(close_result):
-                        await cast(Awaitable[Any], close_result)
-                except Exception as close_exc:  # noqa: BLE001
-                    logger.debug(
-                        "MCP: client cleanup via %s failed after get_tools error: %s",
-                        close_name,
-                        close_exc,
-                    )
-                break
+            await _evict_failed_client(cache_key, client)
             raise
         _tool_cache[cache_key] = list(tools)
         logger.info(

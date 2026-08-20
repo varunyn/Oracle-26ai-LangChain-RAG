@@ -1,13 +1,19 @@
+import asyncio
 import json
 import time
 from dataclasses import dataclass
-from urllib.error import HTTPError, URLError
+from typing import TypeAlias
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+
+import httpx
 
 
 class MCPAuthError(RuntimeError):
     """Raised when MCP auth setup or token retrieval fails."""
+
+
+OAuthProviderIdentity: TypeAlias = tuple[str, str, str | None, str | None, str]
+_oauth_provider_cache: dict[OAuthProviderIdentity, "OAuthClientCredentialsProvider"] = {}
 
 
 @dataclass(slots=True)
@@ -40,6 +46,19 @@ class OAuthClientCredentialsProvider:
         self._grant_type = grant_type
         self._refresh_skew_seconds = refresh_skew_seconds
         self._cached_token: OAuthTokenResponse | None = None
+        self._credential_generation = 0
+        self._refresh_lock = asyncio.Lock()
+
+    def update_credentials(self, client_secret: str, refresh_skew_seconds: int) -> None:
+        if (
+            client_secret == self._client_secret
+            and refresh_skew_seconds == self._refresh_skew_seconds
+        ):
+            return
+        self._client_secret = client_secret
+        self._refresh_skew_seconds = refresh_skew_seconds
+        self._cached_token = None
+        self._credential_generation += 1
 
     @staticmethod
     def parse_token_response(payload: dict[str, object], *, now: float) -> OAuthTokenResponse:
@@ -68,15 +87,28 @@ class OAuthClientCredentialsProvider:
             expires_at=now + expires_in,
         )
 
-    def get_headers(self) -> dict[str, str]:
-        now = time.time()
-        token = self._cached_token
-        if token is None or token.is_expiring_within(self._refresh_skew_seconds, now=now):
-            token = self._request_token()
-            self._cached_token = token
-        return {"Authorization": f"{token.token_type} {token.access_token}"}
+    async def get_headers(self) -> dict[str, str]:
+        while True:
+            token = self._cached_token
+            if token is not None and not token.is_expiring_within(
+                self._refresh_skew_seconds, now=time.time()
+            ):
+                return {"Authorization": f"{token.token_type} {token.access_token}"}
 
-    def _request_token(self) -> OAuthTokenResponse:
+            async with self._refresh_lock:
+                token = self._cached_token
+                if token is not None and not token.is_expiring_within(
+                    self._refresh_skew_seconds, now=time.time()
+                ):
+                    return {"Authorization": f"{token.token_type} {token.access_token}"}
+                generation = self._credential_generation
+                token = await self._request_token()
+                if generation != self._credential_generation:
+                    continue
+                self._cached_token = token
+                return {"Authorization": f"{token.token_type} {token.access_token}"}
+
+    async def _request_token(self) -> OAuthTokenResponse:
         form_fields: dict[str, str] = {
             "grant_type": self._grant_type,
             "client_id": self._client_id,
@@ -88,16 +120,16 @@ class OAuthClientCredentialsProvider:
             form_fields["audience"] = self._audience
 
         body = urlencode(form_fields).encode("utf-8")
-        request = Request(
-            self._token_url,
-            data=body,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            method="POST",
-        )
         try:
-            with urlopen(request, timeout=10) as response:
-                raw_payload = response.read().decode("utf-8")
-        except (HTTPError, URLError, TimeoutError) as exc:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.post(
+                    self._token_url,
+                    content=body,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                response.raise_for_status()
+                raw_payload = response.text
+        except (httpx.HTTPError, TimeoutError) as exc:
             raise MCPAuthError("MCP OAuth token request failed") from exc
         try:
             payload = json.loads(raw_payload)
@@ -121,13 +153,23 @@ def build_oauth_headers_supplier(
     if not token_url or not client_id or not client_secret:
         raise MCPAuthError("MCP OAuth requires token URL, client ID, and client secret")
 
-    provider = OAuthClientCredentialsProvider(
-        token_url=token_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        scope=scope,
-        audience=audience,
-        grant_type=grant_type,
-        refresh_skew_seconds=refresh_skew_seconds,
-    )
+    identity: OAuthProviderIdentity = (token_url, client_id, scope, audience, grant_type)
+    provider = _oauth_provider_cache.get(identity)
+    if provider is None:
+        provider = OAuthClientCredentialsProvider(
+            token_url=token_url,
+            client_id=client_id,
+            client_secret=client_secret,
+            scope=scope,
+            audience=audience,
+            grant_type=grant_type,
+            refresh_skew_seconds=refresh_skew_seconds,
+        )
+        _oauth_provider_cache[identity] = provider
+    else:
+        provider.update_credentials(client_secret, refresh_skew_seconds)
     return provider.get_headers
+
+
+def clear_oauth_provider_cache() -> None:
+    _oauth_provider_cache.clear()

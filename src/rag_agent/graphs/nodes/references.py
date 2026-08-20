@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
+from typing import cast
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, RemoveMessage
 
 from src.rag_agent.graphs.runtime import references_from_result, result_to_assistant_message
 
@@ -14,7 +16,7 @@ def merge_references(mode: str, result: dict[str, object]) -> dict[str, object]:
     error = result.get("error")
     if isinstance(error, dict):
         references["error"] = error
-    return references
+    return cast(dict[str, object], references)
 
 
 def assistant_message_from_result(
@@ -24,11 +26,15 @@ def assistant_message_from_result(
 
 
 def messages_from_result(
-    mode: str, result: dict[str, object], state_messages: list[object] | None
+    mode: str,
+    result: dict[str, object],
+    state_messages: Sequence[object] | None,
+    *,
+    message_id: str | None = None,
 ) -> list[object]:
     messages = list(state_messages or [])
     if not messages:
-        return [assistant_message_from_result(mode, result)]
+        return [assistant_message_from_result(mode, result, message_id=message_id)]
 
     references = merge_references(mode, result)
     final_answer = _normalize_ai_content(result.get("final_answer"))
@@ -38,10 +44,16 @@ def messages_from_result(
             continue
         if final_answer and _normalize_ai_content(message.content) != final_answer:
             break
-        messages[index] = _copy_ai_message_with_references(message, references)
+        updated_message = _copy_ai_message_with_references(
+            message, references, message_id=message_id
+        )
+        if message_id and message.id and message.id != message_id:
+            return [RemoveMessage(id=message.id), updated_message]
+        else:
+            messages[index] = updated_message
         return messages
 
-    messages.append(assistant_message_from_result(mode, result))
+    messages.append(assistant_message_from_result(mode, result, message_id=message_id))
     return messages
 
 
@@ -72,24 +84,28 @@ def assistant_message_from_exception(
 
 
 def _copy_ai_message_with_references(
-    message: AIMessage, references: dict[str, object]
+    message: AIMessage, references: dict[str, object], *, message_id: str | None = None
 ) -> AIMessage:
     additional_kwargs = {**dict(message.additional_kwargs), **references}
     response_metadata = {**dict(message.response_metadata), **references}
     copy = getattr(message, "model_copy", None)
     if callable(copy):
-        return copy(
-            update={
-                "additional_kwargs": additional_kwargs,
-                "response_metadata": response_metadata,
-            }
+        return cast(
+            AIMessage,
+            copy(
+                update={
+                    "additional_kwargs": additional_kwargs,
+                    "response_metadata": response_metadata,
+                    "id": message_id or message.id,
+                }
+            ),
         )
     return AIMessage(
         content=message.content,
         additional_kwargs=additional_kwargs,
         response_metadata=response_metadata,
         tool_calls=list(message.tool_calls),
-        id=message.id,
+        id=message_id or message.id,
         name=message.name,
     )
 
