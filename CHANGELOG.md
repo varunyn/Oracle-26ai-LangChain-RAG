@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-20
+
+- Increased the RAG-mode retrieval candidate count from five to ten so reranking and answer synthesis have a broader set of Oracle documentation excerpts.
+
 ## 2026-08-05
 
 - Fixed LangGraph MCP and mixed-mode tool loops to honor the configured `MCP_MAX_ROUNDS` limit instead of using a hard-coded ten-round cap.
