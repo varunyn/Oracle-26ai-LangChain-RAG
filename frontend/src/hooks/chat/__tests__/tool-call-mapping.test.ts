@@ -69,7 +69,7 @@ describe("toolCallsForMessage", () => {
 
   it("returns only calls whose callId belongs to the assistant message", () => {
     const toolCalls: NativeToolCall[] = [
-      tc("call-1", "semantic_search", { input: { query: "Oracle" }, status: "running" }),
+      tc("call-1", "knowledge_lookup", { input: { query: "Oracle" }, status: "running" }),
       tc("call-2", "list_documents", { output: ["doc-1"], status: "finished" }),
       tc("call-3", "other_message_tool", { error: "boom", status: "error" }),
     ];
@@ -82,7 +82,7 @@ describe("toolCallsForMessage", () => {
 
   it("normalizes native lifecycle fields for rendering", () => {
     const toolCalls: NativeToolCall[] = [
-      tc("call-1", "semantic_search", { input: { query: "Oracle" }, status: "running" }),
+      tc("call-1", "knowledge_lookup", { input: { query: "Oracle" }, status: "running" }),
       tc("call-2", "list_documents", { output: { documents: ["doc-1"] }, status: "finished" }),
       tc("call-3", "fetch_document", { error: "Document unavailable", status: "error" }),
     ];
@@ -104,7 +104,7 @@ describe("toolCallsForMessage", () => {
 
   it("keeps calls split across assistant messages by native call ids", () => {
     const toolCalls: NativeToolCall[] = [
-      tc("call-1", "semantic_search", { input: { query: "Oracle" }, status: "finished" }),
+      tc("call-1", "knowledge_lookup", { input: { query: "Oracle" }, status: "finished" }),
       tc("call-2", "list_documents", { status: "running" }),
     ];
 
@@ -119,11 +119,11 @@ describe("toolCallsForMessage", () => {
 
   it("matches assembled tool calls by id alias as well as callId", () => {
     const toolCalls: NativeToolCall[] = [
-      tc("call-1", "semantic_search", { input: { query: "Oracle" }, status: "finished" }),
+      tc("call-1", "knowledge_lookup", { input: { query: "Oracle" }, status: "finished" }),
     ];
 
     expect(toolCallsForMessage(["call-1"], toolCalls)).toMatchObject([
-      { callId: "call-1", name: "semantic_search" },
+      { callId: "call-1", name: "knowledge_lookup" },
     ]);
   });
 });
@@ -135,14 +135,14 @@ describe("deriveToolCallsFromMessages", () => {
         id: "ai-1",
         content: ".",
         tool_calls: [
-          { id: "call-1", name: "semantic_search", args: { query: "Oracle 26ai" } },
+          { id: "call-1", name: "knowledge_lookup", args: { query: "Oracle 26ai" } },
         ],
       }),
       new ToolMessage({
         id: "tool-1",
         content: JSON.stringify({ results: ["doc1", "doc2"] }),
         tool_call_id: "call-1",
-        name: "semantic_search",
+        name: "knowledge_lookup",
       }),
     ];
 
@@ -152,7 +152,7 @@ describe("deriveToolCallsFromMessages", () => {
     const renderable = toRenderableToolCall(derived[0]);
     expect(renderable).toMatchObject({
       callId: "call-1",
-      name: "semantic_search",
+      name: "knowledge_lookup",
       status: "finished",
     });
   });
@@ -193,7 +193,7 @@ describe("deriveToolCallsFromMessages", () => {
         id: "ai-1",
         content: ".",
         tool_calls: [
-          { id: "call-1", name: "semantic_search", args: { query: "first" } },
+          { id: "call-1", name: "knowledge_lookup", args: { query: "first" } },
         ],
       }),
       new ToolMessage({
@@ -229,7 +229,7 @@ describe("deriveToolCallsFromMessages", () => {
     const renderables = derived.map((tc) => toRenderableToolCall(tc));
     expect(renderables[0]).toMatchObject({
       callId: "call-1",
-      name: "semantic_search",
+      name: "knowledge_lookup",
       status: "finished",
     });
     expect(renderables[1]).toMatchObject({
@@ -267,7 +267,7 @@ describe("deriveToolCallsFromMessages", () => {
         id: "ai-1",
         content: ".",
         tool_calls: [
-          { id: "call-1", name: "semantic_search", args: { query: "test" } },
+          { id: "call-1", name: "knowledge_lookup", args: { query: "test" } },
         ],
       }),
       new ToolMessage({
@@ -282,7 +282,7 @@ describe("deriveToolCallsFromMessages", () => {
 
     expect(matched[0]).toMatchObject({
       callId: "call-1",
-      name: "semantic_search",
+      name: "knowledge_lookup",
       status: "finished",
     });
   });

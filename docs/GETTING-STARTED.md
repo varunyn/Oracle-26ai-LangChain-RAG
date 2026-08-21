@@ -1,5 +1,9 @@
 # Getting started (first run)
 
+For a standalone evidence-only Oracle Knowledge MCP setup, follow
+[ORACLE-KNOWLEDGE-MCP.md](ORACLE-KNOWLEDGE-MCP.md) after configuring OCI and
+the Oracle wallet. It is independently runnable over STDIO or Streamable HTTP.
+
 This guide walks a **first-time user** from zero to a working chat session. It assumes you are running locally.
 
 > This project is a production-style reference app, not a zero-config starter. Expect to provide real Oracle DB, wallet, and OCI access before the chat flow works end to end.
@@ -115,15 +119,12 @@ Open **http://localhost:4000** and ask a question.
 
 For the first successful end-to-end check, ask a question that should clearly match one of the documents you ingested.
 
-## Optional: MCP tools (advanced)
+## Optional: Oracle Knowledge MCP (advanced)
 
-If you want MCP tools available in the chat, start an MCP server in a separate terminal:
-
-```bash
-uv run python mcp_servers/mcp_semantic_search.py
-```
-
-Then open **Settings** in the frontend, add an MCP server with URL `http://localhost:9000/mcp`, and use **Test connection** before saving. `MCP_SERVERS_CONFIG` is optional seed/headless config; normal UI-managed setup does not need it in `.env`.
+For standalone evidence retrieval, follow [ORACLE-KNOWLEDGE-MCP.md](ORACLE-KNOWLEDGE-MCP.md).
+It supports local STDIO and Streamable HTTP profiles and exposes exactly three
+typed tools. Generic MCP clients can still be configured through Settings using
+`MCP_SERVERS_CONFIG`; this is separate from the standalone server deployment.
 
 ## Troubleshooting
 

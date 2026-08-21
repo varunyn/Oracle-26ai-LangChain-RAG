@@ -47,6 +47,36 @@ def test_get_llm_builds_chat_oci_genai_with_shared_auth_config(monkeypatch) -> N
     }
 
 
+def test_oci_auth_logs_never_include_config_path(monkeypatch, caplog) -> None:
+    sentinel = "/private/secret-wallet/oci-config"
+
+    class FakeChatOCIGenAI:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+    settings = SimpleNamespace(
+        AUTH="API_KEY",
+        LLM_MODEL_ID="meta.llama-3.3-70b-instruct",
+        TEMPERATURE=0.1,
+        MAX_TOKENS=100,
+        SERVICE_ENDPOINT="https://example.oraclecloud.com",
+        REGION="us-chicago-1",
+        COMPARTMENT_ID="ocid1.compartment.oc1..example",
+        OCI_PROFILE="CHICAGO",
+        OCI_MAX_SEQUENTIAL_TOOL_CALLS=10,
+        OCI_TOOL_RESULT_GUIDANCE=True,
+    )
+    monkeypatch.setattr(oci_models, "get_settings", lambda: settings)
+    monkeypatch.setattr(oci_models, "_get_oci_auth_file_location", lambda: sentinel)
+    monkeypatch.setattr(oci_models, "OCIChatModel", FakeChatOCIGenAI)
+
+    with caplog.at_level("INFO", logger=oci_models.logger.name):
+        oci_models.get_llm()
+
+    assert sentinel not in caplog.text
+    assert "CHICAGO" in caplog.text
+
+
 def test_get_embedding_model_builds_oci_embeddings_with_shared_auth_config(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

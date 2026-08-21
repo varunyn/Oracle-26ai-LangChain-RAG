@@ -10,6 +10,12 @@ This page describes how to run the LangGraph Agent Server, frontend, and optiona
 
 ## 1. Makefile (preferred)
 
+For the isolated Oracle Knowledge MCP container, use
+`docker-compose.oracle-knowledge.yml`. It has no LangGraph/frontend
+dependency, mounts OCI config/wallet/key material read-only, binds HTTP to
+loopback by default, and exposes `/mcp`, `/health/live`, and `/health/ready`.
+See [ORACLE-KNOWLEDGE-MCP.md](ORACLE-KNOWLEDGE-MCP.md).
+
 From the repo root, use `make` to run core and optional stacks:
 
 ```bash

@@ -1,6 +1,6 @@
 [project]
 name = "oracle-26ai-langchain-rag"
-version = "0.2.0"
+version = "0.3.0"
 description = "Custom RAG Agent with LangGraph, Oracle 26AI Vector Store, and MCP integration"
 readme = "docs/README.md"
 requires-python = ">=3.11"

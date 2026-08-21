@@ -207,13 +207,28 @@ When the user clears the chat, the frontend calls the LangGraph Agent Server **`
 
 ## MCP
 
+### Oracle Knowledge MCP
+
+The evidence-only Oracle server uses namespaced settings independent of the
+generic consuming-side MCP configuration. Configure
+`ORACLE_KNOWLEDGE_BASES` as a JSON friendly-key-to-collection mapping and set
+`ORACLE_KNOWLEDGE_DEFAULT_KEY`. `ORACLE_KNOWLEDGE_ALLOWED_KEYS` optionally
+filters public keys; raw collection/table names are never public.
+
+The bounded policy is controlled by `ORACLE_KNOWLEDGE_MAX_QUERY_LENGTH`,
+`ORACLE_KNOWLEDGE_MAX_RESULT_LIMIT`, `ORACLE_KNOWLEDGE_MAX_CANDIDATE_LIMIT`,
+`ORACLE_KNOWLEDGE_MAX_METADATA_FILTERS`, and
+`ORACLE_KNOWLEDGE_TIMEOUT_SECONDS`. Transport is strictly `stdio` or
+`streamable-http`; use `ORACLE_KNOWLEDGE_HOST` and
+`ORACLE_KNOWLEDGE_PORT` for the latter. See
+[ORACLE-KNOWLEDGE-MCP.md](ORACLE-KNOWLEDGE-MCP.md).
+
 MCP (Model Context Protocol) client and server configuration.
 
 | Variable                            | Default        | Description                                                    |
 | ----------------------------------- | -------------- | -------------------------------------------------------------- |
 | `ENABLE_MCP_TOOLS`                  | `true`         | Enable MCP tool use.                                           |
 | `MCP_SERVER_KEYS`                   | (none)         | Comma-separated list of configured MCP server keys to load tools from (e.g. `default,context7`). This does not choose the default chat mode. |
-| `MCP_SEARCH_MODE`                   | `vector`       | Default retrieval mode for semantic-search MCP tools. Only `vector` is currently supported. |
 | `MCP_MAX_ROUNDS`                    | `4`            | Maximum MCP tool calls allowed in one agent run. |
 | `ENABLE_MCP_CLIENT_JWT`             | `false`        | Legacy global MCP auth toggle. Prefer per-server auth in Settings. |
 | `ENABLE_MCP_OAUTH`                  | `false`        | Legacy global OAuth client-credentials auth toggle. Prefer per-server auth in Settings. |
@@ -232,14 +247,6 @@ MCP (Model Context Protocol) client and server configuration.
 | `MCP_SERVERS_CONFIG`                | `{}`           | Optional seed/headless JSON object; Settings is the primary source. See [MCP-USAGE.md](MCP-USAGE.md). |
 
 The Settings page is the primary MCP configuration surface. It supports per-server auth mechanisms: none, bearer token, and OAuth client credentials. Secrets are write-only in API responses: the backend reports whether a token or client secret is set, but does not echo secret values back to the browser.
-
-### MCP server runtime (`mcp_servers/*.py`)
-
-| Variable    | Default           | Description                              |
-| ----------- | ----------------- | ---------------------------------------- |
-| `TRANSPORT` | `streamable-http` | Transport: `streamable-http` or `stdio`. |
-| `HOST`      | `0.0.0.0`         | Bind host for MCP server.                |
-| `PORT`      | `9000`            | Bind port for MCP server.                |
 
 ---
 
@@ -350,8 +357,6 @@ ENABLE_RERANKER=true
 RERANK_MODEL_ID=cohere.rerank-v4.0-fast
 RERANK_TOP_N=5
 
-# MCP (semantic-search tools)
-MCP_SEARCH_MODE=vector
 ```
 
 See `.env.example` in the project root for all supported variables and comments.

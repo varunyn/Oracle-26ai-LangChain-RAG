@@ -1,5 +1,10 @@
 # Trace a Request (local + OCI)
 
+The standalone Oracle Knowledge MCP uses `service.name=oracle-knowledge-mcp`
+(the product API remains `rag-api`). Its traces contain only safe request IDs,
+friendly keys, limits, counts, timings, outcomes, and safe error type/code;
+query/document/provider payloads and raw collections are excluded.
+
 ## 1. Enable tracing
 
 - In `.env` set `ENABLE_OTEL_TRACING=true` (or export `ENABLE_OTEL_TRACING=1`).

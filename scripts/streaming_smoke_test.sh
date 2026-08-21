@@ -26,14 +26,27 @@ fi
 # Perform streaming request and capture output
 SMOKE_OUTPUT=$(mktemp)
 HEADER_FILE=$(mktemp)
+THREAD_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 
-if ! curl -N -X POST "${API_URL}/threads/smoke-thread/runs/stream" \
+cleanup() {
+    rm -f "$SMOKE_OUTPUT" "$HEADER_FILE"
+    curl -sS -X DELETE "${API_URL}/threads/${THREAD_ID}" > /dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+if ! curl -sS -X POST "${API_URL}/threads" \
     -H "Content-Type: application/json" \
-    -d '{"assistant_id":"chat_agent","input":{"messages":[{"type":"human","content":"Hello"}]},"stream_mode":["values"]}' \
+    -d "{\"thread_id\":\"${THREAD_ID}\"}" > /dev/null; then
+    echo -e "${RED}❌ Failed to create smoke-test thread${NC}"
+    exit 1
+fi
+
+if ! curl -N -X POST "${API_URL}/threads/${THREAD_ID}/runs/stream" \
+    -H "Content-Type: application/json" \
+    -d '{"assistant_id":"chat_agent","input":{"messages":[{"type":"human","content":"Reply with READY"}]},"context":{"mode":"direct"},"stream_mode":["values"]}' \
     --dump-header "$HEADER_FILE" \
     --max-time 30 2>/dev/null > "$SMOKE_OUTPUT"; then
     echo -e "${RED}❌ Streaming request failed${NC}"
-    rm -f "$SMOKE_OUTPUT" "$HEADER_FILE"
     exit 1
 fi
 
@@ -42,20 +55,15 @@ if ! grep -qi '^content-type: text/event-stream' "$HEADER_FILE"; then
     echo -e "${RED}❌ Missing required content type: text/event-stream${NC}"
     echo -e "${YELLOW}Response headers:${NC}"
     cat "$HEADER_FILE"
-    rm -f "$SMOKE_OUTPUT" "$HEADER_FILE"
     exit 1
 fi
 
 # Check stream emits LangGraph values events. Completion is stream close.
-if ! grep -q "^event: values$" "$SMOKE_OUTPUT"; then
+if ! grep -q "^event: values" "$SMOKE_OUTPUT"; then
     echo -e "${RED}❌ Stream did not emit a values event${NC}"
     echo -e "${YELLOW}Last 10 lines of stream output:${NC}"
     tail -10 "$SMOKE_OUTPUT"
-    rm -f "$SMOKE_OUTPUT" "$HEADER_FILE"
     exit 1
 fi
-
-# Clean up
-rm -f "$SMOKE_OUTPUT" "$HEADER_FILE"
 
 echo -e "${GREEN}✅ Streaming smoke test passed${NC}"

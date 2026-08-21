@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import time
@@ -9,16 +10,16 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import InjectedToolCallId, StructuredTool
 
+from src.rag_agent.application.oracle_knowledge import RetrievalCandidate
 from src.rag_agent.core.citations import citations_from_documents
-from src.rag_agent.infrastructure.db_utils import get_pooled_connection
+from src.rag_agent.infrastructure.db_utils import (
+    get_pooled_connection as _legacy_get_pooled_connection,
+)
 from src.rag_agent.infrastructure.oci_models import (
-    get_embedding_model,
     get_llm,
 )
-from src.rag_agent.infrastructure.oci_models import (
-    rerank_documents as oci_rerank_documents,
-)
-from src.rag_agent.infrastructure.retrieval import search_documents
+from src.rag_agent.infrastructure.oracle_knowledge import build_oracle_knowledge_service
+from src.rag_agent.infrastructure.retrieval import search_documents as _legacy_search_documents
 from src.rag_agent.prompts.runtime_agents import RAG_ANSWER_PROMPT_TEMPLATE
 
 from .llm_invocation import (
@@ -28,7 +29,11 @@ from .llm_invocation import (
 from .observability import extract_usage
 from .oracle_retrieval_evidence import OracleRetrievalEvidenceStore
 
+get_pooled_connection = _legacy_get_pooled_connection
+search_documents = _legacy_search_documents
+
 logger = logging.getLogger(__name__)
+ORACLE_RETRIEVAL_PUBLIC_ERROR = "knowledge backend unavailable"
 
 
 class OracleRetrievalErrorArtifact(TypedDict):
@@ -59,25 +64,16 @@ def build_oracle_retrieval_tool(
 
             started_at = time.perf_counter()
             top_k = max(1, int(getattr(get_settings(), "RAG_RETRIEVAL_TOP_K", 5) or 5))
-            pool_started_at = time.perf_counter()
-            with get_pooled_connection() as conn:
-                pool_ms = (time.perf_counter() - pool_started_at) * 1000
-                embed_started_at = time.perf_counter()
-                embed_model = get_embedding_model()
-                embed_client_ms = (time.perf_counter() - embed_started_at) * 1000
-                search_started_at = time.perf_counter()
-                docs = cast(
-                    list[Document],
-                    search_documents(
-                        conn=conn,
-                        collection_name=collection,
-                        embed_model=embed_model,
-                        query=query,
-                        top_k=top_k,
-                        search_mode="vector",
-                    ),
-                )
-                search_ms = (time.perf_counter() - search_started_at) * 1000
+            service = build_oracle_knowledge_service(get_settings(), collection_name=collection)
+            internal = asyncio.run(
+                service.retrieve_candidates(query, knowledge_base="chat", limit=top_k)
+            )
+            if internal.outcome == "backend_error":
+                raise RuntimeError(ORACLE_RETRIEVAL_PUBLIC_ERROR)
+            docs = [
+                Document(page_content=c.content, metadata=dict(c.metadata))
+                for c in internal.candidates
+            ]
             filter_started_at = time.perf_counter()
             filtered = filter_docs(query, docs)
             filter_ms = (time.perf_counter() - filter_started_at) * 1000
@@ -100,9 +96,9 @@ def build_oracle_retrieval_tool(
                 collection,
                 len(filtered),
                 top_k,
-                pool_ms,
-                embed_client_ms,
-                search_ms,
+                0.0,
+                0.0,
+                0.0,
                 filter_ms,
                 serialize_ms,
                 total_ms,
@@ -110,22 +106,28 @@ def build_oracle_retrieval_tool(
             artifact: OracleRetrievalArtifact = [*filtered]
             return serialized, artifact
         except Exception as exc:
-            message = str(exc) or exc.__class__.__name__
-            logger.exception(
-                "oracle_retrieval_failed collection=%s query_len=%d",
+            logger.error(
+                "oracle_retrieval_failed collection=%s query_len=%d error_type=%s",
                 collection,
                 len(query or ""),
+                type(exc).__name__,
             )
             evidence.record(
                 invocation_id=tool_call_id,
                 query=query,
                 documents=[],
-                error=message,
+                error=ORACLE_RETRIEVAL_PUBLIC_ERROR,
                 collection_name=collection,
             )
             return (
-                "Oracle retrieval failed while searching the knowledge base. " f"Error: {message}",
-                [{"type": "oracle_retrieval_error", "error": message}],
+                "Oracle retrieval failed while searching the knowledge base. "
+                f"Error: {ORACLE_RETRIEVAL_PUBLIC_ERROR}",
+                [
+                    {
+                        "type": "oracle_retrieval_error",
+                        "error": ORACLE_RETRIEVAL_PUBLIC_ERROR,
+                    }
+                ],
             )
 
     tool = StructuredTool.from_function(
@@ -143,27 +145,20 @@ def retrieve_oracle_docs(*, query: str, collection_name: str | None, k: int) -> 
 
     search_mode = str(get_settings().RAG_SEARCH_MODE or "vector").strip().lower()
 
-    with get_pooled_connection() as conn:
-        embed_model = get_embedding_model()
-        docs = cast(
-            list[Document],
-            search_documents(
-                conn=conn,
-                collection_name=collection,
-                embed_model=embed_model,
-                query=query,
-                top_k=k,
-                search_mode=search_mode,
-            ),
+    service = build_oracle_knowledge_service(
+        get_settings(), enable_reranker=False, collection_name=collection
+    )
+    internal = asyncio.run(service.retrieve_candidates(query, knowledge_base="chat", limit=k))
+    if internal.outcome == "backend_error":
+        raise RuntimeError(ORACLE_RETRIEVAL_PUBLIC_ERROR)
+    docs = [
+        Document(page_content=c.content, metadata=dict(c.metadata)) for c in internal.candidates
+    ]
+    if docs:
+        logger.info(
+            "rag_retrieval mode=%s collection=%s docs=%d", search_mode, collection, len(docs)
         )
-        if docs:
-            logger.info(
-                "rag_retrieval mode=%s collection=%s docs=%d",
-                search_mode,
-                collection,
-                len(docs),
-            )
-            return docs
+        return docs
 
     logger.warning("rag_retrieval_no_docs collection=%s query_len=%d", collection, len(query or ""))
     return []
@@ -234,9 +229,22 @@ def rerank_retrieved_docs(
     if enable_reranker is not True:
         return docs
     try:
-        return cast(list[Document], oci_rerank_documents(query, docs))
-    except Exception:
-        logger.exception("oci_rerank_failed docs=%d query_len=%d", len(docs), len(query or ""))
+        from api.settings import get_settings
+
+        settings = get_settings()
+        service = build_oracle_knowledge_service(settings, enable_reranker=True)
+        candidates = [RetrievalCandidate(doc.page_content, dict(doc.metadata)) for doc in docs]
+        ranked, status = asyncio.run(service.rerank_candidates(query, candidates, enabled=True))
+        if status == "failed":
+            return filter_retrieved_docs(query, docs)
+        return [Document(page_content=c.content, metadata=dict(c.metadata)) for c, _score in ranked]
+    except Exception as exc:
+        logger.error(
+            "oci_rerank_failed docs=%d query_len=%d error_type=%s",
+            len(docs),
+            len(query or ""),
+            type(exc).__name__,
+        )
         return filter_retrieved_docs(query, docs)
 
 

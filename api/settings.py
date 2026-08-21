@@ -156,6 +156,63 @@ class Settings(BaseSettings):
     RERANK_MAX_TOKENS_PER_DOCUMENT: int | None = None
 
     # =============================================================================
+    # ORACLE KNOWLEDGE MCP (friendly keys are the only public identifiers)
+    # =============================================================================
+    ORACLE_KNOWLEDGE_BASES: dict[str, str] = Field(
+        default_factory=lambda: {"default": "RAG_KNOWLEDGE_BASE"}
+    )
+    ORACLE_KNOWLEDGE_ALLOWED_KEYS: list[str] | None = None
+    ORACLE_KNOWLEDGE_DEFAULT_KEY: str = "default"
+    ORACLE_KNOWLEDGE_CANDIDATE_LIMIT: int = Field(default=20, ge=1, le=100)
+    ORACLE_KNOWLEDGE_MAX_QUERY_LENGTH: int = Field(default=8192, ge=1, le=100000)
+    ORACLE_KNOWLEDGE_MAX_RESULT_LIMIT: int = Field(default=50, ge=1, le=100)
+    ORACLE_KNOWLEDGE_MAX_METADATA_FILTERS: int = Field(default=8, ge=0, le=32)
+    ORACLE_KNOWLEDGE_MAX_CANDIDATE_LIMIT: int = Field(default=100, ge=1, le=100)
+    ORACLE_KNOWLEDGE_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0.0, le=300.0)
+    ORACLE_KNOWLEDGE_ENABLE_RERANKER: bool = True
+    ORACLE_KNOWLEDGE_ALLOW_RERANKER_OVERRIDE: bool = False
+    ORACLE_KNOWLEDGE_ENABLE_OTEL_TRACING: bool = False
+
+    @field_validator("ORACLE_KNOWLEDGE_BASES", mode="before")
+    @classmethod
+    def _parse_oracle_knowledge_bases(cls, v: object) -> dict[str, str]:
+        if isinstance(v, dict):
+            return {
+                str(k).strip(): str(value).strip()
+                for k, value in v.items()
+                if str(k).strip() and str(value).strip()
+            }
+        if isinstance(v, str) and v.strip().startswith("{"):
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, dict):
+                    return {
+                        str(k).strip(): str(value).strip()
+                        for k, value in parsed.items()
+                        if str(k).strip() and str(value).strip()
+                    }
+            except Exception:
+                pass
+        return {"default": "RAG_KNOWLEDGE_BASE"}
+
+    @field_validator("ORACLE_KNOWLEDGE_ALLOWED_KEYS", mode="before")
+    @classmethod
+    def _parse_oracle_knowledge_allowed_keys(cls, v: object) -> list[str] | None:
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return [str(item).strip() for item in v if str(item).strip()] or None
+        value = str(v).strip()
+        if value.startswith("["):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return [str(item).strip() for item in parsed if str(item).strip()] or None
+            except Exception:
+                pass
+        return [item.strip() for item in value.split(",") if item.strip()] or None
+
+    # =============================================================================
     # UI
     # =============================================================================
     ENABLE_USER_FEEDBACK: bool = True
@@ -216,7 +273,6 @@ class Settings(BaseSettings):
             return None
         return [k.strip() for k in s.split(",") if k.strip()] or None
 
-    MCP_SEARCH_MODE: str = "vector"
     MCP_MAX_ROUNDS: int = 4
     MCP_UI_CONFIG_FILE: str = ".local-data/mcp_servers.json"
     MCP_CONNECTION_TEST_TIMEOUT_SECONDS: float = 8.0
@@ -233,7 +289,7 @@ class Settings(BaseSettings):
     MCP_REPEATED_WORKFLOW_CONTROLLER: bool = True
     MCP_WORKFLOW_POLICY: str | dict[str, object] = Field(default_factory=dict)
 
-    @field_validator("RAG_SEARCH_MODE", "MCP_SEARCH_MODE", mode="before")
+    @field_validator("RAG_SEARCH_MODE", mode="before")
     @classmethod
     def _parse_search_mode(cls, v: object) -> str:
         mode = str(v or "vector").strip().lower()
@@ -279,9 +335,17 @@ class Settings(BaseSettings):
                 pass
         return {}
 
-    TRANSPORT: str = "streamable-http"  # "streamable-http" | "stdio"
-    HOST: str = "0.0.0.0"
-    PORT: int = 9000
+    ORACLE_KNOWLEDGE_TRANSPORT: str = "stdio"
+    ORACLE_KNOWLEDGE_HOST: str = "127.0.0.1"
+    ORACLE_KNOWLEDGE_PORT: int = Field(default=9000, ge=1, le=65535)
+
+    @field_validator("ORACLE_KNOWLEDGE_TRANSPORT", mode="before")
+    @classmethod
+    def _validate_oracle_knowledge_transport(cls, value: object) -> str:
+        transport = str(value or "stdio").strip().lower()
+        if transport not in {"stdio", "streamable-http"}:
+            raise ValueError("ORACLE_KNOWLEDGE_TRANSPORT must be stdio or streamable-http")
+        return transport
 
     # =============================================================================
     # APM / OpenTelemetry (optional)

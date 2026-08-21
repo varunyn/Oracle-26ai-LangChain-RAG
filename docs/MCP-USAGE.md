@@ -4,7 +4,7 @@ This project supports MCP in two ways:
 
 | Role                       | Description                                                                                                                                                                                                                     |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Exposing an MCP server** | This repo runs MCP servers (e.g. `mcp_servers/mcp_semantic_search.py`) that expose tools (semantic search, list collections). Other clients—Next.js UI or external apps—call these servers.                                     |
+| **Exposing an MCP server** | This repo exposes the standalone Oracle Knowledge MCP with three typed evidence tools. Other clients call this server. |
 | **Consuming MCP**          | The LangGraph `chat_agent` graph acts as an **MCP client**: it connects to one or more configured MCP server URLs, loads tools from those servers, and lets the LLM use them during chat. |
 
 The sections below are split by **exposing** vs **consuming**.
@@ -13,32 +13,30 @@ The sections below are split by **exposing** vs **consuming**.
 
 ## Part 1: Exposing an MCP server (this project)
 
-You can run MCP servers from this repo so that the RAG app (or any MCP client) can call their tools.
+For Oracle-backed evidence retrieval, see [ORACLE-KNOWLEDGE-MCP.md](ORACLE-KNOWLEDGE-MCP.md).
+That server exposes exactly three typed tools and accepts friendly knowledge-base
+keys only; answer synthesis and citation presentation remain with the caller.
 
-### Available MCP servers
+Run the Oracle Knowledge MCP from this repo so the RAG app or any MCP client can call typed evidence tools.
 
-| File                                 | Transport  | Description                                               |
-| ------------------------------------ | ---------- | --------------------------------------------------------- |
-| `mcp_servers/mcp_semantic_search.py` | HTTP/Stdio | Semantic search + collections (set `TRANSPORT` in config) |
-| `mcp_servers/mcp_rag_server.py`      | HTTP/Stdio | Full RAG pipeline as `rag_ask` tool                       |
+### Oracle Knowledge MCP
 
-### Tools exposed by the semantic search server
-
-1. **`semantic_search`** – Search for relevant documents
-   - Parameters: `query` (required), `top_k` (default: 5), `collection_name` (optional), `search_mode` (optional; only `vector` is currently supported)
-2. **`get_collections`** – List all available collections
-3. **`list_documents_in_collection`** – List documents in a collection
-   - Parameters: `collection_name` (optional)
+`mcp_servers/oracle_knowledge.py` exposes exactly `search_knowledge`,
+`list_knowledge_bases`, and `list_documents`. It accepts friendly keys only,
+supports STDIO and Streamable HTTP, and leaves final answers/citations to the
+caller. See [ORACLE-KNOWLEDGE-MCP.md](ORACLE-KNOWLEDGE-MCP.md).
 
 ### Quick start: run the MCP server, then the UI
 
-1. **Start the MCP server** (exposing tools):
+1. **Start the Streamable HTTP profile**:
 
    ```bash
-    uv run python mcp_servers/mcp_semantic_search.py
+   ORACLE_KNOWLEDGE_TRANSPORT=streamable-http \
+     ORACLE_KNOWLEDGE_HOST=127.0.0.1 \
+     uv run python mcp_servers/oracle_knowledge.py
    ```
 
-   Server listens on `http://localhost:9000` by default (or `PORT` from config). This is the standalone MCP server runtime. The backend's MCP client configuration is separate and is normally managed from the frontend Settings page.
+   Configure the remaining namespaced `ORACLE_KNOWLEDGE_*` settings first. The backend's MCP client configuration remains separate and is normally managed from the frontend Settings page. For STDIO, leave `ORACLE_KNOWLEDGE_TRANSPORT=stdio` and configure the client to launch the same Python command.
 
 2. **Start the LangGraph Agent Server and frontend** with `make core-up`, then use the Next.js frontend to chat with MCP tools (see below).
 
@@ -53,27 +51,15 @@ from fastmcp import Client
 async def test():
     client = Client("http://localhost:9000/mcp")
     async with client:
-        result = await client.call_tool(
-            "semantic_search",
-            {"query": "Oracle 23AI", "top_k": 5, "search_mode": "vector"}
-        )
+        result = await client.call_tool("search_knowledge", {"query": "Oracle 23AI"})
         print(result)
 
 asyncio.run(test())
 ```
 
-Or use the manual scripts (no pytest):  
-`uv run python tests/run_mcp_semantic_search.py`,  
-`uv run python tests/run_mcp_list_collection.py`,  
-`uv run python tests/run_mcp_rag.py` (for the standalone RAG MCP server),
-
-**cURL:**
-
-```bash
-curl -X POST http://localhost:9000/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | python -m json.tool
-```
+Use an MCP client for protocol smoke tests; Streamable HTTP requires MCP
+initialization and session headers, so a standalone JSON-RPC cURL request is
+insufficient.
 
 ---
 
@@ -104,7 +90,7 @@ MCP_SERVERS_CONFIG={"default":{"transport":"streamable-http","url":"http://local
 #### Which servers and tools load
 
 - **Servers**: `MCP_SERVER_KEYS` (optional) limits which configured server keys are connected when loading tools. The request may also pass `mcp_server_keys` (same idea). This does not choose `mode`; it only filters which MCP endpoints are used.
-- **Tools**: Tools come from `langchain_mcp_adapters.MultiServerMCPClient.get_tools()` (see `src/rag_agent/infrastructure/mcp_adapter_runtime.py`). Server names are prefixed on tool names when `tool_name_prefix=True` (e.g. `default.semantic_search`).
+- **Tools**: Tools come from `langchain_mcp_adapters.MultiServerMCPClient.get_tools()` (see `src/rag_agent/infrastructure/mcp_adapter_runtime.py`). Server names are prefixed on tool names when `tool_name_prefix=True` (for example, `default.search_knowledge`).
 
 - Set which configured servers to load via `MCP_SERVER_KEYS` (optional; if unset, defaults follow `mcp_adapter_runtime._select_server_keys`, typically `"default"` when present).
 
@@ -145,10 +131,9 @@ The backend fetches and refreshes the bearer token automatically and injects it 
 | `MCP_SERVERS_CONFIG` | **Consuming** | Optional seed/headless dict of MCP server names → `{ "transport", "url", "auth" }`. Settings is the primary UI-managed source. |
 | `MCP_SERVER_KEYS`    | **Consuming** | Optional list of configured server keys to load.       |
 | `ENABLE_MCP_TOOLS`   | **Consuming** | If True, RAG chat attaches MCP tools from config; if False, MCP is disabled for chat.      |
-| `MCP_SEARCH_MODE`    | **Consuming** | Default semantic-search mode for MCP servers in this repo. Only `vector` is currently supported. |
-| `PORT`               | **Exposing**  | Port for this project’s MCP server (e.g. `mcp_semantic_search.py`).                        |
-| `HOST`               | **Exposing**  | Listen address for this project’s MCP server.                                              |
-| `TRANSPORT`          | **Exposing**  | `"streamable-http"` or `"stdio"` for the server.                                           |
+| `ORACLE_KNOWLEDGE_TRANSPORT` | **Exposing** | `stdio` or `streamable-http` for the Oracle Knowledge MCP. |
+| `ORACLE_KNOWLEDGE_HOST` | **Exposing** | Bind address for Streamable HTTP; loopback by default. |
+| `ORACLE_KNOWLEDGE_PORT` | **Exposing** | Streamable HTTP port. |
 
 ---
 
@@ -214,11 +199,11 @@ flowchart TD
 ## Common issues
 
 - **404 in browser**: MCP servers are APIs, not web pages. Use the UI or test scripts.
-- **Connection refused**: Ensure the MCP server you are **consuming** is running and the URL in Settings or optional seed config is correct. If you are **exposing**, check `PORT` and `HOST` in config.
+- **Connection refused**: Ensure the MCP server you are consuming is running and the URL in Settings or optional seed config is correct. For the Oracle Knowledge HTTP profile, check the namespaced host/port settings and `/mcp` endpoint.
 - **Tools not appearing**: Confirm `ENABLE_MCP_TOOLS=true`, add or enable the server in Settings, and use **Test connection**. Restart the backend only after changing `.env`.
 - **Wrong URL path**: MCP HTTP servers use the `/mcp` path (example: `http://localhost:9000/mcp`).
 - **Import errors**: Activate the virtual environment and install dependencies (e.g. `uv sync`).
-- **Database errors**: Check database connection settings in `.env` (used by the semantic search MCP server).
+- **Database errors**: Check the Oracle connection, wallet, friendly-key mapping, and OCI embedding settings in `.env`.
 
 ---
 

@@ -11,7 +11,7 @@ This file is local-only orientation for Codex work in this repo. The closest `AG
 | `src/rag_agent/infrastructure/` | Oracle/OCI, MCP adapters/config, retrieval, model integrations         | `uv run python ...`                     |
 | `api/`                          | FastAPI product APIs mounted into the LangGraph Agent Server           | `uv run langgraph dev`                  |
 | `frontend/`                     | Next.js 16/React 19 chat and Settings UI                               | `cd frontend && pnpm dev`               |
-| `mcp_servers/`                  | Standalone FastMCP semantic-search and RAG servers                     | `uv run python mcp_servers/<server>.py` |
+| `mcp_servers/`                  | Standalone Oracle Knowledge evidence-retrieval MCP server             | `uv run python mcp_servers/oracle_knowledge.py` |
 | `docs/` and `docs-site/`        | Markdown source and Astro/ReallySimpleDocs site                        | `cd docs-site && npm run dev`           |
 | `observability/`                | Grafana, Tempo, Loki, OTEL, and Langfuse stack configuration           | `make observability-up`                 |
 | `scripts/`                      | Ingestion, database, stack, API-doc, smoke, and release utilities      | `uv run python scripts/<name>.py`       |

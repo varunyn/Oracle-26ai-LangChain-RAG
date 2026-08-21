@@ -86,3 +86,13 @@ ENV PATH="/app/.venv/bin:$PATH"
 USER appuser
 
 CMD ["python", "scripts/ingest_documents.py", "--help"]
+
+FROM base-runner AS oracle-knowledge-runner
+COPY --from=langgraph-builder /app/.venv /app/.venv
+COPY --from=langgraph-builder --chown=appuser:appgroup /app/api /app/api
+COPY --from=langgraph-builder --chown=appuser:appgroup /app/src /app/src
+COPY --from=langgraph-builder --chown=appuser:appgroup /app/mcp_servers /app/mcp_servers
+ENV PATH="/app/.venv/bin:$PATH"
+EXPOSE 9000
+USER appuser
+CMD ["python", "mcp_servers/oracle_knowledge.py"]

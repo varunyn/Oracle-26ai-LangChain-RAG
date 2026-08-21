@@ -3,9 +3,6 @@
 Configuration for when this app **consumes** MCP (acts as an MCP client).
 
 Use this only for: RAG Answer node calling external MCP servers to get tools.
-When this app **runs as** an MCP server (mcp_servers/*.py), TRANSPORT and PORT
-come from .env / get_settings().
-
 Settings (env or .env): ENABLE_MCP_TOOLS, optional MCP_SERVER_KEYS, optional
 MCP_SERVERS_CONFIG seed config, and legacy global MCP auth. UI-managed MCP
 server config is stored at MCP_UI_CONFIG_FILE. See docs/CONFIGURATION.md.

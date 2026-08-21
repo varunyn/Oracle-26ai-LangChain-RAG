@@ -1,7 +1,7 @@
 """
 Prompt constants for MCP agent.
 
-Prompts are for direct LangChain tool binding (no code-mode generation path).
+Prompts are for direct LangChain tool binding.
 Tool list is injected at runtime from loaded MCP tools.
 """
 

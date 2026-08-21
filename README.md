@@ -75,7 +75,7 @@ The graph id is `chat_agent`, and `langgraph.json` keeps FastAPI mounted through
 | `src/rag_agent/infrastructure/` | OCI, Oracle vector search, MCP adapter, and model/tool integrations                            |
 | `api/`                          | FastAPI product APIs for config, documents, feedback, suggestions, and health, mounted into the LangGraph Agent Server |
 | `frontend/`                     | Next.js app; `src/app`, `src/components`, and `src/lib` chat/config/types                      |
-| `mcp_servers/`                  | MCP servers for RAG, semantic search, and minimal local tools                                  |
+| `mcp_servers/`                  | Independent Oracle Knowledge MCP evidence-retrieval server                                |
 | `scripts/`                      | Document population, database/table utilities, stack management, and API doc sync              |
 | `tests/`                        | Unit, workflow, integration, and manual run scripts                                            |
 | `docs/`                         | Setup, MCP usage, tracing, OCI, database, and generated API documentation                      |
@@ -341,7 +341,7 @@ uv run python scripts/ingest_documents.py --dir ./documents
 
 The application includes **MCP server** support, allowing LLM agents to interact with the vector database through standardized tools. This enables external agents (like Claude Desktop, custom LLM applications) to perform semantic search and query your knowledge base.
 
-### MCP User Flow
+### Oracle Knowledge MCP User Flow
 
 ```mermaid
 sequenceDiagram
@@ -357,7 +357,7 @@ sequenceDiagram
     Client->>Server: list_tools()
     Server-->>Client: Tool Schemas
 
-    LLM->>Client: Call semantic_search(query, search_mode)
+    LLM->>Client: Call search_knowledge(query, knowledge_base)
     Client->>Server: POST /mcp/
 
     Server->>Embed: Generate Embeddings
@@ -372,26 +372,21 @@ sequenceDiagram
 
 ### MCP Tools
 
-The MCP server exposes three main tools:
+The Oracle Knowledge MCP server exposes exactly three typed tools:
 
-1. **`semantic_search`** - Search for relevant documents
-   - Parameters: `query`, `top_k`, `collection_name` (optional), `search_mode` (optional; only `vector` is currently supported)
-   - Returns: Relevant document chunks with metadata
+- **`search_knowledge`** — bounded evidence retrieval using a friendly knowledge-base key.
+- **`list_knowledge_bases`** — list deployment-allowed friendly keys.
+- **`list_documents`** — discover documents without exposing raw collections.
 
-2. **`get_collections`** - List available collections
-   - Returns: List of vector table names in the database
-
-3. **`list_documents_in_collection`** - List documents in a collection
-   - Parameters: `collection_name` (optional)
-   - Returns: List of unique document sources with chunk counts
-
-The **RAG MCP server** (`mcp_rag_server.py`) exposes **`rag_ask`** for full RAG (query → search → rerank → answer with citations).
+The caller owns answer synthesis and citation presentation. See
+[`docs/ORACLE-KNOWLEDGE-MCP.md`](docs/ORACLE-KNOWLEDGE-MCP.md) for setup,
+outcomes, limits, transports, and deployment guidance.
 
 ### Using MCP
 
 This repo supports MCP in two distinct ways:
 
-1. **Expose standalone MCP servers** from `mcp_servers/` such as `mcp_semantic_search.py` and `mcp_rag_server.py`.
+1. **Expose the standalone Oracle Knowledge MCP** from `mcp_servers/oracle_knowledge.py`.
 2. **Consume MCP servers inside the app** through the LangGraph `chat_agent` graph with `mode="mcp"` or `mode="mixed"` in run context.
 
 See [`docs/MCP-USAGE.md`](docs/MCP-USAGE.md) for the detailed usage guide.
@@ -431,7 +426,7 @@ User: "What is Oracle 23AI?"
 - [Docker setup](docs/DOCKER-SETUP.md) – Run services with Docker/compose
 - [Database setup](docs/DATABASE-SETUP.md) – Vector DB and wallet configuration
 - [Document population](docs/DOCUMENT-POPULATION.md) – Ingesting documents into the knowledge base
-- [MCP usage](docs/MCP-USAGE.md) – Using MCP tools and RAG MCP server
+- [MCP usage](docs/MCP-USAGE.md) – Using the Oracle Knowledge MCP and consuming-side MCP tools
 - [OCI session token](docs/OCI-SESSION-TOKEN.md) – OCI session token auth
 - [Tracing](docs/TRACING.md) – Observability and tracing
 - [Observability routing](docs/OBSERVABILITY_ROUTING.md) – Combining local Grafana/Tempo, OCI APM, and OCI Logging Analytics

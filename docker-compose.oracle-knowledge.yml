@@ -1,0 +1,41 @@
+services:
+  oracle-knowledge-mcp:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: oracle-knowledge-runner
+    image: custom-rag-agent-oracle-knowledge:latest
+    ports:
+      - "127.0.0.1:${ORACLE_KNOWLEDGE_PORT:-9000}:9000"
+    environment:
+      ORACLE_KNOWLEDGE_TRANSPORT: streamable-http
+      ORACLE_KNOWLEDGE_HOST: 0.0.0.0
+      ORACLE_KNOWLEDGE_PORT: 9000
+      VECTOR_WALLET_DIR: /app/wallet
+      OCI_KEY_FILE: /run/secrets/oci_api_key
+      OCI_CONFIG_FILE: /app/local-config/oci/config
+      OTEL_SERVICE_NAME: oracle-knowledge-mcp
+      ENABLE_OTEL_TRACING: ${ORACLE_KNOWLEDGE_ENABLE_OTEL_TRACING:-false}
+      OTEL_TRACES_ENDPOINT: http://host.docker.internal:4318/v1/traces
+      OTEL_LOGS_ENDPOINT: http://host.docker.internal:4318/v1/logs
+    env_file:
+      - .env
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./local-config:/app/local-config:ro
+      - ./local-config/wallet:/app/wallet:ro
+    secrets:
+      - oci_api_key
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health/ready', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+secrets:
+  oci_api_key:
+    file: ./local-config/oci_api_key.pem

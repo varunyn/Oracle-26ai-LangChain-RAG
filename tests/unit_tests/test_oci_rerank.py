@@ -70,6 +70,40 @@ def test_rerank_documents_uses_oci_rerank_text(monkeypatch) -> None:
     assert details.serving_mode.model_id == "cohere.rerank-v4.0-fast"
 
 
+def test_scored_rerank_preserves_provider_scores_and_missing_scores(monkeypatch) -> None:
+    docs = [Document(page_content="a"), Document(page_content="b")]
+
+    class Rank:
+        def __init__(self, index, score):
+            self.index, self.relevance_score = index, score
+
+    class Client:
+        def rerank_text(self, details):
+            return type(
+                "Response",
+                (),
+                {"data": type("Data", (), {"document_ranks": [Rank(1, 0.87), Rank(0, None)]})()},
+            )()
+
+    monkeypatch.setattr(oci_models, "_get_rerank_client", lambda: Client())
+    monkeypatch.setattr(
+        oci_models,
+        "get_settings",
+        lambda: SimpleNamespace(
+            RERANK_TOP_N=2,
+            RERANK_DEDICATED_ENDPOINT_ID=None,
+            RERANK_MODEL_ID="model",
+            RERANK_MAX_CHUNKS_PER_DOCUMENT=None,
+            RERANK_MAX_TOKENS_PER_DOCUMENT=None,
+            COMPARTMENT_ID="compartment",
+        ),
+    )
+    monkeypatch.setattr(oci_models, "_get_rerank_serving_mode", lambda: object())
+    scored = oci_models.rerank_documents_with_scores("query", docs)
+    assert scored[0][0] is docs[1] and scored[0][1] == 0.87
+    assert scored[1][0] is docs[0] and scored[1][1] is None
+
+
 def test_rerank_documents_uses_dedicated_endpoint_when_configured(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

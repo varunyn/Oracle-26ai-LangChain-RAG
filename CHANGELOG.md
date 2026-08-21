@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 - 2026-08-21
+
+- Replaced the legacy standalone semantic-search and full-RAG MCP contracts with the independent Oracle Knowledge MCP exposing `search_knowledge`, `list_knowledge_bases`, and `list_documents`.
+- Added friendly-key allowlisting, typed outcomes, bounded retrieval/reranking, Streamable HTTP and STDIO deployment profiles, readiness probes, safe observability, and deployment-profile validation.
+- Removed legacy `semantic_search`, collection-listing, `list_documents_in_collection`, `rag_ask`, code-mode, and manual-only MCP paths.
+- Fixed live Oracle Vector retrieval to omit empty metadata filters instead of sending `filter={}`, which the provider interprets as a filtering expression and can turn valid searches into false no-hit results.
+- Applied the Oracle Knowledge-specific reranker setting and hardened public MCP/chat failure boundaries so rejected collection identifiers and provider exception details cannot reach tool results, evidence artifacts, telemetry, or model-visible error text.
+- Updated the release streaming smoke test to create and clean up a valid UUID Agent Server thread and to accept CRLF-terminated SSE event lines.
+
 ## 2026-08-20
 
 - Upgraded the LangGraph Agent Server runtime from `langgraph-api` 0.10.0 to 0.12.6, including its resolved in-memory runtime and command-line dependencies. Aligned the directly pinned OpenTelemetry packages to the API-required 1.37/0.58 series and updated logging imports for that SDK's `LogData` handler interface.

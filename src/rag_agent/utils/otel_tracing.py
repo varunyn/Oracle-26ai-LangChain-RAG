@@ -135,7 +135,7 @@ def _get_traces_headers() -> dict[str, str] | None:
     return None
 
 
-def setup_otel_tracing_early() -> bool:
+def setup_otel_tracing_early(service_name: str = "rag-api") -> bool:
     """Create TracerProvider and set it globally before any LangChain runtime import.
 
     Call this in api/main.py before importing routers so agent_graph.invoke() and
@@ -161,7 +161,7 @@ def setup_otel_tracing_early() -> bool:
             os.environ["LANGSMITH_TRACING"] = "true"
             os.environ["LANGSMITH_OTEL_ONLY"] = "true"
 
-            resource = Resource.create({SERVICE_NAME: "rag-api"})
+            resource = Resource.create({SERVICE_NAME: service_name})
             # shutdown_on_exit=False avoids blocking process exit when OTLP endpoint is slow/unreachable
             provider = TracerProvider(resource=resource, shutdown_on_exit=False)
             if OTLPSpanExporter is None:
@@ -188,7 +188,11 @@ def setup_otel_tracing_early() -> bool:
             return False
 
 
-def setup_otel_tracing(app: FastAPI | None = None, exporter: SpanExporter | None = None) -> bool:
+def setup_otel_tracing(
+    app: FastAPI | None = None,
+    exporter: SpanExporter | None = None,
+    service_name: str = "rag-api",
+) -> bool:
     """Initialize or complete OpenTelemetry tracing (FastAPI + Requests instrumentation).
 
     If setup_otel_tracing_early() was called, reuses that provider and only adds
@@ -213,7 +217,7 @@ def setup_otel_tracing(app: FastAPI | None = None, exporter: SpanExporter | None
             provider = _EARLY_PROVIDER
             if provider is None:
                 # No early setup: create provider and exporter
-                resource = Resource.create({SERVICE_NAME: "rag-api"})
+                resource = Resource.create({SERVICE_NAME: service_name})
                 provider = TracerProvider(resource=resource, shutdown_on_exit=False)
                 trace.set_tracer_provider(provider)
                 if exporter is None:
@@ -253,7 +257,7 @@ def setup_otel_tracing(app: FastAPI | None = None, exporter: SpanExporter | None
 
             _patch_langsmith_otel_metadata()
             _INITIALIZED = True
-            _logger.info("OpenTelemetry tracing initialized (service.name=rag-api)")
+            _logger.info("OpenTelemetry tracing initialized (service.name=%s)", service_name)
             return True
         except Exception as e:  # noqa: BLE001
             _logger.warning("Failed to initialize OpenTelemetry tracing (non-fatal): %s", e)

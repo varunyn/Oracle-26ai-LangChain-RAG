@@ -21,7 +21,7 @@ describe("frontend stream message contract", () => {
       tool_calls: [
         {
           id: "call-1",
-          name: "semantic_search",
+          name: "knowledge_lookup",
           args: { query: "Oracle 26ai" },
         },
       ],

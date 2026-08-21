@@ -209,7 +209,7 @@ def get_llm(
     if use_profile and profile and auth_file_location:
         llm_kwargs["auth_profile"] = profile
         llm_kwargs["auth_file_location"] = auth_file_location
-        logger.info("Using OCI profile: %s from %s", profile, auth_file_location)
+        logger.info("Using OCI profile: %s for chat authentication", profile)
 
     llm = OCIChatModel(**llm_kwargs)
     logger.info("OCI Gen AI via ChatOCIGenAI (profile=%s, model=%s)", profile, model_id)
@@ -254,11 +254,7 @@ def get_embedding_model(model_type: str = "OCI") -> OCIGenAIEmbeddings:
     if use_profile and profile and auth_file_location:
         embed_kwargs["auth_profile"] = profile
         embed_kwargs["auth_file_location"] = auth_file_location
-        logger.info(
-            "Using OCI profile: %s for embeddings from %s",
-            profile,
-            embed_kwargs["auth_file_location"],
-        )
+        logger.info("Using OCI profile: %s for embeddings", profile)
 
     embed_model = OCIGenAIEmbeddings(**embed_kwargs)
     logger.info("Embedding model is: %s", get_settings().EMBED_MODEL_ID)
@@ -291,15 +287,15 @@ def _get_rerank_client() -> GenerativeAiInferenceClient:
     return GenerativeAiInferenceClient(**client_kwargs)
 
 
-def rerank_documents(
+def rerank_documents_with_scores(
     query: str,
     docs: list[Document],
     *,
     top_n: int | None = None,
-) -> list[Document]:
+) -> list[tuple[Document, float | None]]:
     """Rerank LangChain documents with OCI Generative AI Inference rerankText."""
     if not query.strip() or not docs:
-        return docs
+        return [(doc, None) for doc in docs]
 
     settings = get_settings()
     configured_top_n = top_n if top_n is not None else int(settings.RERANK_TOP_N)
@@ -342,16 +338,19 @@ def rerank_documents(
         response = _get_rerank_client().rerank_text(details)
         data = getattr(response, "data", None)
         ranks = getattr(data, "document_ranks", None) or []
-        ordered: list[tuple[float, Document]] = []
+        ordered: list[tuple[float | None, Document]] = []
         seen: set[int] = set()
         for rank in ranks:
             index = getattr(rank, "index", None)
             if not isinstance(index, int) or index < 0 or index >= len(docs) or index in seen:
                 continue
-            score = float(getattr(rank, "relevance_score", 0.0) or 0.0)
+            raw_score = getattr(rank, "relevance_score", None)
+            score = float(raw_score) if isinstance(raw_score, (int, float)) else None
             ordered.append((score, docs[index]))
             seen.add(index)
-        ordered.sort(key=lambda item: item[0], reverse=True)
+        ordered.sort(
+            key=lambda item: item[0] if item[0] is not None else float("-inf"), reverse=True
+        )
         reranked = [doc for _, doc in ordered[:limit]]
 
         output_docs = len(reranked)
@@ -369,7 +368,14 @@ def rerank_documents(
             limit,
             extra={"otel_attributes": log_attributes},
         )
-        return reranked
+        return [(doc, score) for score, doc in ordered[:limit]]
+
+
+def rerank_documents(
+    query: str, docs: list[Document], *, top_n: int | None = None
+) -> list[Document]:
+    """Return the existing unscored document projection of scored reranking."""
+    return [doc for doc, _score in rerank_documents_with_scores(query, docs, top_n=top_n)]
 
 
 def get_oracle_vs(
