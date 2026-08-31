@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-31
+
+- Raised the local Langfuse ClickHouse defaults to 2 CPUs and 8 GB of memory and documented the required Docker/Colima VM headroom, preventing background merge retry loops under the former 1 CPU/2 GB cap.
+- Upgraded the self-hosted Langfuse web and worker images from 4.1.0 to 4.25.0 and the Python SDK from 4.14.1 to 4.14.4. OpenTelemetry resources now carry the configured deployment environment so LangSmith-exported spans no longer appear in Langfuse's `default` environment.
+
 ## 0.3.0 - 2026-08-21
 
 - Replaced the legacy standalone semantic-search and full-RAG MCP contracts with the independent Oracle Knowledge MCP exposing `search_knowledge`, `list_knowledge_bases`, and `list_documents`.
@@ -29,6 +34,10 @@
 - Completed durable recipe-store validation for Tickets 04–05: 106 focused tests and 5 live Agent Server MCP/mixed tests passed; MCP SSE returned `42`, mixed SSE returned retrieval plus calculator output with 2 citations, and static `mcp_compose` interruption resumed. A local process restart against the same checkpoint database resumed composition with a stable terminal ID, cleared lease, retained checkpoint links, and local-dev ephemeral thread-catalog recreation under the same ID; this is not a production restart guarantee. Langfuse trace `aced01a5a7d6770577b0378503fd632f` preserved the expected `chat_agent -> mcp_setup -> mcp_agent -> call_llm -> calculator_basic_arithmetic -> call_llm -> mcp_compose` hierarchy with all four IO-marker scans false.
 - Final audit hardening delivered a reducer-safe single stable terminal answer, off-thread reranking under lease heartbeat, a secret-free MCP compatibility digest, reusable OAuth providers, and cancellation-safe MCP client eviction; final validation was 276 passed/20 skipped plus 5 live tests, including reranker-enabled mixed live success.
 - Increased the RAG-mode retrieval candidate count from five to ten so reranking and answer synthesis have a broader set of Oracle documentation excerpts.
+
+## 2026-08-17
+
+- Completed the self-hosted Langfuse v4 migration in `events_only` mode without a historic v3 backfill; preserved legacy tables as an archive while new traces use the v4 observations data model.
 
 ## 2026-08-05
 

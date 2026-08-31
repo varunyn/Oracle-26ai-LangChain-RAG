@@ -11,13 +11,13 @@ cp observability/langfuse/.env.example observability/langfuse/.env
 docker compose -f observability/langfuse/docker-compose.yml up -d
 ```
 
-The compose file binds the Langfuse UI to `http://localhost:3300` (default) and exposes MinIO on `http://localhost:9090` (S3 API) and `http://localhost:9091` (console). All internal databases stay on `127.0.0.1` so the stack is only reachable from your machine.
+The compose file pins Langfuse web and worker to `4.25.0`, binds the UI to `http://localhost:3300` (default), and exposes MinIO on `http://localhost:9090` (S3 API) and `http://localhost:9091` (console). All internal databases stay on `127.0.0.1` so the stack is only reachable from your machine.
 
-ClickHouse is capped to 1 CPU and 2 GB of memory by default for local laptop use. It also mounts `clickhouse-config.d/low-resource.xml`, which turns down ClickHouse's own internal logs so background system-log merges do not dominate CPU or disk. Adjust the caps in `observability/langfuse/.env` if you import a large trace history:
+ClickHouse is capped to 2 CPUs and 8 GB of memory by default. The Docker or Colima VM must have additional capacity for the Langfuse web/worker and the rest of the development stack; for Colima, allocate at least 4 CPUs and 12 GB of memory. ClickHouse also mounts `clickhouse-config.d/low-resource.xml`, which turns down its internal logs so background system-log merges do not dominate CPU or disk. Increase the caps in `observability/langfuse/.env` if you import a large trace history:
 
 ```bash
-CLICKHOUSE_CPUS=1.0
-CLICKHOUSE_MEM_LIMIT=2g
+CLICKHOUSE_CPUS=2.0
+CLICKHOUSE_MEM_LIMIT=8g
 ```
 
 Docker `json-file` log rotation is also enabled to prevent local Docker/Colima disks from filling up. ClickHouse keeps three 10 MB files; Langfuse web/worker, Redis, and MinIO keep two 5 MB files. Adjust these in `observability/langfuse/.env`:
@@ -52,6 +52,14 @@ docker compose -f observability/langfuse/docker-compose.yml down
 ```
 
 Volumes (`langfuse_*`) keep your data between restarts. Add `-v` to `down` if you want to delete everything.
+
+## v4 data model
+
+This stack runs Langfuse v4 in `events_only` mode. It deliberately does not backfill
+pre-v4 traces: new observations are written only to the v4 events tables, while the
+legacy tables remain intact as an archive. All producers must use v4-compatible
+instrumentation before starting the stack; legacy APIs and incompatible SDKs are not
+supported in this mode.
 
 ## Configuration checklist
 

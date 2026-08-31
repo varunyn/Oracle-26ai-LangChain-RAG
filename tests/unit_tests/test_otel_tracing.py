@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from starlette.testclient import TestClient
 
-from src.rag_agent.utils.otel_tracing import setup_otel_tracing
+from src.rag_agent.utils.otel_tracing import _create_resource, setup_otel_tracing
 
 
 @contextmanager
@@ -35,6 +35,14 @@ def make_app() -> FastAPI:
         return {"status": "ok"}
 
     return app
+
+
+def test_resource_includes_langfuse_environment():
+    with temp_env(LANGFUSE_TRACING_ENVIRONMENT="staging"):
+        resource = _create_resource("rag-api")
+
+    assert resource.attributes["service.name"] == "rag-api"
+    assert resource.attributes["deployment.environment.name"] == "staging"
 
 
 def test_fastapi_request_emits_spans_and_service_name():

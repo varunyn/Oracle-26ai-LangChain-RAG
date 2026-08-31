@@ -2,7 +2,8 @@
 OpenTelemetry tracing bootstrap for FastAPI and LangChain runtimes.
 
 Idempotent; exports via OTLP HTTP (default http://localhost:4318/v1/traces);
-sets Resource service.name=rag-api; ENABLE_OTEL_TRACING gates; fail-open.
+sets Resource service.name=rag-api and deployment.environment.name;
+ENABLE_OTEL_TRACING gates; fail-open.
 
 When ENABLE_OTEL_TRACING is on, call setup_otel_tracing_early() before importing
 any LangChain runtime code so agent/tool spans are traced; then call
@@ -41,6 +42,7 @@ _INITIALIZED = False
 _EARLY_PROVIDER: TracerProvider | None = None
 
 _DEFAULT_TRACES_ENDPOINT = "http://localhost:4318/v1/traces"
+_DEPLOYMENT_ENVIRONMENT_NAME = "deployment.environment.name"
 
 
 def _otel_safe_attribute_value(value: Any) -> Any:
@@ -135,6 +137,30 @@ def _get_traces_headers() -> dict[str, str] | None:
     return None
 
 
+def _get_deployment_environment() -> str | None:
+    """Return the configured environment used to group OTLP spans in Langfuse."""
+    configured = os.environ.get("LANGFUSE_TRACING_ENVIRONMENT")
+    if isinstance(configured, str) and configured.strip():
+        return configured.strip()
+    try:
+        from api.settings import get_settings
+
+        configured = getattr(get_settings(), "LANGFUSE_TRACING_ENVIRONMENT", None)
+        if isinstance(configured, str) and configured.strip():
+            return configured.strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _create_resource(service_name: str) -> Resource:
+    attributes = {SERVICE_NAME: service_name}
+    environment = _get_deployment_environment()
+    if environment:
+        attributes[_DEPLOYMENT_ENVIRONMENT_NAME] = environment
+    return Resource.create(attributes)
+
+
 def setup_otel_tracing_early(service_name: str = "rag-api") -> bool:
     """Create TracerProvider and set it globally before any LangChain runtime import.
 
@@ -161,7 +187,7 @@ def setup_otel_tracing_early(service_name: str = "rag-api") -> bool:
             os.environ["LANGSMITH_TRACING"] = "true"
             os.environ["LANGSMITH_OTEL_ONLY"] = "true"
 
-            resource = Resource.create({SERVICE_NAME: service_name})
+            resource = _create_resource(service_name)
             # shutdown_on_exit=False avoids blocking process exit when OTLP endpoint is slow/unreachable
             provider = TracerProvider(resource=resource, shutdown_on_exit=False)
             if OTLPSpanExporter is None:
@@ -217,7 +243,7 @@ def setup_otel_tracing(
             provider = _EARLY_PROVIDER
             if provider is None:
                 # No early setup: create provider and exporter
-                resource = Resource.create({SERVICE_NAME: service_name})
+                resource = _create_resource(service_name)
                 provider = TracerProvider(resource=resource, shutdown_on_exit=False)
                 trace.set_tracer_provider(provider)
                 if exporter is None:

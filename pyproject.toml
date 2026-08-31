@@ -43,7 +43,7 @@ dependencies = [
     "cryptography>=44.0.2",
     "PyJWT>=2.10.1",
     # Observability
-    "langfuse==4.14.1",
+    "langfuse==4.14.4",
     "langsmith[otel]==0.7.30",
     # OpenTelemetry for FastAPI and LangChain/LangGraph via LangSmith OTEL; OCI APM supports OTLP
     "opentelemetry-api>=1.37.0,<1.38.0",
