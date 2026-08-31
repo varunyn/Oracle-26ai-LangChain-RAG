@@ -215,13 +215,32 @@ generic consuming-side MCP configuration. Configure
 `ORACLE_KNOWLEDGE_DEFAULT_KEY`. `ORACLE_KNOWLEDGE_ALLOWED_KEYS` optionally
 filters public keys; raw collection/table names are never public.
 
-The bounded policy is controlled by `ORACLE_KNOWLEDGE_MAX_QUERY_LENGTH`,
-`ORACLE_KNOWLEDGE_MAX_RESULT_LIMIT`, `ORACLE_KNOWLEDGE_MAX_CANDIDATE_LIMIT`,
-`ORACLE_KNOWLEDGE_MAX_METADATA_FILTERS`, and
-`ORACLE_KNOWLEDGE_TIMEOUT_SECONDS`. Transport is strictly `stdio` or
-`streamable-http`; use `ORACLE_KNOWLEDGE_HOST` and
-`ORACLE_KNOWLEDGE_PORT` for the latter. See
-[ORACLE-KNOWLEDGE-MCP.md](ORACLE-KNOWLEDGE-MCP.md).
+The server also needs the OCI embedding and Oracle Vector settings documented
+above, including `COMPARTMENT_ID`, `EMBED_MODEL_ID`, and the `VECTOR_*`
+connection values. `SERVICE_ENDPOINT` is optional because it can be derived
+from `REGION`.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `ORACLE_KNOWLEDGE_BASES` | `{"default":"RAG_KNOWLEDGE_BASE"}` | JSON mapping of friendly keys to Oracle collections. |
+| `ORACLE_KNOWLEDGE_DEFAULT_KEY` | `default` | Friendly key used when a request omits one. |
+| `ORACLE_KNOWLEDGE_ALLOWED_KEYS` | — | Optional comma-separated or JSON allowlist of public keys. |
+| `ORACLE_KNOWLEDGE_CANDIDATE_LIMIT` | `20` | Default retrieval candidate count. |
+| `ORACLE_KNOWLEDGE_MAX_QUERY_LENGTH` | `8192` | Maximum query length. |
+| `ORACLE_KNOWLEDGE_MAX_RESULT_LIMIT` | `50` | Maximum returned evidence items. |
+| `ORACLE_KNOWLEDGE_MAX_CANDIDATE_LIMIT` | `100` | Maximum caller-selected candidate count. |
+| `ORACLE_KNOWLEDGE_MAX_METADATA_FILTERS` | `8` | Maximum metadata filters. |
+| `ORACLE_KNOWLEDGE_TIMEOUT_SECONDS` | `30` | Tool execution timeout in seconds. |
+| `ORACLE_KNOWLEDGE_ENABLE_RERANKER` | `true` | Enable OCI reranking. |
+| `ORACLE_KNOWLEDGE_ALLOW_RERANKER_OVERRIDE` | `false` | Allow per-request reranking overrides. |
+| `ORACLE_KNOWLEDGE_ENABLE_OTEL_TRACING` | `false` | Enable tracing in the standalone process. |
+| `ORACLE_KNOWLEDGE_TRANSPORT` | `stdio` | Server transport, either `stdio` or `streamable-http`. |
+| `ORACLE_KNOWLEDGE_HOST` | `127.0.0.1` | HTTP bind address. |
+| `ORACLE_KNOWLEDGE_PORT` | `9000` | HTTP bind port. |
+
+The server ignores generic `TRANSPORT`, `HOST`, and `PORT` variables. See
+[ORACLE-KNOWLEDGE-MCP.md](ORACLE-KNOWLEDGE-MCP.md) for complete examples and
+Codex STDIO configuration.
 
 MCP (Model Context Protocol) client and server configuration.
 

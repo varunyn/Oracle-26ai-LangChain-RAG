@@ -2,6 +2,7 @@
 
 ## 2026-08-31
 
+- Corrected the local Oracle Knowledge MCP environment and Codex STDIO configuration to use `ORACLE_WEB_EMBEDDINGS` through the `default` friendly key, removed unused `ORACLE_DB_*` forwarding, and documented every server setting plus its OCI embedding and Oracle Vector prerequisites.
 - Raised the local Langfuse ClickHouse defaults to 2 CPUs and 8 GB of memory and documented the required Docker/Colima VM headroom, preventing background merge retry loops under the former 1 CPU/2 GB cap.
 - Upgraded the self-hosted Langfuse web and worker images from 4.1.0 to 4.25.0 and the Python SDK from 4.14.1 to 4.14.4. OpenTelemetry resources now carry the configured deployment environment so LangSmith-exported spans no longer appear in Langfuse's `default` environment.
 

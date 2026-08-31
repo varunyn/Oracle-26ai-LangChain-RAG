@@ -126,14 +126,31 @@ The backend fetches and refreshes the bearer token automatically and injects it 
 
 ## Configuration (.env / environment)
 
-| Variable             | Used when     | Meaning                                                                                    |
-| -------------------- | ------------- | ------------------------------------------------------------------------------------------ |
-| `MCP_SERVERS_CONFIG` | **Consuming** | Optional seed/headless dict of MCP server names → `{ "transport", "url", "auth" }`. Settings is the primary UI-managed source. |
-| `MCP_SERVER_KEYS`    | **Consuming** | Optional list of configured server keys to load.       |
-| `ENABLE_MCP_TOOLS`   | **Consuming** | If True, RAG chat attaches MCP tools from config; if False, MCP is disabled for chat.      |
-| `ORACLE_KNOWLEDGE_TRANSPORT` | **Exposing** | `stdio` or `streamable-http` for the Oracle Knowledge MCP. |
-| `ORACLE_KNOWLEDGE_HOST` | **Exposing** | Bind address for Streamable HTTP; loopback by default. |
+| Variable | Used when | Meaning |
+| --- | --- | --- |
+| `MCP_SERVERS_CONFIG` | **Consuming** | Optional seed/headless dict of MCP server names to `{ "transport", "url", "auth" }`. Settings is the primary UI-managed source. |
+| `MCP_SERVER_KEYS` | **Consuming** | Optional list of configured server keys to load. |
+| `ENABLE_MCP_TOOLS` | **Consuming** | Enables MCP tools in RAG chat. |
+| `ORACLE_KNOWLEDGE_BASES` | **Exposing** | JSON mapping of public friendly keys to Oracle collections. |
+| `ORACLE_KNOWLEDGE_DEFAULT_KEY` | **Exposing** | Friendly key used when a tool call omits one. |
+| `ORACLE_KNOWLEDGE_ALLOWED_KEYS` | **Exposing** | Optional allowlist of public keys. |
+| `ORACLE_KNOWLEDGE_CANDIDATE_LIMIT` | **Exposing** | Default retrieval candidate count. |
+| `ORACLE_KNOWLEDGE_MAX_QUERY_LENGTH` | **Exposing** | Maximum query length. |
+| `ORACLE_KNOWLEDGE_MAX_RESULT_LIMIT` | **Exposing** | Maximum returned evidence items. |
+| `ORACLE_KNOWLEDGE_MAX_CANDIDATE_LIMIT` | **Exposing** | Maximum caller-selected candidate count. |
+| `ORACLE_KNOWLEDGE_MAX_METADATA_FILTERS` | **Exposing** | Maximum metadata filters. |
+| `ORACLE_KNOWLEDGE_TIMEOUT_SECONDS` | **Exposing** | Tool execution timeout. |
+| `ORACLE_KNOWLEDGE_ENABLE_RERANKER` | **Exposing** | Enables OCI reranking. |
+| `ORACLE_KNOWLEDGE_ALLOW_RERANKER_OVERRIDE` | **Exposing** | Allows per-request reranking overrides. |
+| `ORACLE_KNOWLEDGE_ENABLE_OTEL_TRACING` | **Exposing** | Enables standalone-server tracing. |
+| `ORACLE_KNOWLEDGE_TRANSPORT` | **Exposing** | `stdio` or `streamable-http`. |
+| `ORACLE_KNOWLEDGE_HOST` | **Exposing** | Streamable HTTP bind address. |
 | `ORACLE_KNOWLEDGE_PORT` | **Exposing** | Streamable HTTP port. |
+
+The exposed Oracle server also reads OCI embedding settings and `VECTOR_*`
+database connection settings from the root `.env`. See
+[ORACLE-KNOWLEDGE-MCP.md](ORACLE-KNOWLEDGE-MCP.md). Generic `TRANSPORT`, `HOST`,
+and `PORT` variables do not configure this server.
 
 ---
 
