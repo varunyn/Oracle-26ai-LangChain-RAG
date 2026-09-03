@@ -28,7 +28,6 @@ from src.rag_agent.application.oracle_knowledge import (
     SearchKnowledgeRequest,
     SearchKnowledgeResult,
 )
-from src.rag_agent.infrastructure.mcp_settings import normalize_mcp_transport
 from src.rag_agent.infrastructure.oracle_knowledge import (
     KnowledgeReadinessProbe,
     build_oracle_knowledge_service,
@@ -170,9 +169,7 @@ def main() -> None:
     server = create_oracle_knowledge_server(
         build_service(settings), readiness_probe=KnowledgeReadinessProbe(settings)
     )
-    transport = normalize_mcp_transport(settings.ORACLE_KNOWLEDGE_TRANSPORT)
-    if transport not in {"stdio", "streamable-http"}:
-        raise RuntimeError("TRANSPORT must be stdio or streamable-http; SSE is unsupported")
+    transport = settings.ORACLE_KNOWLEDGE_TRANSPORT
     kwargs: dict[str, Any] = {"transport": cast(Any, transport), "log_level": "INFO"}
     if transport != "stdio":
         kwargs.update(host=settings.ORACLE_KNOWLEDGE_HOST, port=settings.ORACLE_KNOWLEDGE_PORT)

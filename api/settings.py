@@ -276,15 +276,6 @@ class Settings(BaseSettings):
     MCP_MAX_ROUNDS: int = 4
     MCP_UI_CONFIG_FILE: str = ".local-data/mcp_servers.json"
     MCP_CONNECTION_TEST_TIMEOUT_SECONDS: float = 8.0
-    ENABLE_MCP_CLIENT_JWT: bool = False
-    ENABLE_MCP_OAUTH: bool = False
-    MCP_OAUTH_CLIENT_ID: str | None = None
-    MCP_OAUTH_CLIENT_SECRET: str | None = None
-    MCP_OAUTH_TOKEN_URL: str | None = None
-    MCP_OAUTH_SCOPE: str | None = None
-    MCP_OAUTH_GRANT_TYPE: str = "client_credentials"
-    MCP_OAUTH_AUDIENCE: str | None = None
-    MCP_OAUTH_REFRESH_SKEW_SECONDS: int = 30
     REQUIRE_TOOL_CALL: bool = False
     MCP_REPEATED_WORKFLOW_CONTROLLER: bool = True
     MCP_WORKFLOW_POLICY: str | dict[str, object] = Field(default_factory=dict)
@@ -307,14 +298,13 @@ class Settings(BaseSettings):
         s = str(v).strip()
         if not s:
             return {}
-        if s.startswith("{"):
-            try:
-                out = json.loads(s)
-                if isinstance(out, dict):
-                    return {str(k): dict(val) for k, val in out.items() if isinstance(val, dict)}
-            except Exception:
-                pass
-        return {}
+        try:
+            out = json.loads(s)
+        except json.JSONDecodeError as exc:
+            raise ValueError("MCP_SERVERS_CONFIG must be a JSON object") from exc
+        if not isinstance(out, dict):
+            raise ValueError("MCP_SERVERS_CONFIG must be a JSON object")
+        return {str(k): dict(val) for k, val in out.items() if isinstance(val, dict)}
 
     @field_validator("MCP_WORKFLOW_POLICY", mode="before")
     @classmethod

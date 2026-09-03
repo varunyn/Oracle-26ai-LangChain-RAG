@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 - 2026-09-03
+
+- Migrated MCP consumption to LangChain 1.4's first-party `langchain.mcp.MCPAdapter` on FastMCP 4 and MCP SDK 2. The runtime now uses FastMCP `ClientGroup` namespacing, current snake_case protocol fields, explicit client cleanup, and the existing successful-result warning policy without the retired `langchain-mcp-adapters` callback and interceptor layer.
+- Updated Oracle Knowledge MCP compatibility coverage for FastMCP 4.0.2, MCP SDK 2.1.1, and protocol version `2026-07-28`, including a real STDIO call through the app's LangChain adapter path.
+- Removed the retired global MCP JWT/OAuth overlay, obsolete `mcp_use` logging and warning configuration, legacy SSE/underscore transport compatibility, and pre-FastMCP 4 connection fields. Per-server bearer and OAuth configuration is now the only MCP authentication path, and an explicitly empty runtime server override no longer falls back to saved servers.
+
 ## 2026-08-31
 
 - Corrected the local Oracle Knowledge MCP environment and Codex STDIO configuration to use `ORACLE_WEB_EMBEDDINGS` through the `default` friendly key, removed unused `ORACLE_DB_*` forwarding, and documented every server setting plus its OCI embedding and Oracle Vector prerequisites.

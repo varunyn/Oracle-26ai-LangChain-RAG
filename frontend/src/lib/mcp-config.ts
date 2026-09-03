@@ -2,7 +2,7 @@ import { toApiUrl } from "@/lib/api-base";
 
 export type McpServerConfig = {
   key: string;
-  transport: "streamable-http" | "sse" | "stdio";
+  transport: "http" | "streamable-http" | "stdio";
   url: string;
   enabled: boolean;
   auth: McpServerAuthConfig;

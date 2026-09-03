@@ -752,18 +752,7 @@ def setup_logging(console: bool = True) -> None:
     logging.getLogger("aiosqlite").setLevel(logging.WARNING)
     # Downgrade SDK export-failure tracebacks (e.g. ReadTimeout when collector is down) to avoid console flood
     logging.getLogger("opentelemetry.sdk._shared_internal").setLevel(logging.WARNING)
-    for name in (
-        "mcp_use",
-        "mcp_use.telemetry",
-        "mcp_use.telemetry.telemetry",
-        "mcp_use.client",
-        "mcp_use.client.connectors",
-        "mcp_use.client.task_managers",
-        "mcp_use.client.task_managers.streamable_http",
-        "mcp_use.client.middleware",
-        "mcp",
-    ):
-        logging.getLogger(name).setLevel(logging.WARNING)
+    logging.getLogger("mcp").setLevel(logging.WARNING)
 
     _configured = True
 

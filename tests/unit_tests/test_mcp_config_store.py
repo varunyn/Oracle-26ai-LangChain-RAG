@@ -20,6 +20,10 @@ from src.rag_agent.infrastructure.mcp_config_store import (
 )
 
 
+def test_supported_transports_exclude_legacy_sse() -> None:
+    assert mod.SUPPORTED_TRANSPORTS == {"http", "streamable-http", "stdio"}
+
+
 def test_store_uses_settings_until_ui_override_exists(tmp_path) -> None:
     store_path = tmp_path / "mcp_servers.json"
     base_config = {
