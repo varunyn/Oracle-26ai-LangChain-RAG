@@ -14,8 +14,8 @@ Do not confuse these standalone exposed servers with the app's MCP-consuming cha
 
 ## Where To Look
 
-- `src/rag_agent/infrastructure/mcp_settings.py`: MCP transport normalization and client/server config conventions.
-- `src/rag_agent/infrastructure/mcp_adapter_runtime.py`: app-side MCP client wiring through `langchain_mcp_adapters`.
+- `src/rag_agent/infrastructure/mcp_settings.py`: MCP client/server config resolution conventions.
+- `src/rag_agent/infrastructure/mcp_adapter_runtime.py`: app-side MCP client wiring through LangChain's first-party `MCPAdapter` and FastMCP 4.
 - `docs/MCP-USAGE.md`: expose-vs-consume behavior and local usage examples.
 - `docs/CONFIGURATION.md`: MCP env vars, including server runtime settings.
 

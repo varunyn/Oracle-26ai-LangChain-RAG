@@ -88,8 +88,6 @@ def test_standalone_main_bootstraps_logging_and_tracing_before_clients(monkeypat
         "create_oracle_knowledge_server",
         lambda *args, **kwargs: events.append(("server",)) or FakeServer(),
     )
-    monkeypatch.setattr(server_module, "normalize_mcp_transport", lambda value: value)
-
     server_module.main()
 
     assert [event[0] for event in events] == ["logging", "otel", "build", "server", "run"]

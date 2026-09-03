@@ -3,73 +3,28 @@
 Configuration for when this app **consumes** MCP (acts as an MCP client).
 
 Use this only for: RAG Answer node calling external MCP servers to get tools.
-Settings (env or .env): ENABLE_MCP_TOOLS, optional MCP_SERVER_KEYS, optional
-MCP_SERVERS_CONFIG seed config, and legacy global MCP auth. UI-managed MCP
-server config is stored at MCP_UI_CONFIG_FILE. See docs/CONFIGURATION.md.
+Settings (env or .env): ENABLE_MCP_TOOLS and optional MCP_SERVERS_CONFIG seed
+config. UI-managed MCP server config is stored at MCP_UI_CONFIG_FILE. See
+docs/CONFIGURATION.md.
 """
 
-import logging
 import os
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from .mcp_config_store import resolve_enabled_mcp_servers_config
-from .mcp_oauth import build_oauth_headers_supplier
-
-logger = logging.getLogger(__name__)
-
-
-def normalize_mcp_transport(transport: object) -> str:
-    """Normalize legacy MCP transport spellings to the canonical FastMCP v3 form."""
-    value = str(transport or "streamable-http").strip().lower()
-    if value in {"streamable_http", "streamable-http", "http"}:
-        return "streamable-http"
-    if value == "stdio":
-        return "stdio"
-    return value or "streamable-http"
-
-
-def _default_enable_mcp_tools() -> bool:
-    """Default from settings when env ENABLE_MCP_TOOLS is not set."""
-    try:
-        from api.settings import get_settings
-
-        return bool(getattr(get_settings(), "ENABLE_MCP_TOOLS", True))
-    except Exception as e:
-        logger.debug("MCP: settings unavailable, defaulting enable_mcp_tools=True: %s", e)
-        return True
-
-
-def _get_app_settings() -> Any | None:
-    try:
-        from api.settings import get_settings
-
-        return get_settings()
-    except Exception as e:
-        logger.debug("MCP: app settings unavailable: %s", e)
-        return None
 
 
 def get_mcp_servers_config() -> dict[str, dict[str, Any]]:
     """Return enabled MCP server config from UI store, or optional env seed."""
-    try:
-        from api.settings import get_settings
+    from api.settings import get_settings
 
-        settings = get_settings()
-        cfg = getattr(settings, "MCP_SERVERS_CONFIG", None)
-        if not isinstance(cfg, dict):
-            logger.debug(
-                "MCP: MCP_SERVERS_CONFIG missing or invalid; expected dict, got %s", type(cfg)
-            )
-            return {}
-        resolved = resolve_enabled_mcp_servers_config(
-            base_config=cfg,
-            store_path=getattr(settings, "MCP_UI_CONFIG_FILE", None),
-        )
-        return _normalize_mcp_server_urls(_normalize_mcp_server_transports(resolved))
-    except Exception as e:
-        logger.debug("MCP: settings unavailable; no servers configured: %s", e)
-        return {}
+    settings = get_settings()
+    resolved = resolve_enabled_mcp_servers_config(
+        base_config=settings.MCP_SERVERS_CONFIG,
+        store_path=settings.MCP_UI_CONFIG_FILE,
+    )
+    return _normalize_mcp_server_urls(resolved)
 
 
 def _is_running_in_docker() -> bool:
@@ -81,20 +36,6 @@ def _is_running_in_docker() -> bool:
         return "docker" in contents or "containerd" in contents
     except Exception:
         return False
-
-
-def _normalize_mcp_server_transports(
-    cfg: dict[str, dict[str, Any]],
-) -> dict[str, dict[str, Any]]:
-    normalized: dict[str, dict[str, Any]] = {}
-    for name, entry in cfg.items():
-        if not isinstance(entry, dict):
-            normalized[name] = entry
-            continue
-        updated = dict(entry)
-        updated["transport"] = normalize_mcp_transport(updated.get("transport"))
-        normalized[name] = updated
-    return normalized
 
 
 def _normalize_mcp_server_urls(
@@ -126,41 +67,9 @@ class MCPSettings:
     """MCP **client** settings: when this app consumes MCP tools (no auth by default)."""
 
     def __init__(self) -> None:
-        app_settings = _get_app_settings()
-        env_val = os.getenv("ENABLE_MCP_TOOLS", "").strip().lower()
-        if env_val in ("true", "false"):
-            self.enable_mcp_tools = env_val == "true"
-        else:
-            self.enable_mcp_tools = _default_enable_mcp_tools()
-        raw = os.getenv("MCP_SERVER_KEYS", "").strip()
-        if raw:
-            self.mcp_server_keys: list[str] | None = [
-                k.strip() for k in raw.split(",") if k.strip()
-            ]
-        else:
-            self.mcp_server_keys = None  # None = use "default" only
-        # Client-only: send JWT when calling MCP servers that require auth (default False = no auth)
-        self.enable_mcp_client_jwt: bool = (
-            os.getenv("ENABLE_MCP_CLIENT_JWT", "false").lower() == "true"
-        )
-        self.jwt_headers_supplier = None  # Optional; used only if enable_mcp_client_jwt is True
-        enable_mcp_oauth = bool(getattr(app_settings, "ENABLE_MCP_OAUTH", False))
-        if self.enable_mcp_client_jwt and enable_mcp_oauth:
-            self.jwt_headers_supplier = build_oauth_headers_supplier(
-                token_url=getattr(app_settings, "MCP_OAUTH_TOKEN_URL", None),
-                client_id=getattr(app_settings, "MCP_OAUTH_CLIENT_ID", None),
-                client_secret=getattr(app_settings, "MCP_OAUTH_CLIENT_SECRET", None),
-                scope=getattr(app_settings, "MCP_OAUTH_SCOPE", None),
-                audience=getattr(app_settings, "MCP_OAUTH_AUDIENCE", None),
-                grant_type=getattr(app_settings, "MCP_OAUTH_GRANT_TYPE", "client_credentials"),
-                refresh_skew_seconds=int(
-                    getattr(app_settings, "MCP_OAUTH_REFRESH_SKEW_SECONDS", 30)
-                ),
-            )
-        self.mcp_client_callbacks = None
-        self.mcp_tool_interceptors = None
-        self.mcp_client_callbacks_supplier = None
-        self.mcp_tool_interceptors_supplier = None
+        from api.settings import get_settings
+
+        self.enable_mcp_tools = get_settings().ENABLE_MCP_TOOLS
 
 
 def get_mcp_settings() -> MCPSettings:
@@ -168,14 +77,8 @@ def get_mcp_settings() -> MCPSettings:
     return MCPSettings()
 
 
-# Default instance for import
-mcp_settings = get_mcp_settings()
-
-
 __all__ = [
     "MCPSettings",
     "get_mcp_servers_config",
     "get_mcp_settings",
-    "mcp_settings",
-    "normalize_mcp_transport",
 ]

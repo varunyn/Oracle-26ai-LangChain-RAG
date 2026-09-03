@@ -47,18 +47,18 @@ async def _assert_contract() -> None:
             "list_documents",
         ]
         for tool in tools:
-            assert tool.inputSchema.get("type") == "object"
-            assert tool.outputSchema.get("type") == "object"
+            assert tool.input_schema.get("type") == "object"
+            assert tool.output_schema.get("type") == "object"
         search_schema = next(tool for tool in tools if tool.name == "search_knowledge")
         assert {"query", "knowledge_base", "limit", "metadata_filters"} <= set(
-            search_schema.inputSchema["properties"]
+            search_schema.input_schema["properties"]
         )
-        assert "collection_name" not in search_schema.inputSchema["properties"]
-        assert "table_name" not in search_schema.inputSchema["properties"]
-        assert search_schema.inputSchema["properties"]["query"]["maxLength"] == 100000
-        assert search_schema.inputSchema["properties"]["limit"]["maximum"] == 100
+        assert "collection_name" not in search_schema.input_schema["properties"]
+        assert "table_name" not in search_schema.input_schema["properties"]
+        assert search_schema.input_schema["properties"]["query"]["maxLength"] == 100000
+        assert search_schema.input_schema["properties"]["limit"]["maximum"] == 100
         assert {"contract_version", "outcome", "evidence", "reranking_status"} <= set(
-            search_schema.outputSchema["properties"]
+            search_schema.output_schema["properties"]
         )
         result = await client.call_tool(
             "search_knowledge", {"query": "hello", "knowledge_base": "docs"}

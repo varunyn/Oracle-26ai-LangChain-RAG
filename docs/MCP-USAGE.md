@@ -90,7 +90,7 @@ MCP_SERVERS_CONFIG={"default":{"transport":"streamable-http","url":"http://local
 #### Which servers and tools load
 
 - **Servers**: `MCP_SERVER_KEYS` (optional) limits which configured server keys are connected when loading tools. The request may also pass `mcp_server_keys` (same idea). This does not choose `mode`; it only filters which MCP endpoints are used.
-- **Tools**: Tools come from `langchain_mcp_adapters.MultiServerMCPClient.get_tools()` (see `src/rag_agent/infrastructure/mcp_adapter_runtime.py`). Server names are prefixed on tool names when `tool_name_prefix=True` (for example, `default.search_knowledge`).
+- **Tools**: Tools come from LangChain's first-party `langchain.mcp.MCPAdapter.list_tools()` through a FastMCP 4 `ClientGroup` (see `src/rag_agent/infrastructure/mcp_adapter_runtime.py`). FastMCP prefixes each tool with its server key, for example `default_search_knowledge`.
 
 - Set which configured servers to load via `MCP_SERVER_KEYS` (optional; if unset, defaults follow `mcp_adapter_runtime._select_server_keys`, typically `"default"` when present).
 
@@ -162,7 +162,7 @@ Chat is handled by the LangGraph Agent Server `chat_agent` graph. Request **`mod
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `direct`   | LLM on chat history only; no vector search, no MCP tools.                                                                                                 |
 | `rag`      | Vector similarity search + single answer prompt; MCP tools are not loaded.                                                                                |
-| `mcp`      | MCP tools only (sub-graph loop); tools from `langchain_mcp_adapters`.                                                                             |
+| `mcp`      | MCP tools only (sub-graph loop); tools from LangChain's first-party MCP adapter.                                                                  |
 | `mixed`    | MCP tools plus the local **`oracle_retrieval`** tool in one LangChain agent loop. When retrieval returns documents, the final answer is synthesized through the RAG answer path. Non-retrieval MCP tool outputs from the same turn are passed into that synthesis as supplemental context. If retrieval is not used or returns no documents, the response comes from the MCP agent answer or a retrieval error. |
 
 - **Default `mode`** (when not sent): `build_chat_config` in `api/dependencies.py` sets `mixed` when `ENABLE_MCP_TOOLS` is true and at least one MCP server is configured; otherwise `rag`.
@@ -183,7 +183,7 @@ Use `"mode": "mcp"` for MCP tools only, `"mode": "rag"` for retrieval-only, `"mo
 
 ## Implementation (consuming side)
 
-MCP and mixed chat modes load tools through **`langchain_mcp_adapters.MultiServerMCPClient`** (`src/rag_agent/infrastructure/mcp_adapter_runtime.py`; clients and tool lists are cached per connection set). The MCP tool loop runs through the **sub-graph architecture** — `run_mcp_setup` loads tools via `load_adapter_tools`, then the sub-graph runs the tool loop, and `run_mcp_compose` (both in `src/rag_agent/graphs/nodes/mcp.py`) extracts the final answer. In mixed mode, retrieved docs plus non-retrieval tool outputs are handed to the RAG runtime for answer synthesis when `oracle_retrieval` returns documents. RAG-only and direct modes do not load MCP tools.
+MCP and mixed chat modes load tools through LangChain's first-party **`langchain.mcp.MCPAdapter`** backed by a FastMCP 4 `ClientGroup` (`src/rag_agent/infrastructure/mcp_adapter_runtime.py`; adapters and tool lists are cached per connection set). The MCP tool loop runs through the **sub-graph architecture**. `run_mcp_setup` loads tools via `load_adapter_tools`, the sub-graph runs the tool loop, and `run_mcp_compose` in `src/rag_agent/graphs/nodes/mcp.py` extracts the final answer. In mixed mode, retrieved docs plus non-retrieval tool outputs go to the RAG runtime for answer synthesis when `oracle_retrieval` returns documents. RAG-only and direct modes do not load MCP tools.
 
 ### Flow diagram (high level)
 
@@ -192,7 +192,7 @@ flowchart TD
     A[Agent Server chat_agent run] --> C{mode}
     C -->|direct| D[LLM on message history]
     C -->|rag| E[Vector search + answer prompt]
-    C -->|mcp| F[MultiServerMCPClient.get_tools → sub-graph loop]
+    C -->|mcp| F[MCPAdapter.list_tools → sub-graph loop]
     C -->|mixed| G[oracle_retrieval + MCP tools]
     G --> I{retrieval docs?}
     I -->|yes| J[RAG answer synthesis]

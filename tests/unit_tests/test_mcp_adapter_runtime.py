@@ -3,7 +3,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import CallToolResult, TextContent
+from langchain_core.tools import StructuredTool
 
 from src.rag_agent.infrastructure import mcp_adapter_runtime as mod
 from src.rag_agent.infrastructure import mcp_oauth
@@ -25,58 +25,11 @@ def test_select_server_keys_defaults_to_all_configured_when_no_filters() -> None
     assert selected == ["default", "calculator"]
 
 
-def test_select_server_keys_ignores_legacy_mcp_url_filter() -> None:
-    configured = {
-        "default": {"url": "http://localhost:9000/mcp"},
-        "calculator": {"url": "http://localhost:9001/mcp"},
-    }
-
-    selected = mod._select_server_keys(
-        configured_servers=configured,
-        server_keys=None,
-        run_config={"configurable": {"mcp_url": "http://localhost:9000/mcp"}},
-    )
-
-    assert selected == ["default", "calculator"]
-
-
-def test_build_adapter_server_configs_applies_jwt_headers_when_enabled(monkeypatch) -> None:
-    monkeypatch.setattr(
-        mod,
-        "get_mcp_settings",
-        lambda: SimpleNamespace(
-            enable_mcp_tools=True,
-            enable_mcp_client_jwt=True,
-            jwt_headers_supplier=lambda: {"Authorization": "Bearer test-token"},
-        ),
-    )
-    monkeypatch.setattr(
-        mod,
-        "get_mcp_servers_config",
-        lambda: {
-            "default": {
-                "transport": "streamable-http",
-                "url": "http://localhost:9000/mcp",
-                "headers": {"x-existing": "1"},
-            }
-        },
-    )
-
-    out = asyncio.run(mod.build_adapter_server_configs(server_keys=None, run_config=None))
-
-    assert "default" in out
-    headers = out["default"].get("headers")
-    assert headers == {
-        "x-existing": "1",
-        "Authorization": "Bearer test-token",
-    }
-
-
 def test_build_adapter_server_configs_applies_bearer_auth(monkeypatch) -> None:
     monkeypatch.setattr(
         mod,
         "get_mcp_settings",
-        lambda: SimpleNamespace(enable_mcp_tools=True, enable_mcp_client_jwt=False),
+        lambda: SimpleNamespace(enable_mcp_tools=True),
     )
     monkeypatch.setattr(
         mod,
@@ -99,41 +52,11 @@ def test_build_adapter_server_configs_applies_bearer_auth(monkeypatch) -> None:
     assert "auth" not in out["secure"]
 
 
-def test_per_server_auth_overrides_global_jwt(monkeypatch) -> None:
-    monkeypatch.setattr(
-        mod,
-        "get_mcp_settings",
-        lambda: SimpleNamespace(
-            enable_mcp_tools=True,
-            enable_mcp_client_jwt=True,
-            jwt_headers_supplier=lambda: {"Authorization": "Bearer global-token"},
-        ),
-    )
-    monkeypatch.setattr(
-        mod,
-        "get_mcp_servers_config",
-        lambda: {
-            "secure": {
-                "transport": "streamable-http",
-                "url": "https://mcp.example.com/mcp",
-                "auth": {
-                    "type": "bearer",
-                    "bearer_token": "server-token",
-                },
-            }
-        },
-    )
-
-    out = asyncio.run(mod.build_adapter_server_configs(server_keys=None, run_config=None))
-
-    assert out["secure"]["headers"] == {"Authorization": "Bearer server-token"}
-
-
 def test_build_adapter_server_configs_applies_per_server_oauth(monkeypatch) -> None:
     monkeypatch.setattr(
         mod,
         "get_mcp_settings",
-        lambda: SimpleNamespace(enable_mcp_tools=True, enable_mcp_client_jwt=False),
+        lambda: SimpleNamespace(enable_mcp_tools=True),
     )
     monkeypatch.setattr(
         mod,
@@ -178,7 +101,7 @@ def test_oauth_provider_cache_spans_repeated_concurrent_config_builds(monkeypatc
     monkeypatch.setattr(
         mod,
         "get_mcp_settings",
-        lambda: SimpleNamespace(enable_mcp_tools=True, enable_mcp_client_jwt=False),
+        lambda: SimpleNamespace(enable_mcp_tools=True),
     )
     monkeypatch.setattr(
         mod,
@@ -250,7 +173,7 @@ def test_build_adapter_server_configs_uses_run_config_override(monkeypatch) -> N
     monkeypatch.setattr(
         mod,
         "get_mcp_settings",
-        lambda: SimpleNamespace(enable_mcp_tools=True, enable_mcp_client_jwt=False),
+        lambda: SimpleNamespace(enable_mcp_tools=True),
     )
     monkeypatch.setattr(
         mod,
@@ -287,85 +210,37 @@ def test_build_adapter_server_configs_uses_run_config_override(monkeypatch) -> N
     }
 
 
-def test_get_mcp_settings_enables_oauth_supplier(monkeypatch) -> None:
+def test_empty_run_config_override_does_not_fall_back_to_saved_servers(monkeypatch) -> None:
     monkeypatch.setenv("ENABLE_MCP_TOOLS", "true")
-    monkeypatch.setenv("ENABLE_MCP_CLIENT_JWT", "true")
-    monkeypatch.setenv("ENABLE_MCP_OAUTH", "true")
-    monkeypatch.setenv("MCP_OAUTH_CLIENT_ID", "client-id")
-    monkeypatch.setenv("MCP_OAUTH_CLIENT_SECRET", "client-secret")
-    monkeypatch.setenv("MCP_OAUTH_TOKEN_URL", "https://auth.example.com/oauth/token")
-    monkeypatch.setenv("MCP_OAUTH_SCOPE", "read:mcp")
-
-    fake_settings = SimpleNamespace(
-        ENABLE_MCP_OAUTH=True,
-        MCP_OAUTH_CLIENT_ID="client-id",
-        MCP_OAUTH_CLIENT_SECRET="client-secret",
-        MCP_OAUTH_TOKEN_URL="https://auth.example.com/oauth/token",
-        MCP_OAUTH_SCOPE="read:mcp",
-        MCP_OAUTH_AUDIENCE=None,
-        MCP_OAUTH_GRANT_TYPE="client_credentials",
-        MCP_OAUTH_REFRESH_SKEW_SECONDS=30,
-    )
-    monkeypatch.setattr(
-        "src.rag_agent.infrastructure.mcp_settings._get_app_settings", lambda: fake_settings
-    )
-
-    settings = get_mcp_settings()
-
-    assert callable(settings.jwt_headers_supplier)
-
-
-def test_get_mcp_settings_uses_app_settings_for_oauth_supplier(monkeypatch) -> None:
-    monkeypatch.delenv("ENABLE_MCP_OAUTH", raising=False)
-    monkeypatch.delenv("MCP_OAUTH_CLIENT_ID", raising=False)
-    monkeypatch.delenv("MCP_OAUTH_CLIENT_SECRET", raising=False)
-    monkeypatch.delenv("MCP_OAUTH_TOKEN_URL", raising=False)
-    monkeypatch.delenv("MCP_OAUTH_SCOPE", raising=False)
-
-    fake_settings = SimpleNamespace(
-        ENABLE_MCP_OAUTH=True,
-        MCP_OAUTH_CLIENT_ID="client-id",
-        MCP_OAUTH_CLIENT_SECRET="client-secret",
-        MCP_OAUTH_TOKEN_URL="https://auth.example.com/oauth/token",
-        MCP_OAUTH_SCOPE="read:mcp",
-        MCP_OAUTH_AUDIENCE=None,
-        MCP_OAUTH_GRANT_TYPE="client_credentials",
-        MCP_OAUTH_REFRESH_SKEW_SECONDS=30,
-    )
-    monkeypatch.setattr(
-        "src.rag_agent.infrastructure.mcp_settings._get_app_settings", lambda: fake_settings
-    )
-    monkeypatch.setenv("ENABLE_MCP_TOOLS", "true")
-    monkeypatch.setenv("ENABLE_MCP_CLIENT_JWT", "true")
-
-    settings = get_mcp_settings()
-
-    assert callable(settings.jwt_headers_supplier)
-
-
-def test_build_adapter_server_configs_raises_when_supplier_fails(monkeypatch) -> None:
-    monkeypatch.setattr(
-        mod,
-        "get_mcp_settings",
-        lambda: SimpleNamespace(
-            enable_mcp_tools=True,
-            enable_mcp_client_jwt=True,
-            jwt_headers_supplier=lambda: (_ for _ in ()).throw(RuntimeError("token fetch failed")),
-        ),
-    )
     monkeypatch.setattr(
         mod,
         "get_mcp_servers_config",
         lambda: {
-            "default": {
+            "saved": {
                 "transport": "streamable-http",
                 "url": "http://localhost:9000/mcp",
             }
         },
     )
 
-    with pytest.raises(RuntimeError, match="token fetch failed"):
-        asyncio.run(mod.build_adapter_server_configs(server_keys=None, run_config=None))
+    out = asyncio.run(
+        mod.build_adapter_server_configs(
+            run_config={"configurable": {"mcp_servers_config_override": {}}}
+        )
+    )
+
+    assert out == {}
+
+
+def test_get_mcp_settings_reads_enable_flag(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "api.settings.get_settings",
+        lambda: SimpleNamespace(ENABLE_MCP_TOOLS=True),
+    )
+
+    settings = get_mcp_settings()
+
+    assert settings.enable_mcp_tools is True
 
 
 def test_load_adapter_tools_evicts_and_closes_client_on_cancellation(monkeypatch) -> None:
@@ -373,21 +248,22 @@ def test_load_adapter_tools_evicts_and_closes_client_on_cancellation(monkeypatch
     mod._tool_cache.clear()
     closed = {"value": False}
 
-    class CancelledClient:
-        async def get_tools(self):
+    class CancelledAdapter:
+        def __init__(self) -> None:
+            self.client = SimpleNamespace(close=self.close)
+
+        async def list_tools(self):
             raise asyncio.CancelledError
 
-        async def aclose(self):
+        async def close(self):
             closed["value"] = True
 
-    client = CancelledClient()
+    client = CancelledAdapter()
     monkeypatch.setattr(
         mod,
         "get_mcp_settings",
         lambda: SimpleNamespace(
             enable_mcp_tools=True,
-            mcp_client_callbacks=None,
-            mcp_tool_interceptors=None,
         ),
     )
 
@@ -396,7 +272,7 @@ def test_load_adapter_tools_evicts_and_closes_client_on_cancellation(monkeypatch
         return {"default": {"transport": "streamable-http", "url": "http://mcp"}}
 
     monkeypatch.setattr(mod, "build_adapter_server_configs", fake_build_adapter_server_configs)
-    monkeypatch.setattr(mod, "_create_client", lambda connections, settings: client)
+    monkeypatch.setattr(mod, "_create_client", lambda connections: client)
 
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(mod.load_adapter_tools())
@@ -406,40 +282,6 @@ def test_load_adapter_tools_evicts_and_closes_client_on_cancellation(monkeypatch
     assert mod._tool_cache == {}
 
 
-def test_create_client_raises_when_callbacks_supplier_fails() -> None:
-    settings = SimpleNamespace(
-        mcp_client_callbacks=None,
-        mcp_tool_interceptors=None,
-        mcp_client_callbacks_supplier=lambda: (_ for _ in ()).throw(
-            RuntimeError("callbacks failed")
-        ),
-        mcp_tool_interceptors_supplier=None,
-    )
-
-    with pytest.raises(RuntimeError, match="callbacks failed"):
-        mod._create_client(
-            {"default": {"transport": "streamable-http", "url": "http://localhost:9000/mcp"}},
-            settings=settings,
-        )
-
-
-def test_create_client_raises_when_interceptors_supplier_fails() -> None:
-    settings = SimpleNamespace(
-        mcp_client_callbacks=None,
-        mcp_tool_interceptors=None,
-        mcp_client_callbacks_supplier=None,
-        mcp_tool_interceptors_supplier=lambda: (_ for _ in ()).throw(
-            RuntimeError("interceptors failed")
-        ),
-    )
-
-    with pytest.raises(RuntimeError, match="interceptors failed"):
-        mod._create_client(
-            {"default": {"transport": "streamable-http", "url": "http://localhost:9000/mcp"}},
-            settings=settings,
-        )
-
-
 def test_normalize_connection_config_passes_through_supported_optional_fields() -> None:
     out = mod._normalize_connection_config(
         {
@@ -447,52 +289,47 @@ def test_normalize_connection_config_passes_through_supported_optional_fields() 
             "url": "http://localhost:9000/mcp",
             "timeout": 10,
             "sse_read_timeout": 15,
-            "session_kwargs": {"a": 1},
-            "terminate_on_close": True,
             "auth": object(),
-            "httpx_client_factory": object(),
             "cwd": "/tmp",
-            "encoding": "utf-8",
-            "encoding_error_handler": "replace",
+            "keep_alive": False,
         }
     )
 
     assert out["transport"] == "streamable-http"
     assert out["url"] == "http://localhost:9000/mcp"
     assert out["timeout"] == 10
-    assert out["sse_read_timeout"] == 15
-    assert out["session_kwargs"] == {"a": 1}
-    assert out["terminate_on_close"] is True
+    assert "sse_read_timeout" not in out
     assert out["cwd"] == "/tmp"
-    assert out["encoding"] == "utf-8"
-    assert out["encoding_error_handler"] == "replace"
+    assert out["keep_alive"] is False
     assert "auth" in out
-    assert "httpx_client_factory" in out
 
 
-def test_create_client_wires_callbacks_and_interceptors(monkeypatch) -> None:
+def test_create_client_uses_first_party_adapter_and_group(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    class FakeClient:
-        def __init__(self, **kwargs: object) -> None:
-            captured.update(kwargs)
+    class FakeGroup:
+        @classmethod
+        def from_config(cls, config):
+            captured["config"] = config
+            return cls()
 
-    monkeypatch.setattr(mod, "MultiServerMCPClient", FakeClient)
+    class FakeAdapter:
+        def __init__(self, target):
+            captured["target"] = target
 
-    settings = SimpleNamespace(
-        mcp_client_callbacks=object(),
-        mcp_tool_interceptors=[object()],
-        mcp_client_callbacks_supplier=None,
-        mcp_tool_interceptors_supplier=None,
-    )
-    _ = mod._create_client(
+    monkeypatch.setattr(mod, "ClientGroup", FakeGroup)
+    monkeypatch.setattr(mod, "MCPAdapter", FakeAdapter)
+    client = mod._create_client(
         {"default": {"transport": "streamable-http", "url": "http://localhost:9000/mcp"}},
-        settings=settings,
     )
 
-    assert captured["tool_name_prefix"] is True
-    assert "callbacks" in captured
-    assert "tool_interceptors" in captured
+    assert isinstance(client, FakeAdapter)
+    assert captured["config"] == {
+        "mcpServers": {
+            "default": {"transport": "streamable-http", "url": "http://localhost:9000/mcp"}
+        }
+    }
+    assert captured["target"] is not None
 
 
 def test_move_success_error_to_warnings_when_returncode_zero() -> None:
@@ -509,38 +346,65 @@ def test_move_success_error_to_warnings_when_returncode_zero() -> None:
     assert normalized["warnings"] == ["warning text"]
 
 
-def test_normalize_call_tool_result_moves_error_in_structured_and_text_payload() -> None:
-    call_result = CallToolResult(
-        isError=False,
-        structuredContent={
-            "command": "os ns get",
-            "returncode": 0,
-            "error": "warning text",
-        },
-        content=[
-            TextContent(
-                type="text",
-                text=json.dumps(
+def test_normalize_langchain_tool_result_moves_error_in_artifact_and_text_payload() -> None:
+    result = (
+        [
+            {
+                "type": "text",
+                "text": json.dumps(
                     {
                         "command": "os ns get",
                         "returncode": 0,
                         "error": "warning text",
                     }
                 ),
-            )
+            }
         ],
+        {
+            "structured_content": {
+                "command": "os ns get",
+                "returncode": 0,
+                "error": "warning text",
+            }
+        },
     )
 
-    normalized = mod._normalize_call_tool_result(call_result)
-    assert isinstance(normalized, CallToolResult)
+    normalized = mod._normalize_langchain_tool_result(result)
+    content, artifact = normalized
 
-    structured = normalized.structuredContent or {}
+    structured = artifact["structured_content"]
     assert "error" not in structured
     assert structured.get("warnings") == ["warning text"]
 
-    assert isinstance(normalized.content[0], TextContent)
-    text_payload = normalized.content[0].text
+    text_payload = content[0]["text"]
     assert isinstance(text_payload, str)
     parsed_text_payload = json.loads(text_payload)
     assert "error" not in parsed_text_payload
     assert parsed_text_payload.get("warnings") == ["warning text"]
+
+
+def test_wrapped_adapter_tool_normalizes_tool_message_content_and_artifact() -> None:
+    async def call_cli() -> tuple[list[dict[str, str]], dict[str, object]]:
+        payload = {"returncode": 0, "error": "warning text"}
+        return ([{"type": "text", "text": json.dumps(payload)}], {"structured_content": payload})
+
+    tool = StructuredTool.from_function(
+        coroutine=call_cli,
+        name="cli",
+        description="Run a CLI command",
+        response_format="content_and_artifact",
+    )
+    wrapped = mod._normalize_adapter_tool(tool)
+    message = asyncio.run(
+        wrapped.ainvoke({"type": "tool_call", "name": "cli", "id": "call-1", "args": {}})
+    )
+
+    assert message.status == "success"
+    assert message.artifact["structured_content"] == {
+        "returncode": 0,
+        "warnings": ["warning text"],
+    }
+    assert json.loads(message.content[0]["text"]) == {
+        "returncode": 0,
+        "warnings": ["warning text"],
+    }

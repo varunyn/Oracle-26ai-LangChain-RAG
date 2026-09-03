@@ -1030,21 +1030,22 @@ wheels = [
 
 [[package]]
 name = "fastmcp"
-version = "3.4.0"
+version = "4.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastmcp-slim", extra = ["client", "server"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/64/24/519739e98daf92ebc64580e9d3320649bf9a1612c029a913dd88c3474d73/fastmcp-3.4.0.tar.gz", hash = "sha256:29055fb6816f4862c615aabaf0112ae8feb8b469740db13403a0ce5b799ec1dc", size = 28754939, upload-time = "2026-06-03T02:32:40.206Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/37/1c/981a1854f91a08872f4b8b9a627d5d751cafc1340d29b21b747f0b520b0a/fastmcp-4.0.2.tar.gz", hash = "sha256:60d5c5ead3b6a117bfada5c0f95fe5c1aba53d1577079ecbdf42eeff0cd9b931", size = 42306015, upload-time = "2026-09-02T23:28:08.386Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e9/72/9f9bbfc3a8d26870dbdbbd633cd1c6f42b8d3bec379426c760676d936e86/fastmcp-3.4.0-py3-none-any.whl", hash = "sha256:34523083d6149400a0655a8aa769eb34f85b1ce6dac6d66efb07503ebbe5f44b", size = 8017, upload-time = "2026-06-03T02:32:38.05Z" },
+    { url = "https://files.pythonhosted.org/packages/58/3f/b97cfb92e0d6db8232c67c258117cd0dd9def86c8b472270bd7196d5cd9d/fastmcp-4.0.2-py3-none-any.whl", hash = "sha256:9075e64a94634ad660971ed14374c87be06f2a16a921028ca87987e6aa2f3bfa", size = 8078, upload-time = "2026-09-02T23:28:03.777Z" },
 ]
 
 [[package]]
 name = "fastmcp-slim"
-version = "3.4.0"
+version = "4.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "mcp-types" },
     { name = "platformdirs" },
     { name = "pydantic", extra = ["email"] },
     { name = "pydantic-settings" },
@@ -1052,26 +1053,27 @@ dependencies = [
     { name = "rich" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e7/b0/4da6078c2d6aa0a38a8b1ae0271e1ed400f9e2cd1b3b46e6453fb1fe2b75/fastmcp_slim-3.4.0.tar.gz", hash = "sha256:faa0ccf16e85ec4b9f79c006fed3546b866d7e6dba3f60cd32cd98e84753a496", size = 575895, upload-time = "2026-06-03T02:32:18.744Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/7d/c2597734e3a0859d62c9d8f6f35067d1e296537512e280db3af19204be64/fastmcp_slim-4.0.2.tar.gz", hash = "sha256:86b99bdcb872b52d964c79bc6d43ce79f40ed5538b589d102792b4a7cf3947f4", size = 684052, upload-time = "2026-09-02T23:27:39.868Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/58/66/cc283d4efd3faf325c26f51cfb43a118270ea732e70dda509f49d80ea625/fastmcp_slim-3.4.0-py3-none-any.whl", hash = "sha256:17cd0a1535972d3748d8c2416f0826dfc86c18df7a6cbc38602373277d44baa6", size = 748849, upload-time = "2026-06-03T02:32:17.435Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/c0/c022eba3a25ebb56111de1b5f76fbfca81925def58880464263582acfcd8/fastmcp_slim-4.0.2-py3-none-any.whl", hash = "sha256:6bd5b5885628f73263fa2247ea1d26e4a514499a6e079ee3e340cd03a7fe5ed8", size = 858100, upload-time = "2026-09-02T23:27:38.459Z" },
 ]
 
 [package.optional-dependencies]
 client = [
     { name = "authlib" },
     { name = "exceptiongroup" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
     { name = "opentelemetry-api" },
     { name = "py-key-value-aio", extra = ["filetree", "keyring", "memory"] },
+    { name = "starlette" },
 ]
 server = [
     { name = "authlib" },
     { name = "cyclopts" },
     { name = "exceptiongroup" },
     { name = "griffelib" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "joserfc" },
     { name = "jsonref" },
     { name = "jsonschema-path" },
@@ -1083,6 +1085,7 @@ server = [
     { name = "pyperclip" },
     { name = "python-multipart" },
     { name = "pyyaml" },
+    { name = "starlette" },
     { name = "uncalled-for" },
     { name = "uvicorn" },
     { name = "watchfiles" },
@@ -1428,6 +1431,19 @@ wheels = [
 ]
 
 [[package]]
+name = "httpcore2"
+version = "2.12.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "h11", marker = "sys_platform != 'emscripten'" },
+    { name = "truststore", marker = "sys_platform != 'emscripten'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/be/ad/f4f0e57345f1870f3e8cb624e058d7eca6e5a27d33bcc3311d9b618734cd/httpcore2-2.12.0.tar.gz", hash = "sha256:9293522bba0aa7c4c8e9e3f040c16575bd8868e155a77fa30c7a9085a5eae648", size = 67548, upload-time = "2026-08-18T13:22:08.211Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d2/74/d370e55600d9bcfa0d9794b0166126d49291a3d2b20c268fc98c453a4948/httpcore2-2.12.0-py3-none-any.whl", hash = "sha256:7e04258ce01013d7d615e5b910a3b27fac937d7a95038227e79652b4ba3b4ceb", size = 83074, upload-time = "2026-08-18T13:22:05.854Z" },
+]
+
+[[package]]
 name = "httptools"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1490,6 +1506,32 @@ wheels = [
 ]
 
 [[package]]
+name = "httpx2"
+version = "2.12.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio", marker = "sys_platform != 'emscripten'" },
+    { name = "httpcore2", marker = "sys_platform != 'emscripten'" },
+    { name = "httpx2-jsfetch", marker = "python_full_version >= '3.12' and sys_platform == 'emscripten'" },
+    { name = "idna" },
+    { name = "truststore", marker = "sys_platform != 'emscripten'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7f/f8/579a8b51e42e38ee32647df9f08aa25643ae788e275cc625b199829c4671/httpx2-2.12.0.tar.gz", hash = "sha256:7631fe9887a8a2275f4a2540e053aa670fcc50742864a9ae7c66e609fdcf12cf", size = 100040, upload-time = "2026-08-18T13:22:09.086Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c8/95/411ba65569158e862368917aaf56597f3e5fa3b91b0502919638465a08f3/httpx2-2.12.0-py3-none-any.whl", hash = "sha256:cc8b6eecb8661c146b8f89a60e97456ee086e91a784ed31ac450c3a9e613dd36", size = 95427, upload-time = "2026-08-18T13:22:06.834Z" },
+]
+
+[[package]]
+name = "httpx2-jsfetch"
+version = "1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cd/c4/0e5636363151a2a1795e0a77617168b9ca438e1748ec05fc9b5687f93d64/httpx2_jsfetch-1.0.tar.gz", hash = "sha256:70a0e3eabfef7cce5ad9c629f7d01ca05e418f586646f4ddf14782e4c1454c60", size = 6872, upload-time = "2026-08-07T00:13:07.492Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9b/43/832f631d32e4f1211caa2ba368317739fe71f0b8530e4c9d15dc454bac2a/httpx2_jsfetch-1.0-py3-none-any.whl", hash = "sha256:cb916b707601e69a07721aabc8f3f6659be3a6893bc1ff5c6f9e02241df2da32", size = 6382, upload-time = "2026-08-07T00:13:06.567Z" },
+]
+
+[[package]]
 name = "huggingface-hub"
 version = "1.14.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1511,11 +1553,11 @@ wheels = [
 
 [[package]]
 name = "idna"
-version = "3.11"
+version = "3.19"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6f/6d/0703ccc57f3a7233505399edb88de3cbd678da106337b9fcde432b65ed60/idna-3.11.tar.gz", hash = "sha256:795dafcc9c04ed0c1fb032c2aa73654d8e8c5023a7df64a53f39190ada629902", size = 194582, upload-time = "2025-10-12T14:55:20.501Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5f/f7/abb373e5757eaec4b922b92f97ec8d6d7e057cf06778247604fbc4e7c3f3/idna-3.19.tar.gz", hash = "sha256:5e0811a4383b21dc5838069f801c4fb62113b7447663d2530d2bd6e77b49bf15", size = 215237, upload-time = "2026-08-18T05:14:24.27Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0e/61/66938bbb5fc52dbdf84594873d5b51fb1f7c7794e9c0f5bd885f30bc507b/idna-3.11-py3-none-any.whl", hash = "sha256:771a87f49d9defaf64091e6e6fe9c18d4833f140bd19464795bc32d966ca37ea", size = 71008, upload-time = "2025-10-12T14:55:18.883Z" },
+    { url = "https://files.pythonhosted.org/packages/57/b0/0e52c878c53f245edd3a11020f20979b3f490f245af532c7cae3027754b5/idna-3.19-py3-none-any.whl", hash = "sha256:815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4", size = 68550, upload-time = "2026-08-18T05:14:22.343Z" },
 ]
 
 [[package]]
@@ -1832,23 +1874,29 @@ wheels = [
 
 [[package]]
 name = "langchain"
-version = "1.3.10"
+version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "langgraph" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3b/f6/e351d85c7828b9b90c5729de66170457c882c754efef0712904cfcd3192d/langchain-1.3.10.tar.gz", hash = "sha256:fd6ac9da86c479e4ff376e772d9e17a9232bd3113e9f2ddcb70cdc4bf7afc119", size = 632522, upload-time = "2026-06-18T19:43:00.86Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c4/5d/0ef368fdcf5df08a394787196fb7a80f473a9c7b3fc4cd2e3b53a7a5853d/langchain-1.4.0.tar.gz", hash = "sha256:08da122a439f738f4c09a5158cfa3d2c1d8bea2d0bde7fbbf4aeb4d7f7fd9d80", size = 729354, upload-time = "2026-09-03T16:59:32.442Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/59/f6/a682e68d004a2e23cae6c5c42e3c0d071bc0e7768167bd12277992f096f9/langchain-1.3.10-py3-none-any.whl", hash = "sha256:5da67f21aa56119744ad51b3e46ffac570c88f4fae0876e3b1c6a1c4bc0e344e", size = 133038, upload-time = "2026-06-18T19:42:58.918Z" },
+    { url = "https://files.pythonhosted.org/packages/92/fa/7da07d9977a5e292ef602c1bb911514ff8206e85dc09a66961874345d57a/langchain-1.4.0-py3-none-any.whl", hash = "sha256:af1dc0161d30944a52ec7844d9bf890d0497b12ec0703069f3503b4003cbbac3", size = 161534, upload-time = "2026-09-03T16:59:31.154Z" },
+]
+
+[package.optional-dependencies]
+mcp = [
+    { name = "fastmcp" },
 ]
 
 [[package]]
 name = "langchain-core"
-version = "1.4.8"
+version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "httpx" },
     { name = "jsonpatch" },
     { name = "langchain-protocol" },
     { name = "langsmith" },
@@ -1859,23 +1907,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "uuid-utils" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/12/e3/bea6d0080acf183332f24dcd74c208aee5857cf8f783c3fb0bd86027d8fb/langchain_core-1.4.8.tar.gz", hash = "sha256:5bf1f8411077c904182ad8f975943d36adcbf579c4e017b3a118b719229ebf9a", size = 957974, upload-time = "2026-06-18T19:39:23.636Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/97/88/ebc98df187c525d729725ab39759337c56d5d2803423632376aa35bde899/langchain_core-1.6.0.tar.gz", hash = "sha256:dc72e36678ed26683ec0ad8829b44011fba461d10f9b31dbd9110215e5ec2333", size = 992493, upload-time = "2026-08-19T15:55:40.642Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/13/d6/bdf6f0481cc57ef300d6b1eb48cf1400c0409be715d6eb3cabadd1142a09/langchain_core-1.4.8-py3-none-any.whl", hash = "sha256:d84c28b05e3ba8d4271d0827aad5b592ccdaaf986e76768c23503f0a2045e8aa", size = 557416, upload-time = "2026-06-18T19:39:21.902Z" },
-]
-
-[[package]]
-name = "langchain-mcp-adapters"
-version = "0.2.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "langchain-core" },
-    { name = "mcp" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/0e/66/1cc7039e2daaddcdea9d8887851fe6eb67401925999b2aa394aa855c7132/langchain_mcp_adapters-0.2.2.tar.gz", hash = "sha256:12d39e91ae4389c54b61b221094e53850b6e152934d8bc10c80665d600e76530", size = 37942, upload-time = "2026-03-16T17:13:30.35Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7d/2f/15d5e6c1765d8404a9cce38d8c81d7b33fb3392f9db5b992c000dddbd2a3/langchain_mcp_adapters-0.2.2-py3-none-any.whl", hash = "sha256:d08e64954e86281002653071b7430e0377c9a577cb4ac3143abfeb3e24ef8797", size = 23288, upload-time = "2026-03-16T17:13:29.073Z" },
+    { url = "https://files.pythonhosted.org/packages/84/4c/508a90b9d2e3bd7738fd93cb2ac2178ce734662c75e69b3b81c445f1b360/langchain_core-1.6.0-py3-none-any.whl", hash = "sha256:d8bb924cd413955d9d3192ccced140407427c3ff51e50ffb941222648da92cb2", size = 570006, upload-time = "2026-08-19T15:55:38.935Z" },
 ]
 
 [[package]]
@@ -1974,7 +2008,7 @@ wheels = [
 
 [[package]]
 name = "langgraph"
-version = "1.2.6"
+version = "1.2.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
@@ -1984,9 +2018,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/02/7a/ea09b05bb0cbddfa43bd34fc581357e87fc3f21a751cc0d419688c3106da/langgraph-1.2.6.tar.gz", hash = "sha256:f9b45a34f13930c94d96cdb76277447ad2cc70ec2d18cd2764d7fdadb36cdc1b", size = 714400, upload-time = "2026-06-18T20:58:21.514Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/56/0d/c8e7ee98896659e1b6555db0ab115a9ca899844744645d5d894032bab1d7/langgraph-1.2.11.tar.gz", hash = "sha256:9ecfe11e50d338b34b15cf4d8a442642de103e8ae6971320efba84e4542eb363", size = 725753, upload-time = "2026-08-11T14:00:36.945Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/89/32/772db1b00a9fe42f50320d1aa20caefb76e621eff1f7218b9918093d631d/langgraph-1.2.6-py3-none-any.whl", hash = "sha256:1cf94d3ca124f84f77ce408fa1b06c3dee680a8aafffe364a8fd5d7d03eb8695", size = 246132, upload-time = "2026-06-18T20:58:20.335Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/7f/c5c30e4be99ff821029c7ac872a480676bb179c9f3df85ea3f38d13f86d4/langgraph-1.2.11-py3-none-any.whl", hash = "sha256:8bab70de7b2d00b5300fb289bcf38d8b241400f3184c1e95e8ce706fb0e8686b", size = 248854, upload-time = "2026-08-11T14:00:35.494Z" },
 ]
 
 [[package]]
@@ -2428,15 +2462,15 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.25.0"
+version = "2.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
-    { name = "httpx" },
-    { name = "httpx-sse" },
+    { name = "httpx2" },
     { name = "jsonschema" },
+    { name = "mcp-types" },
+    { name = "opentelemetry-api" },
     { name = "pydantic" },
-    { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "python-multipart" },
     { name = "pywin32", marker = "sys_platform == 'win32'" },
@@ -2446,9 +2480,22 @@ dependencies = [
     { name = "typing-inspection" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d5/2d/649d80a0ecf6a1f82632ca44bec21c0461a9d9fc8934d38cb5b319f2db5e/mcp-1.25.0.tar.gz", hash = "sha256:56310361ebf0364e2d438e5b45f7668cbb124e158bb358333cd06e49e83a6802", size = 605387, upload-time = "2025-12-19T10:19:56.985Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/6e/21fb8e5d579dbe21d96ea4d5034200d46d8bdf2261053b5bd041f3c2f612/mcp-2.1.1.tar.gz", hash = "sha256:50b7ba1ebbe117008ea7bdd288234043e69c20b403d6851d19661e6d431a75ef", size = 3984589, upload-time = "2026-08-25T16:14:02.376Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/fc/6dc7659c2ae5ddf280477011f4213a74f806862856b796ef08f028e664bf/mcp-1.25.0-py3-none-any.whl", hash = "sha256:b37c38144a666add0862614cc79ec276e97d72aa8ca26d622818d4e278b9721a", size = 233076, upload-time = "2025-12-19T10:19:55.416Z" },
+    { url = "https://files.pythonhosted.org/packages/50/af/8644cc5fa26a59afd2df2e98eeb19e72926887fa4b7441aba4ff661140db/mcp-2.1.1-py3-none-any.whl", hash = "sha256:1c6c31c5d6471c58db76af3af8af67f46d11d01f0a59077d0a308cbdb3d3e915", size = 357912, upload-time = "2026-08-25T16:13:59.024Z" },
+]
+
+[[package]]
+name = "mcp-types"
+version = "2.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6a/dd/1c4417dc0b722c23a1669032d5f044e41170fe5d4773b488a50fcce98c32/mcp_types-2.1.1.tar.gz", hash = "sha256:77dcbe48fba73cca71a673f2646a5f037a017b7a0a07ac89cec1113028890eda", size = 66674, upload-time = "2026-08-25T16:14:03.861Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/71/d0/242e63c510f4a17381f55b1549a3f94f5687a0595984febd2b6f87a687a0/mcp_types-2.1.1-py3-none-any.whl", hash = "sha256:26f9f7f03f2a5730717a5b98e2ab7eb640ac352d05a00cdc725c311864778295", size = 69656, upload-time = "2026-08-25T16:14:00.667Z" },
 ]
 
 [[package]]
@@ -3142,7 +3189,7 @@ wheels = [
 
 [[package]]
 name = "oracle-26ai-langchain-rag"
-version = "0.3.0"
+version = "0.4.0"
 source = { virtual = "." }
 dependencies = [
     { name = "cryptography" },
@@ -3151,9 +3198,8 @@ dependencies = [
     { name = "httpcore" },
     { name = "httpx" },
     { name = "httpx-sse" },
-    { name = "langchain" },
+    { name = "langchain", extra = ["mcp"] },
     { name = "langchain-core" },
-    { name = "langchain-mcp-adapters" },
     { name = "langchain-oci" },
     { name = "langchain-openai" },
     { name = "langchain-oracledb" },
@@ -3215,23 +3261,22 @@ requires-dist = [
     { name = "cryptography", specifier = ">=44.0.2" },
     { name = "docling", extras = ["rapidocr"], marker = "extra == 'ingestion'", specifier = ">=2.93.0" },
     { name = "fastapi", specifier = "==0.135.3" },
-    { name = "fastmcp", specifier = ">=3.4.0" },
+    { name = "fastmcp", specifier = ">=4,<5" },
     { name = "httpcore", specifier = ">=1.0.7" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx-sse", specifier = ">=0.4.0" },
-    { name = "langchain", specifier = "==1.3.10" },
-    { name = "langchain-core", specifier = "==1.4.8" },
-    { name = "langchain-mcp-adapters", specifier = ">=0.2.2" },
+    { name = "langchain", extras = ["mcp"], specifier = "==1.4.0" },
+    { name = "langchain-core", specifier = "==1.6.0" },
     { name = "langchain-oci", specifier = ">=0.2.7" },
     { name = "langchain-openai", specifier = ">=1.3.2" },
     { name = "langchain-oracledb", specifier = ">=1.5.0" },
     { name = "langchain-text-splitters", specifier = ">=1.1.0" },
     { name = "langfuse", specifier = "==4.14.4" },
-    { name = "langgraph", specifier = "==1.2.6" },
+    { name = "langgraph", specifier = "==1.2.11" },
     { name = "langgraph-checkpoint", specifier = "==4.1.1" },
     { name = "langgraph-checkpoint-sqlite", specifier = "==3.1.0" },
     { name = "langsmith", extras = ["otel"], specifier = "==0.7.30" },
-    { name = "mcp", specifier = ">=1.17.0,<2.0.0" },
+    { name = "mcp", specifier = ">=2,<3" },
     { name = "oci", specifier = ">=2.154.3" },
     { name = "opentelemetry-api", specifier = ">=1.37.0,<1.38.0" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.37.0,<1.38.0" },
@@ -5408,11 +5453,11 @@ wheels = [
 
 [[package]]
 name = "uncalled-for"
-version = "0.3.1"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e1/68/35c1d87e608940badbcfeb630347aa0509897284684f61fab6423d02b253/uncalled_for-0.3.1.tar.gz", hash = "sha256:5e412ac6708f04b56bef5867b5dcf6690ebce4eb7316058d9c50787492bb4bca", size = 49693, upload-time = "2026-04-07T13:05:06.462Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6b/5a/92ce0b3ea5481915f55da994c2c2c5f7a3c09949afde196ee89f8ab961aa/uncalled_for-0.4.0.tar.gz", hash = "sha256:335b95bd2422332ec210d518f314a16e4c640921c39fc8bf2ad095bd3538f4af", size = 56979, upload-time = "2026-08-10T14:51:46.247Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/11/e1/7ec67882ad8fc9f86384bef6421fa252c9cbe5744f8df6ce77afc9eca1f5/uncalled_for-0.3.1-py3-none-any.whl", hash = "sha256:074cdc92da8356278f93d0ded6f2a66dd883dbecaf9bc89437646ee2289cc200", size = 11361, upload-time = "2026-04-07T13:05:05.341Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/40/97cec87c077eb3291fc7905e6633e08b7ca593c57d30238444bcb6bb3d53/uncalled_for-0.4.0-py3-none-any.whl", hash = "sha256:16c4bb3337532e4bd5569adc192285976f3ad5305402256d34c67a12b5c968bd", size = 15502, upload-time = "2026-08-10T14:51:45.068Z" },
 ]
 
 [[package]]

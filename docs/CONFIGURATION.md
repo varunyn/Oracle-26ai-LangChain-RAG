@@ -249,15 +249,6 @@ MCP (Model Context Protocol) client and server configuration.
 | `ENABLE_MCP_TOOLS`                  | `true`         | Enable MCP tool use.                                           |
 | `MCP_SERVER_KEYS`                   | (none)         | Comma-separated list of configured MCP server keys to load tools from (e.g. `default,context7`). This does not choose the default chat mode. |
 | `MCP_MAX_ROUNDS`                    | `4`            | Maximum MCP tool calls allowed in one agent run. |
-| `ENABLE_MCP_CLIENT_JWT`             | `false`        | Legacy global MCP auth toggle. Prefer per-server auth in Settings. |
-| `ENABLE_MCP_OAUTH`                  | `false`        | Legacy global OAuth client-credentials auth toggle. Prefer per-server auth in Settings. |
-| `MCP_OAUTH_CLIENT_ID`               | —              | Legacy global OAuth client ID. |
-| `MCP_OAUTH_CLIENT_SECRET`           | —              | Legacy global OAuth client secret. |
-| `MCP_OAUTH_TOKEN_URL`               | —              | Legacy global OAuth token endpoint URL. |
-| `MCP_OAUTH_SCOPE`                   | —              | Legacy global optional OAuth scope. |
-| `MCP_OAUTH_GRANT_TYPE`              | `client_credentials` | Legacy global OAuth grant type. |
-| `MCP_OAUTH_AUDIENCE`                | —              | Legacy global optional OAuth audience. |
-| `MCP_OAUTH_REFRESH_SKEW_SECONDS`    | `30`           | Legacy global OAuth token refresh skew. |
 | `REQUIRE_TOOL_CALL`                 | `false`        | Require a tool call in supported MCP workflow paths. |
 | `MCP_REPEATED_WORKFLOW_CONTROLLER`  | `true`         | Enable repeated-workflow orchestration behavior. |
 | `MCP_WORKFLOW_POLICY`               | `{}`           | JSON object for workflow-controller policy. |

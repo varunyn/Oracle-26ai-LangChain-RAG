@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import httpx
+import httpx2
 from fastmcp import Client
 from fastmcp.client.transports import PythonStdioTransport, StreamableHttpTransport
 from fastmcp.exceptions import ToolError
@@ -23,10 +24,9 @@ class _Probe:
 
 async def _contract(client: Client):
     async with client:
-        initialization = client.initialize_result
-        protocol = getattr(initialization, "protocolVersion", None)
+        protocol = client.protocol_version
         assert protocol
-        instructions = getattr(initialization, "instructions", "") or ""
+        instructions = client.instructions or ""
         assert instructions
         for marker in (
             "search_knowledge",
@@ -51,8 +51,8 @@ async def _contract(client: Client):
         schemas = {}
         for tool in tools:
             schemas[tool.name] = {
-                "input": tool.inputSchema,
-                "output": tool.outputSchema,
+                "input": tool.input_schema,
+                "output": tool.output_schema,
             }
         success = await client.call_tool(
             "search_knowledge", {"query": "find", "knowledge_base": "docs"}
@@ -133,7 +133,11 @@ def test_stdio_profile_uses_real_child_process():
         _contract(
             Client(
                 PythonStdioTransport(
-                    script_path=script, python_cmd=sys.executable, cwd=str(Path.cwd()), env=env
+                    script_path=script,
+                    python_cmd=sys.executable,
+                    cwd=str(Path.cwd()),
+                    env=env,
+                    keep_alive=False,
                 )
             )
         )
@@ -151,8 +155,8 @@ def test_http_profile_matches_real_stdio_contract():
     app = server.http_app(transport="streamable-http")
 
     def factory(**kwargs):
-        return httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test", **kwargs
+        return httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=app), base_url="http://test", **kwargs
         )
 
     async def run():
@@ -176,6 +180,7 @@ def test_http_profile_matches_real_stdio_contract():
                     python_cmd=sys.executable,
                     cwd=str(Path.cwd()),
                     env=env,
+                    keep_alive=False,
                 )
             )
         )

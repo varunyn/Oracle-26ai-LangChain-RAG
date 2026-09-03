@@ -1,8 +1,9 @@
-"""App-side MCP client wiring around ``langchain_mcp_adapters``.
+"""App-side MCP client wiring around LangChain's first-party MCP adapter.
 
-``MultiServerMCPClient`` owns MCP sessions, transports, and LangChain tool wrapping.
-This module maps UI-managed or seed MCP server config + per-run ``RunnableConfig``
-to connection dicts, caches clients/tools, and must not reimplement MCP wire protocol.
+``MCPAdapter`` delegates MCP sessions, transports, and LangChain tool wrapping to
+FastMCP 4. This module maps UI-managed or seed MCP server config + per-run
+``RunnableConfig`` to a FastMCP ``ClientGroup``, caches adapters/tools, and must
+not reimplement MCP wire protocol.
 """
 
 from __future__ import annotations
@@ -14,10 +15,9 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, TypedDict, cast
 
-from langchain_core.tools import BaseTool
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_mcp_adapters.interceptors import MCPToolCallRequest, MCPToolCallResult
-from mcp.types import CallToolResult
+from fastmcp.client.group import ClientGroup
+from langchain.mcp import MCPAdapter
+from langchain_core.tools import BaseTool, StructuredTool
 
 from .mcp_oauth import build_oauth_headers_supplier
 from .mcp_settings import get_mcp_servers_config, get_mcp_settings
@@ -25,7 +25,7 @@ from .mcp_settings import get_mcp_servers_config, get_mcp_settings
 logger = logging.getLogger(__name__)
 
 _client_lock = asyncio.Lock()
-_client_cache: dict[str, MultiServerMCPClient] = {}
+_client_cache: dict[str, MCPAdapter] = {}
 _tool_cache: dict[str, list[BaseTool]] = {}
 
 
@@ -38,13 +38,8 @@ class AdapterConnectionConfig(TypedDict, total=False):
     env: dict[str, str]
     auth: Any
     timeout: Any
-    sse_read_timeout: Any
-    session_kwargs: dict[str, Any]
-    httpx_client_factory: Any
     cwd: str
-    encoding: str
-    encoding_error_handler: str
-    terminate_on_close: bool
+    keep_alive: bool
 
 
 def _extract_configurable(run_config: Mapping[str, Any] | None) -> Mapping[str, Any]:
@@ -53,7 +48,7 @@ def _extract_configurable(run_config: Mapping[str, Any] | None) -> Mapping[str, 
     configurable = run_config.get("configurable")
     if isinstance(configurable, Mapping):
         return cast(Mapping[str, Any], configurable)
-    return run_config
+    return {}
 
 
 def _extract_server_keys_from_run_config(run_config: Mapping[str, Any] | None) -> list[str] | None:
@@ -77,7 +72,7 @@ def _extract_config_override(
         key = str(raw_key).strip()
         if key and isinstance(raw_value, Mapping):
             normalized[key] = cast(Mapping[str, Any], raw_value)
-    return normalized or None
+    return normalized
 
 
 def _select_server_keys(
@@ -144,18 +139,6 @@ async def _resolve_server_auth_headers(server_config: Mapping[str, Any]) -> dict
     return {}
 
 
-async def _resolve_jwt_headers(settings: object) -> dict[str, str]:
-    if not bool(getattr(settings, "enable_mcp_client_jwt", False)):
-        return {}
-    supplier = getattr(settings, "jwt_headers_supplier", None)
-    if not callable(supplier):
-        return {}
-    supplied = supplier()
-    if inspect.isawaitable(supplied):
-        supplied = await supplied
-    return _coerce_headers(supplied)
-
-
 def _normalize_connection_config(server_config: Mapping[str, Any]) -> AdapterConnectionConfig:
     connection: AdapterConnectionConfig = {}
     for key in ("transport", "url", "command"):
@@ -183,18 +166,14 @@ def _normalize_connection_config(server_config: Mapping[str, Any]) -> AdapterCon
             if str(key).strip() and str(value).strip()
         }
 
-    # Pass through adapter-supported optional fields to avoid dropping advanced
-    # MCP connection options configured in settings.
+    # These are the optional fields accepted by FastMCP 4's canonical remote
+    # and stdio server definitions. Transport-specific constructors expose a
+    # wider Python-only API, but settings and per-run overrides are JSON data.
     passthrough_keys = (
         "auth",
         "timeout",
-        "sse_read_timeout",
-        "session_kwargs",
-        "httpx_client_factory",
         "cwd",
-        "encoding",
-        "encoding_error_handler",
-        "terminate_on_close",
+        "keep_alive",
     )
     for key in passthrough_keys:
         if key in server_config and server_config[key] is not None:
@@ -205,28 +184,6 @@ def _normalize_connection_config(server_config: Mapping[str, Any]) -> AdapterCon
             cast(dict[str, Any], connection)[key] = server_config[key]
 
     return connection
-
-
-def _resolve_client_callbacks(settings: object) -> Any | None:
-    supplier = getattr(settings, "mcp_client_callbacks_supplier", None)
-    if callable(supplier):
-        return supplier()
-    return getattr(settings, "mcp_client_callbacks", None)
-
-
-def _resolve_tool_interceptors(settings: object) -> list[Any] | None:
-    interceptors: list[Any] = [_successful_tool_result_warning_interceptor]
-    supplier = getattr(settings, "mcp_tool_interceptors_supplier", None)
-    if callable(supplier):
-        supplied = supplier()
-        if isinstance(supplied, Sequence) and not isinstance(supplied, (str, bytes)):
-            interceptors.extend([item for item in supplied])
-        return interceptors
-
-    raw = getattr(settings, "mcp_tool_interceptors", None)
-    if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes)):
-        interceptors.extend([item for item in raw])
-    return interceptors
 
 
 def _move_success_error_to_warnings(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -264,65 +221,45 @@ def _normalize_json_payload_text(text: str) -> tuple[str, bool]:
     return json.dumps(normalized, ensure_ascii=False), True
 
 
-def _normalize_call_tool_result(result: MCPToolCallResult) -> MCPToolCallResult:
-    if not isinstance(result, CallToolResult) or bool(result.isError):
+def _normalize_langchain_tool_result(result: Any) -> Any:
+    """Normalize successful CLI-style payloads after LangChain conversion."""
+    if not isinstance(result, tuple) or len(result) != 2:
         return result
 
-    changed = False
-    updates: dict[str, Any] = {}
-
-    structured = result.structuredContent
-    if isinstance(structured, Mapping):
-        normalized_structured = _move_success_error_to_warnings(cast(Mapping[str, Any], structured))
-        if normalized_structured != dict(structured):
-            updates["structuredContent"] = normalized_structured
-            changed = True
-
-    normalized_content: list[Any] = []
-    content_changed = False
-    for block in result.content:
-        text = getattr(block, "text", None)
-        if isinstance(text, Mapping):
-            normalized_text = _move_success_error_to_warnings(cast(Mapping[str, Any], text))
-            if normalized_text != dict(text):
-                content_changed = True
-                model_copy = getattr(block, "model_copy", None)
-                if callable(model_copy):
-                    normalized_content.append(model_copy(update={"text": normalized_text}))
-                else:
-                    normalized_content.append(block)
+    raw_content, raw_artifact = result
+    content = list(raw_content) if isinstance(raw_content, list) else raw_content
+    if isinstance(content, list):
+        for index, block in enumerate(content):
+            if not isinstance(block, Mapping) or block.get("type") != "text":
                 continue
-        if isinstance(text, str):
-            normalized_text_value, did_change = _normalize_json_payload_text(text)
-            if did_change:
-                content_changed = True
-                model_copy = getattr(block, "model_copy", None)
-                if callable(model_copy):
-                    normalized_content.append(model_copy(update={"text": normalized_text_value}))
-                else:
-                    normalized_content.append(block)
+            text = block.get("text")
+            if not isinstance(text, str):
                 continue
-        normalized_content.append(block)
+            normalized_text, changed = _normalize_json_payload_text(text)
+            if changed:
+                content[index] = {**block, "text": normalized_text}
 
-    if content_changed:
-        updates["content"] = normalized_content
-        changed = True
+    artifact = dict(raw_artifact) if isinstance(raw_artifact, Mapping) else raw_artifact
+    if isinstance(artifact, dict):
+        structured = artifact.get("structured_content")
+        if isinstance(structured, Mapping):
+            artifact["structured_content"] = _move_success_error_to_warnings(structured)
 
-    if not changed:
-        return result
-
-    try:
-        return result.model_copy(update=updates)
-    except Exception:
-        return result
+    return content, artifact
 
 
-async def _successful_tool_result_warning_interceptor(
-    request: MCPToolCallRequest,
-    handler: Callable[[MCPToolCallRequest], Awaitable[MCPToolCallResult]],
-) -> MCPToolCallResult:
-    result = await handler(request)
-    return _normalize_call_tool_result(result)
+def _normalize_adapter_tool(tool: BaseTool) -> BaseTool:
+    """Attach the app's successful-result policy to a first-party MCP tool."""
+    if not isinstance(tool, StructuredTool) or tool.coroutine is None:
+        raise TypeError(
+            f"MCPAdapter returned unsupported tool type {type(tool).__name__!r} for {tool.name!r}"
+        )
+    original = cast(Callable[..., Awaitable[Any]], tool.coroutine)
+
+    async def call_tool(**arguments: Any) -> Any:
+        return _normalize_langchain_tool_result(await original(**arguments))
+
+    return tool.model_copy(update={"coroutine": call_tool})
 
 
 async def build_adapter_server_configs(
@@ -334,7 +271,8 @@ async def build_adapter_server_configs(
     if not settings.enable_mcp_tools:
         return {}
 
-    configured = _extract_config_override(run_config) or get_mcp_servers_config()
+    override = _extract_config_override(run_config)
+    configured = override if override is not None else get_mcp_servers_config()
     if not configured:
         return {}
 
@@ -346,16 +284,12 @@ async def build_adapter_server_configs(
     if not selected_keys:
         return {}
 
-    jwt_headers = await _resolve_jwt_headers(settings)
     resolved: dict[str, AdapterConnectionConfig] = {}
     for key in selected_keys:
         if not isinstance(configured.get(key), Mapping):
             continue
         server_config = cast(Mapping[str, Any], configured[key])
         normalized = _normalize_connection_config(server_config)
-        if jwt_headers:
-            existing_headers = normalized.get("headers", {})
-            normalized["headers"] = {**existing_headers, **jwt_headers}
         auth_headers = await _resolve_server_auth_headers(server_config)
         if auth_headers:
             existing_headers = normalized.get("headers", {})
@@ -366,37 +300,31 @@ async def build_adapter_server_configs(
 
 def _create_client(
     connections: dict[str, AdapterConnectionConfig],
-    *,
-    settings: object,
-) -> MultiServerMCPClient:
-    callbacks = _resolve_client_callbacks(settings)
-    tool_interceptors = _resolve_tool_interceptors(settings)
-    return MultiServerMCPClient(
-        connections=cast(dict[str, Any], connections),
-        callbacks=cast(Any, callbacks),
-        tool_interceptors=cast(Any, tool_interceptors),
-        tool_name_prefix=True,
-    )
+) -> MCPAdapter:
+    # ClientGroup provides deterministic ``<server>_<tool>`` namespacing and
+    # routes each wrapped tool to the client that advertised it.
+    group = ClientGroup.from_config({"mcpServers": cast(dict[str, Any], connections)})
+    return MCPAdapter(group)
 
 
-async def _evict_failed_client(cache_key: str, client: MultiServerMCPClient) -> None:
+async def _evict_failed_client(cache_key: str, client: MCPAdapter) -> None:
     _client_cache.pop(cache_key, None)
     _tool_cache.pop(cache_key, None)
-    for close_name in ("aclose", "close"):
-        close_method = getattr(client, close_name, None)
-        if not callable(close_method):
-            continue
+    await _close_adapter(client)
+
+
+async def _close_adapter(adapter: MCPAdapter) -> None:
+    client_or_group = adapter.client
+    clients = (
+        list(client_or_group.clients.values())
+        if isinstance(client_or_group, ClientGroup)
+        else [client_or_group]
+    )
+    for client in clients:
         try:
-            close_result = close_method()
-            if inspect.isawaitable(close_result):
-                await cast(Awaitable[Any], close_result)
+            await client.close()
         except Exception as close_exc:  # noqa: BLE001
-            logger.debug(
-                "MCP: client cleanup via %s failed after get_tools error: %s",
-                close_name,
-                close_exc,
-            )
-        break
+            logger.debug("MCP: FastMCP client cleanup failed: %s", close_exc)
 
 
 def _connections_cache_key(connections: dict[str, AdapterConnectionConfig]) -> str:
@@ -409,7 +337,6 @@ async def load_adapter_tools(
     server_keys: Sequence[str] | None = None,
     run_config: Mapping[str, Any] | None = None,
 ) -> list[BaseTool]:
-    settings = get_mcp_settings()
     connections = await build_adapter_server_configs(server_keys=server_keys, run_config=run_config)
     if not connections:
         return []
@@ -426,15 +353,15 @@ async def load_adapter_tools(
             return list(cached_tools)
         client = _client_cache.get(cache_key)
         if client is None:
-            client = _create_client(connections, settings=settings)
+            client = _create_client(connections)
             _client_cache[cache_key] = client
             logger.info(
-                "MCP: cached MultiServerMCPClient for %d server(s) (key hash=%s)",
+                "MCP: cached MCPAdapter for %d server(s) (key hash=%s)",
                 len(connections),
                 hash(cache_key) & 0xFFFFFFFF,
             )
         try:
-            tools = cast(list[BaseTool], await client.get_tools())
+            tools = [_normalize_adapter_tool(tool) for tool in await client.list_tools()]
         except asyncio.CancelledError:
             # Evict before cleanup and re-raise cancellation so a partially started
             # client cannot be reused by a later tool load.
@@ -456,25 +383,12 @@ async def load_adapter_tools(
 
 async def clear_adapter_runtime_cache() -> None:
     async with _client_lock:
-        cached_tools = [tool for tools in _tool_cache.values() for tool in tools]
+        cached_adapters = list(_client_cache.values())
         _tool_cache.clear()
         _client_cache.clear()
 
-    # Best-effort cleanup for any adapter tools holding closeable resources.
-    for tool in cached_tools:
-        for attr_name in ("aclose", "close"):
-            close_method = getattr(tool, attr_name, None)
-            if not callable(close_method):
-                continue
-            try:
-                result = close_method()
-                if inspect.isawaitable(result):
-                    await result
-            except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "MCP: tool cleanup skipped for %s via %s: %s", tool.name, attr_name, exc
-                )
-            break
+    for adapter in cached_adapters:
+        await _close_adapter(adapter)
 
     logger.info("MCP: cleared adapter runtime cache")
 

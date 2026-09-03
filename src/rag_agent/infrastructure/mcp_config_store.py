@@ -14,7 +14,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 DEFAULT_MCP_UI_CONFIG_FILE = ".local-data/mcp_servers.json"
-SUPPORTED_TRANSPORTS = {"streamable-http", "sse", "stdio"}
+SUPPORTED_TRANSPORTS = {"http", "streamable-http", "stdio"}
 SUPPORTED_AUTH_TYPES = {"none", "bearer", "oauth_client_credentials"}
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 

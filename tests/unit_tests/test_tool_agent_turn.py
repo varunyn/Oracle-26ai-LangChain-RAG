@@ -111,12 +111,7 @@ def test_mcp_digest_excludes_credentials_but_detects_behavioral_drift(monkeypatc
             "env": {"MCP_MODE": "strict", "MCP_TOKEN": "token-one"},
             "cwd": "/srv/mcp",
             "timeout": 30,
-            "sse_read_timeout": 45,
-            "session_kwargs": {"http2": True},
-            "httpx_client_factory": "factory-one",
-            "encoding": "utf-8",
-            "encoding_error_handler": "strict",
-            "terminate_on_close": True,
+            "keep_alive": True,
         }
     }
     monkeypatch.setattr(tool_agent_turn, "_mcp_definitions", lambda: definitions)
@@ -138,7 +133,7 @@ def test_mcp_digest_excludes_credentials_but_detects_behavioral_drift(monkeypatc
     original = copy.deepcopy(definitions["server"])
     for field, value in (
         ("url", "https://two.example/mcp"),
-        ("transport", "sse"),
+        ("transport", "stdio"),
         ("tool_names", ["calculator", "search"]),
         (
             "headers",
@@ -154,12 +149,7 @@ def test_mcp_digest_excludes_credentials_but_detects_behavioral_drift(monkeypatc
         ("env", {"MCP_MODE": "permissive"}),
         ("cwd", "/srv/other-mcp"),
         ("timeout", 60),
-        ("sse_read_timeout", 90),
-        ("session_kwargs", {"http2": False}),
-        ("httpx_client_factory", "factory-two"),
-        ("encoding", "latin-1"),
-        ("encoding_error_handler", "ignore"),
-        ("terminate_on_close", False),
+        ("keep_alive", False),
     ):
         definitions["server"] = copy.deepcopy(original)
         definitions["server"][field] = value

@@ -102,7 +102,7 @@ flowchart TD
 | Layer                  | Technology                                                                         |
 | ---------------------- | ---------------------------------------------------------------------------------- |
 | Backend API            | FastAPI, Pydantic, Uvicorn                                                         |
-| Agent runtime          | LangChain v1 agents, LangGraph-compatible thread/run APIs, LangChain MCP adapters  |
+| Agent runtime          | LangChain v1 agents, LangGraph-compatible thread/run APIs, first-party MCP adapter |
 | Retrieval              | Oracle 26AI / Oracle AI Vector Search through `langchain-oracledb`                 |
 | LLM and embeddings     | OCI Generative AI through `langchain-oci`; optional OpenAI-compatible model wiring |
 | Reranking              | Native OCI Gen AI rerank with lexical filtering on rerank failure                  |

@@ -550,7 +550,7 @@ export default function SettingsPage(): React.ReactElement {
                   value={draft.transport}
                 >
                   <option value="streamable-http">streamable-http</option>
-                  <option value="sse">sse</option>
+                  <option value="http">http</option>
                   <option value="stdio">stdio</option>
                 </select>
               </label>
