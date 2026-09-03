@@ -83,7 +83,7 @@ export function useChatController({
         source: "toolCallsFromMessages",
         count: toolCallsFromMessages.length,
         names: toolCallsFromMessages.map((tc) => tc.name),
-        callIds: toolCallsFromMessages.map((tc) => tc.callId ?? (tc as Record<string, unknown>).id),
+        callIds: toolCallsFromMessages.map((tc) => tc.callId),
       });
       return toolCallsFromMessages;
     }
