@@ -1,6 +1,9 @@
 import asyncio
 import json
+import sqlite3
 from pathlib import Path
+
+from langgraph.store.sqlite import SqliteStore
 
 import src.rag_agent.runtime.agent_server_checkpointer as checkpointer_module
 from src.rag_agent.runtime.agent_server_checkpointer import (
@@ -126,6 +129,28 @@ def test_local_sqlite_saver_deletes_checkpoints_for_runs(tmp_path: Path) -> None
             assert await _write_count(saver, "thread-a") == 0
 
     asyncio.run(_run())
+
+
+def test_sqlite_store_namespace_search_respects_segment_boundaries(
+    tmp_path: Path,
+) -> None:
+    """A namespace prefix must not match a sibling with the same text prefix."""
+
+    conn = sqlite3.connect(str(tmp_path / "store.sqlite"), isolation_level=None)
+    try:
+        store = SqliteStore(conn)
+        store.setup()
+        store.put(("alice",), "profile", {"owner": "alice"})
+        store.put(("alice-admin",), "profile", {"owner": "alice-admin"})
+        store.put(("alice", "projects"), "project", {"owner": "alice"})
+
+        matches = store.search(("alice",))
+    finally:
+        conn.close()
+    assert {(tuple(item.namespace), item.key) for item in matches} == {
+        (("alice",), "profile"),
+        (("alice", "projects"), "project"),
+    }
 
 
 async def _insert_checkpoint(

@@ -12,11 +12,10 @@ setup_otel_tracing(app) in lifespan to add FastAPI/Requests instrumentation.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from opentelemetry import trace
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
@@ -43,59 +42,6 @@ _EARLY_PROVIDER: TracerProvider | None = None
 
 _DEFAULT_TRACES_ENDPOINT = "http://localhost:4318/v1/traces"
 _DEPLOYMENT_ENVIRONMENT_NAME = "deployment.environment.name"
-
-
-def _otel_safe_attribute_value(value: Any) -> Any:
-    """Convert a value to an OTEL-allowed type (bool, str, int, float, or sequence of same)."""
-    if value is None:
-        return None
-    if isinstance(value, (bool, str, int, float)):
-        return value
-    if isinstance(value, (list, tuple)):
-        if all(type(x) in (bool, str, int, float) for x in value):
-            primitive_types = {type(x) for x in value}
-            if len(primitive_types) <= 1:
-                return list(value)
-            # OTEL sequence attributes must be homogeneous; coerce mixed primitives.
-            return [str(x) for x in value]
-        return json.dumps(value)
-    if isinstance(value, dict):
-        return json.dumps(value)
-    try:
-        return json.dumps(value)
-    except (TypeError, ValueError):
-        return str(value)
-
-
-def _patch_langsmith_otel_metadata() -> None:
-    """Patch LangSmith OTEL exporter so metadata dict values are serialized; avoids 'Invalid type dict' warnings."""
-    try:
-        from langsmith._internal.otel import _otel_exporter as _otel_mod
-    except ImportError:
-        return
-    orig = _otel_mod.OTELExporter._set_span_attributes
-
-    def _set_span_attributes_patched(
-        self: Any, span: Any, run_info: dict[str, Any], op: Any
-    ) -> None:
-        extra = run_info.get("extra") or {}
-        metadata = extra.get("metadata") or {}
-        if metadata:
-            new_meta: dict[str, Any] = {}
-            for k, v in metadata.items():
-                if v is None:
-                    continue
-                safe = _otel_safe_attribute_value(v)
-                if safe is not None:
-                    new_meta[k] = safe
-            if new_meta:
-                run_info = dict(run_info)
-                run_info["extra"] = dict(extra)
-                run_info["extra"]["metadata"] = new_meta
-        orig(self, span, run_info, op)
-
-    setattr(_otel_mod.OTELExporter, "_set_span_attributes", _set_span_attributes_patched)
-    _logger.debug("LangSmith OTEL exporter patched to sanitize metadata attributes")
 
 
 def _env_enabled(key: str, default: bool = False) -> bool:
@@ -165,9 +111,8 @@ def setup_otel_tracing_early(service_name: str = "rag-api") -> bool:
     """Create TracerProvider and set it globally before any LangChain runtime import.
 
     Call this in api/main.py before importing routers so agent_graph.invoke() and
-    all LangChain runnables emit spans to our OTLP collector. Also sets
-    LANGSMITH_OTEL_ENABLED / LANGSMITH_TRACING / LANGSMITH_OTEL_ONLY so LangSmith
-    uses this provider and sends only to our endpoint (no LangSmith API key needed).
+    all LangChain runnables emit spans to our OTLP collector. Also enables
+    LangSmith tracing through its OpenTelemetry destination.
 
     Returns True if the provider was set in this call, False if disabled or already set.
     """
@@ -182,10 +127,9 @@ def setup_otel_tracing_early(service_name: str = "rag-api") -> bool:
             _logger.debug("OTel early provider already set; skipping")
             return False
         try:
-            # LangSmith: use our TracerProvider and send only to OTLP (no LangSmith API)
-            os.environ["LANGSMITH_OTEL_ENABLED"] = "true"
+            # LangSmith: route tracing through the application OpenTelemetry provider.
             os.environ["LANGSMITH_TRACING"] = "true"
-            os.environ["LANGSMITH_OTEL_ONLY"] = "true"
+            os.environ["LANGSMITH_TRACING_MODE"] = "otel"
 
             resource = _create_resource(service_name)
             # shutdown_on_exit=False avoids blocking process exit when OTLP endpoint is slow/unreachable
@@ -206,7 +150,6 @@ def setup_otel_tracing_early(service_name: str = "rag-api") -> bool:
                 provider.add_span_processor(BatchSpanProcessor(exporter))
             trace.set_tracer_provider(provider)
             _EARLY_PROVIDER = provider
-            _patch_langsmith_otel_metadata()
             _logger.info("OpenTelemetry early provider set (LangChain runtime will be traced)")
             return True
         except Exception as e:  # noqa: BLE001
@@ -281,7 +224,6 @@ def setup_otel_tracing(
             except Exception as e:  # noqa: BLE001
                 _logger.debug("Requests instrumentation failed (non-fatal): %s", e)
 
-            _patch_langsmith_otel_metadata()
             _INITIALIZED = True
             _logger.info("OpenTelemetry tracing initialized (service.name=%s)", service_name)
             return True

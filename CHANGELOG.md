@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-10
+
+- Upgraded FastAPI from 0.135.3 to 0.141.1; the existing API route registrations and OpenAPI contract remain unchanged.
+- Upgraded LangChain core to 1.6.1 and LangGraph checkpoint packages to 4.2.0/3.1.1, including the SQLite namespace-boundary security fix that prevents scoped searches from crossing prefix-collision siblings.
+- Upgraded LangSmith to 0.11.2 and switched OTel tracing setup to its public `LANGSMITH_TRACING_MODE=otel` contract, removing the retired metadata patch and legacy OTel flags.
+- Upgraded the Langfuse SDK to `4.15.1`.
+- Aligned the OpenTelemetry cohort to core `1.42.1` and contrib `0.63b1` for Agent Server `langgraph-api==0.13.3`, whose Prometheus exporter requires `<0.64` and resolves to SDK `1.42.1`; logging now uses the public `ReadableLogRecord` SDK type while preserving OCI OTLP normalization and fail-open behavior.
+- Declared the currently supported Python minor explicitly as `>=3.11,<3.12`, matching the repository's `.python-version`, Docker images, tooling targets, and documentation.
+- Pinned the local Agent Server to `langgraph-api==0.13.3` with the compatible `langgraph-cli[inmem]` 0.4.x line. The project keeps `cryptography<47` for compatibility with the previously locked OCI ceiling; this deliberately excludes API `0.13.4`, whose metadata requires `cryptography>=50` (the current lock resolves OCI `2.185.2`).
+
 ## 0.4.0 - 2026-09-03
 
 - Migrated MCP consumption to LangChain 1.4's first-party `langchain.mcp.MCPAdapter` on FastMCP 4 and MCP SDK 2. The runtime now uses FastMCP `ClientGroup` namespacing, current snake_case protocol fields, explicit client cleanup, and the existing successful-result warning policy without the retired `langchain-mcp-adapters` callback and interceptor layer.

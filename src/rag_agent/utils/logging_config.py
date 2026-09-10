@@ -44,20 +44,16 @@ from opentelemetry.exporter.otlp.proto.common._internal._log_encoder import (
 )
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
+from opentelemetry.instrumentation.logging.handler import LoggingHandler
 from opentelemetry.proto.logs.v1.logs_pb2 import SeverityNumber
-from opentelemetry.sdk._logs import (
-    LogData as ReadableLogRecord,
-)
 from opentelemetry.sdk._logs import (
     LoggerProvider as SDKLoggerProvider,
 )
-from opentelemetry.sdk._logs import (
-    LoggingHandler,
-)
+from opentelemetry.sdk._logs import ReadableLogRecord
 from opentelemetry.sdk._logs.export import (
     BatchLogRecordProcessor,
-    LogExporter,
-    LogExportResult,
+    LogRecordExporter,
+    LogRecordExportResult,
 )
 from opentelemetry.sdk.resources import Resource
 
@@ -399,7 +395,7 @@ def _get_logging_analytics_settings() -> LoggingAnalyticsSettings | None:
     )
 
 
-class LoggingAnalyticsExporter(LogExporter):
+class LoggingAnalyticsExporter(LogRecordExporter):
     """Custom exporter that uploads OTLP JSON payloads to OCI Logging Analytics."""
 
     def __init__(self, settings: LoggingAnalyticsSettings, service_name: str) -> None:
@@ -446,7 +442,7 @@ class LoggingAnalyticsExporter(LogExporter):
             pieces.append(f"resourceCategory:{self._settings.resource_category}")
         return ";".join(pieces) if pieces else None
 
-    def export(self, batch: Sequence[ReadableLogRecord]) -> LogExportResult:
+    def export(self, batch: Sequence[ReadableLogRecord]) -> LogRecordExportResult:
         mode = _get_logging_analytics_mode()
         batch = [r for r in batch if not _is_export_confirmation_record(r)]
         if mode == "auto":
@@ -456,7 +452,7 @@ class LoggingAnalyticsExporter(LogExporter):
                 if _is_query_event_record(r) or _severity_number_from_record(r) >= _SEVERITY_WARN
             ]
         if not batch:
-            return LogExportResult.SUCCESS
+            return LogRecordExportResult.SUCCESS
         try:
             # OTLP JSON format per Oracle Log Analytics and OTel spec (resourceLogs / scopeLogs / logRecords).
             payload = encode_logs(batch)
@@ -489,14 +485,14 @@ class LoggingAnalyticsExporter(LogExporter):
                 len(batch),
                 self._settings.namespace,
             )
-            return LogExportResult.SUCCESS
+            return LogRecordExportResult.SUCCESS
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "OCI Logging Analytics export failed (check region/namespace/log group OCID and IAM): %s",
                 exc,
                 exc_info=True,
             )
-            return LogExportResult.FAILURE
+            return LogRecordExportResult.FAILURE
 
     def shutdown(self) -> None:
         close_fn = getattr(self._client, "close", None)
@@ -629,7 +625,7 @@ def setup_logging(console: bool = True) -> None:
     if not any(isinstance(f, RequestIdFilter) for f in getattr(root_logger, "filters", [])):
         root_logger.addFilter(RequestIdFilter())
 
-    exporters: list[LogExporter] = []
+    exporters: list[LogRecordExporter] = []
     exporter_descriptions: list[str] = []
 
     if otel_enabled:
@@ -706,6 +702,7 @@ def setup_logging(console: bool = True) -> None:
                 set_logging_format=False,
                 log_level=logging.NOTSET,
                 log_hook=_inject_request_id,
+                enable_log_auto_instrumentation=False,
             )
             root_logger.addHandler(LoggingHandler(logger_provider=provider))
         for otel_handler in (h for h in root_logger.handlers if isinstance(h, LoggingHandler)):
