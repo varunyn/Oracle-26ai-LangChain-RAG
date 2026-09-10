@@ -1,11 +1,34 @@
 import os
 from contextlib import contextmanager
 
+import pytest
 from fastapi import FastAPI
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from starlette.testclient import TestClient
 
-from src.rag_agent.utils.otel_tracing import _create_resource, setup_otel_tracing
+from src.rag_agent.utils.otel_tracing import (
+    _create_resource,
+    setup_otel_tracing,
+    setup_otel_tracing_early,
+)
+
+
+@pytest.fixture(autouse=True)
+def isolate_otel_tracing(monkeypatch: pytest.MonkeyPatch):
+    """Keep module setup state and instrumentation isolated across test orderings."""
+    import src.rag_agent.utils.otel_tracing as otel_tracing_mod
+
+    monkeypatch.setattr(otel_tracing_mod, "_INITIALIZED", False)
+    monkeypatch.setattr(otel_tracing_mod, "_EARLY_PROVIDER", None)
+    monkeypatch.setattr(otel_tracing_mod, "BatchSpanProcessor", SimpleSpanProcessor)
+    FastAPIInstrumentor().uninstrument()
+    RequestsInstrumentor().uninstrument()
+    yield
+    FastAPIInstrumentor().uninstrument()
+    RequestsInstrumentor().uninstrument()
 
 
 @contextmanager
@@ -43,6 +66,26 @@ def test_resource_includes_langfuse_environment():
 
     assert resource.attributes["service.name"] == "rag-api"
     assert resource.attributes["deployment.environment.name"] == "staging"
+
+
+def test_early_setup_configures_langsmith_otel_mode(monkeypatch):
+    import src.rag_agent.utils.otel_tracing as otel_tracing_mod
+
+    monkeypatch.setattr(otel_tracing_mod, "_EARLY_PROVIDER", None)
+    # Keep this environment-contract test from installing a global provider for
+    # the request instrumentation test that follows it.
+    monkeypatch.setattr(otel_tracing_mod.trace, "set_tracer_provider", lambda provider: None)
+    monkeypatch.setenv("ENABLE_OTEL_TRACING", "1")
+    monkeypatch.delenv("LANGSMITH_OTEL_ENABLED", raising=False)
+    monkeypatch.delenv("LANGSMITH_OTEL_ONLY", raising=False)
+    monkeypatch.delenv("LANGSMITH_TRACING", raising=False)
+    monkeypatch.delenv("LANGSMITH_TRACING_MODE", raising=False)
+
+    assert setup_otel_tracing_early() is True
+    assert os.environ["LANGSMITH_TRACING"] == "true"
+    assert os.environ["LANGSMITH_TRACING_MODE"] == "otel"
+    assert "LANGSMITH_OTEL_ENABLED" not in os.environ
+    assert "LANGSMITH_OTEL_ONLY" not in os.environ
 
 
 def test_fastapi_request_emits_spans_and_service_name():
