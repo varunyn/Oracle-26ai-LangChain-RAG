@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-14
+
+- Upgraded `lucide-react` from 0.554.0 to 1.46.0 while retaining direct named icon imports for tree-shakeable frontend bundles.
+
 ## 2026-09-10
 
 - Upgraded FastAPI from 0.135.3 to 0.141.1; the existing API route registrations and OpenAPI contract remain unchanged.
