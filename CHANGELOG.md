@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-14
+
+- Upgraded Vitest from the locked 3.2.6 release to 4.1.11. The existing Node test configuration does not use removed v4 pool, coverage, reporter, browser, or dependency options.
+
 ## 2026-09-10
 
 - Upgraded FastAPI from 0.135.3 to 0.141.1; the existing API route registrations and OpenAPI contract remain unchanged.
