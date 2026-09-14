@@ -3,6 +3,7 @@
 ## 2026-09-14
 
 - Upgraded Vitest from the locked 3.2.6 release to 4.1.11. The existing Node test configuration does not use removed v4 pool, coverage, reporter, browser, or dependency options.
+- Upgraded `lucide-react` from 0.554.0 to 1.46.0 while retaining direct named icon imports for tree-shakeable frontend bundles.
 
 ## 2026-09-10
 
