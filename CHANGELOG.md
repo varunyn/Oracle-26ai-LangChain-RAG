@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-21
+
+- Refreshed the frontend's compatible dependency lines without taking React, TypeScript, ESLint, Vitest, Streamdown, or LangChain React across planned minor or major migration boundaries. The batch includes Next.js 16.3.5 security fixes, React 19.2.8, LangChain Core 1.2.12, `@langchain/react` 1.0.35, current Radix UI and Lucide releases, and same-line build, test, CSS, and analysis tooling updates.
+
 ## 2026-09-14
 
 - Upgraded Vitest from the locked 3.2.6 release to 4.1.11. The existing Node test configuration does not use removed v4 pool, coverage, reporter, browser, or dependency options.
