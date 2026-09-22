@@ -39,6 +39,7 @@ async def run_mcp_setup(
     await release_tool_agent_turn(config, turn)
     return {
         "messages": [],
+        "remaining_steps": turn["tool_round_limit"],
     }
 
 

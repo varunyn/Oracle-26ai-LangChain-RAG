@@ -1,4 +1,5 @@
 import type { FlowMode } from "@/hooks/useChatBodyParams";
+import type { ThreadHistoryClient } from "@/hooks/useChatSession";
 import type { ContextUsage, MessageReferences } from "@/lib/types/chat";
 
 export type ToastApi = {
@@ -16,7 +17,12 @@ export type MessageLike = {
   references?: ReferencePayload | null;
 };
 
-export type ChatStatus = "submitted" | "streaming" | "ready" | "error";
+export type ChatStatus =
+  | "hydrating"
+  | "idle"
+  | "running"
+  | "reconnecting"
+  | "failed";
 
 export type SendOverrides = {
   forkFromCheckpointId?: string;
@@ -25,9 +31,6 @@ export type SendOverrides = {
 
 export type ClearSessionChat = (helpers: {
   threadId?: string | null;
-  setMessages?: (
-    value: MessageLike[] | ((prev: MessageLike[]) => MessageLike[])
-  ) => void;
   setFeedbackSubmitted: (value: boolean | ((prev: boolean) => boolean)) => void;
   setContextUsage: (
     value:
@@ -37,7 +40,9 @@ export type ClearSessionChat = (helpers: {
   ) => void;
 }) => void;
 
-export type RemoveThreadHistoryEntry = (threadId: string) => void;
+export type RefreshThreadHistory = (
+  client: ThreadHistoryClient
+) => Promise<void>;
 
 export type UseChatControllerArgs = {
   selectedModel: string;
@@ -49,5 +54,5 @@ export type UseChatControllerArgs = {
   flowMode: FlowMode;
   toast: ToastApi;
   clearSessionChat: ClearSessionChat;
-  removeThreadHistoryEntry: RemoveThreadHistoryEntry;
+  refreshThreadHistory: RefreshThreadHistory;
 };

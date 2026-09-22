@@ -11,8 +11,11 @@ function getStreamingCopy(status: string, progress?: string): string {
   if (progress?.trim()) {
     return progress;
   }
-  if (status === "submitted") {
-    return "Opening answer stream";
+  if (status === "hydrating") {
+    return "Loading conversation";
+  }
+  if (status === "reconnecting") {
+    return "Reconnecting to chat";
   }
 
   return "Preparing response";

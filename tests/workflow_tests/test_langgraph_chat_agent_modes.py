@@ -3,9 +3,10 @@ from types import SimpleNamespace
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import tool
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-from src.rag_agent.graphs import tool_agent_turn
+from src.rag_agent.graphs import tool_agent_execution, tool_agent_turn
 from src.rag_agent.graphs.chat_agent import build_chat_agent, route_mode
 from src.rag_agent.graphs.nodes import direct as direct_node_module
 from src.rag_agent.graphs.nodes import mcp as mcp_node_module
@@ -56,6 +57,101 @@ def test_build_chat_agent_exposes_mixed_mode_execution_nodes() -> None:
     } <= node_names
     assert {"mcp_setup", "mcp_agent", "mcp_compose"} <= node_names
     assert "mixed" not in node_names
+
+
+@pytest.mark.parametrize("mode", ["mcp", "mixed"])
+def test_tools_are_root_visible_with_stable_lifecycle_order(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    """The root graph must expose the native tools channel, not a child namespace."""
+
+    @tool
+    def calculator(expression: str) -> str:
+        """Evaluate the supplied test expression."""
+        return "42"
+
+    class FakeModel:
+        def bind_tools(self, _tools: object) -> "FakeModel":
+            return self
+
+        async def ainvoke(self, messages: list[object], *, config: object) -> AIMessage:
+            _ = config
+            if any(getattr(message, "type", None) == "tool" for message in messages):
+                return AIMessage(id="assistant-final", content="42")
+            return AIMessage(
+                id="assistant-tool-call",
+                content="",
+                tool_calls=[
+                    {
+                        "id": "tool-call-1",
+                        "name": "calculator",
+                        "args": {"expression": "19 + 23"},
+                    }
+                ],
+            )
+
+    async def fake_turn(**_kwargs: object) -> dict[str, object]:
+        return {
+            "tools": [calculator],
+            "model_id": "fake-model",
+            "question": "19 + 23",
+            "system_prompt": "Use the calculator.",
+            "chat_history": [],
+            "tool_round_limit": 2,
+            "run_config": {},
+        }
+
+    async def noop_release(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    async def direct_heartbeat(
+        _config: object,
+        _turn: object,
+        operation_factory: object,
+        **_kwargs: object,
+    ) -> object:
+        return await operation_factory()  # type: ignore[operator]
+
+    monkeypatch.setattr(tool_agent_execution, "reconstruct_tool_agent_turn", fake_turn)
+    monkeypatch.setattr(tool_agent_execution, "release_tool_agent_turn", noop_release)
+    monkeypatch.setattr(tool_agent_execution, "release_tool_agent_turn_after_failure", noop_release)
+    monkeypatch.setattr(tool_agent_execution, "run_with_lease_heartbeat", direct_heartbeat)
+    monkeypatch.setattr(tool_agent_execution, "get_llm", lambda model_id: FakeModel())
+    monkeypatch.setattr(mcp_node_module, "prepare_tool_agent_turn", fake_turn)
+    monkeypatch.setattr(mcp_node_module, "release_tool_agent_turn", noop_release)
+    monkeypatch.setattr(mixed_node_module, "prepare_tool_agent_turn", fake_turn)
+    monkeypatch.setattr(mixed_node_module, "release_tool_agent_turn", noop_release)
+    monkeypatch.setattr(
+        mixed_node_module.rag_runtime,
+        "build_oracle_retrieval_tool",
+        lambda **_kwargs: calculator,
+    )
+
+    async def collect() -> list[object]:
+        graph = build_chat_agent()
+        return [
+            chunk
+            async for chunk in graph.astream(
+                {"messages": [HumanMessage(id="human-1", content="19 + 23")]},
+                config={"configurable": {"thread_id": "thread-1"}},
+                context={"mode": mode},
+                stream_mode=["tools", "messages", "values"],
+                interrupt_before=[f"{mode}_compose"],
+            )
+        ]
+
+    chunks = asyncio.run(collect())
+    tool_events = [chunk[1] for chunk in chunks if chunk[0] == "tools"]
+    assert [event["event"] for event in tool_events] == [
+        "tool-started",
+        "tool-finished",
+    ]
+    assert tool_events[0]["tool_call_id"] == "tool-call-1"
+    assert tool_events[0]["tool_name"] == "calculator"
+    assert tool_events[0]["input"] == {"expression": "19 + 23"}
+    assert tool_events[1]["tool_call_id"] == "tool-call-1"
+    assert getattr(tool_events[1]["output"], "tool_call_id", None) == "tool-call-1"
 
 
 def test_run_direct_node_uses_runtime_context(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,12 +1,12 @@
 import { useMessageMetadata } from "@langchain/react";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
-import type { UseChatControllerArgs } from "@/hooks/chat/controller-types";
-import { debugChatStage, summarizeMessages } from "@/hooks/chat/debug";
+import type {
+  ChatStatus,
+  UseChatControllerArgs,
+} from "@/hooks/chat/controller-types";
 import {
   getLastUserMessageText,
-  normalizeStatus,
   projectStreamMessages,
-  selectMessagesForStatus,
 } from "@/hooks/chat/message-projection";
 import {
   type BaseMessageWithKwargs,
@@ -14,8 +14,9 @@ import {
 } from "@/hooks/chat/references";
 import { isMissingThreadError } from "@/hooks/chat/thread-errors";
 import {
-  deriveToolCallsFromMessages,
   filterToolCallsForChatStatus,
+  hydrateToolCallsFromMessages,
+  mergeHydratedAndLiveToolCalls,
   type NativeToolCall,
 } from "@/hooks/chat/tool-call-mapping";
 import { useChatActions } from "@/hooks/chat/useChatActions";
@@ -25,6 +26,24 @@ import type { ContextUsage } from "@/lib/types/chat";
 import { useLangGraphStream } from "@/providers/langgraph-stream-provider";
 
 const EMPTY_TOOL_CALLS: NativeToolCall[] = [];
+
+export function resolveChatStatus(args: {
+  hasError: boolean;
+  isThreadLoading: boolean;
+  isLoading: boolean;
+  reconnecting: boolean;
+}): ChatStatus {
+  if (args.hasError) {
+    return "failed";
+  }
+  if (args.isThreadLoading) {
+    return "hydrating";
+  }
+  if (args.reconnecting) {
+    return "reconnecting";
+  }
+  return args.isLoading ? "running" : "idle";
+}
 
 export function useChatController({
   selectedModel,
@@ -36,7 +55,7 @@ export function useChatController({
   flowMode,
   toast,
   clearSessionChat,
-  removeThreadHistoryEntry,
+  refreshThreadHistory,
 }: UseChatControllerArgs) {
   const [input, setInput] = useState("");
   const [maxCitationsToShow, setMaxCitationsToShow] = useState(10);
@@ -58,79 +77,39 @@ export function useChatController({
     flowMode,
   });
 
-  const { stream, transportError } = useLangGraphStream();
+  const { reconnect, stream } = useLangGraphStream();
   const effectiveThreadId = threadId ?? stream.threadId ?? null;
 
   const streamMessages = stream.messages;
-  const stateMessages = (stream.values as { messages?: unknown } | undefined)
-    ?.messages;
   const streamToolCalls = stream.toolCalls ?? EMPTY_TOOL_CALLS;
-  const toolCallsFromMessages = useMemo(
-    () => deriveToolCallsFromMessages(streamMessages as BaseMessageWithKwargs[]),
+  const progress = stream.values.progress;
+  const status = resolveChatStatus({
+    hasError: stream.error != null,
+    isThreadLoading: stream.isThreadLoading,
+    isLoading: stream.isLoading,
+    reconnecting: reconnect != null,
+  });
+  const hydratedToolCalls = useMemo(
+    () => hydrateToolCallsFromMessages(streamMessages),
     [streamMessages]
   );
-  const resolvedToolCalls = useMemo((): NativeToolCall[] => {
-    if (streamToolCalls.length > 0) {
-      debugChatStage("resolvedToolCalls", {
-        source: "streamToolCalls",
-        count: streamToolCalls.length,
-        names: streamToolCalls.map((tc) => tc.name),
-      });
-      return streamToolCalls;
-    }
-    if (toolCallsFromMessages.length > 0) {
-      debugChatStage("resolvedToolCalls", {
-        source: "toolCallsFromMessages",
-        count: toolCallsFromMessages.length,
-        names: toolCallsFromMessages.map((tc) => tc.name),
-        callIds: toolCallsFromMessages.map((tc) => tc.callId),
-      });
-      return toolCallsFromMessages;
-    }
-    debugChatStage("resolvedToolCalls", { source: "empty" });
-    return EMPTY_TOOL_CALLS;
-  }, [streamToolCalls, toolCallsFromMessages]);
-  const progress =
-    typeof (stream.values as { progress?: unknown } | undefined)?.progress ===
-    "string"
-      ? (stream.values as { progress: string }).progress
-      : undefined;
-
-  const rawStreamStatus = (stream as { status?: unknown }).status;
-  const status = normalizeStatus(
-    rawStreamStatus,
-    stream.isLoading,
-    stream.error != null || submitError != null || transportError != null
+  const resolvedToolCalls = useMemo(
+    () =>
+      mergeHydratedAndLiveToolCalls(
+        hydratedToolCalls,
+        streamToolCalls as NativeToolCall[]
+      ),
+    [hydratedToolCalls, streamToolCalls]
   );
   const visibleToolCalls = useMemo(
     () => filterToolCallsForChatStatus(resolvedToolCalls, status),
     [resolvedToolCalls, status]
   );
 
-  const messages = useMemo(() => {
-    const liveMessages = projectStreamMessages({
-      streamMessages: streamMessages as BaseMessageWithKwargs[] | undefined,
-    });
-    const finalizedMessages = Array.isArray(stateMessages)
-      ? projectStreamMessages({
-          streamMessages: stateMessages as BaseMessageWithKwargs[],
-        })
-      : undefined;
-    const selectedMessages = selectMessagesForStatus(
-      liveMessages,
-      finalizedMessages,
-      status
-    );
-    debugChatStage("selectMessagesForStatus", {
-      status,
-      live: summarizeMessages(liveMessages),
-      finalized: finalizedMessages
-        ? summarizeMessages(finalizedMessages)
-        : undefined,
-      selected: summarizeMessages(selectedMessages),
-    });
-    return selectedMessages;
-  }, [stateMessages, status, streamMessages]);
+  const messages = useMemo(
+    () => projectStreamMessages(streamMessages as BaseMessageWithKwargs[]),
+    [streamMessages]
+  );
   const lastUserMessageId = useMemo(
     () =>
       [...messages].reverse().find((message) => message.role === "user")?.id,
@@ -168,14 +147,7 @@ export function useChatController({
     }
     lastErrorToastKeyRef.current = errorToastKey;
     toast.error(message);
-  }, [
-    clearSessionChat,
-    setContextUsage,
-    setFeedbackSubmitted,
-    stream.error,
-    threadId,
-    toast,
-  ]);
+  }, [clearSessionChat, stream.error, threadId, toast]);
 
   useEffect(() => {
     if (submitError == null) {
@@ -189,38 +161,6 @@ export function useChatController({
     lastErrorToastKeyRef.current = errorToastKey;
     toast.error(message);
   }, [submitError, threadId, toast]);
-
-  useEffect(() => {
-    if (transportError == null) {
-      return;
-    }
-    const message = transportError.message || "Chat request failed";
-    if (isMissingThreadError(transportError, threadId)) {
-      const recoveryKey = `missing-thread-transport:${threadId}:${message}`;
-      if (lastRecoveredMissingThreadKeyRef.current === recoveryKey) {
-        return;
-      }
-      lastRecoveredMissingThreadKeyRef.current = recoveryKey;
-      clearSessionChat({
-        setFeedbackSubmitted,
-        setContextUsage,
-      });
-      return;
-    }
-    const errorToastKey = `transport:${threadId}:${message}`;
-    if (lastErrorToastKeyRef.current === errorToastKey) {
-      return;
-    }
-    lastErrorToastKeyRef.current = errorToastKey;
-    toast.error(message);
-  }, [
-    clearSessionChat,
-    setContextUsage,
-    setFeedbackSubmitted,
-    threadId,
-    toast,
-    transportError,
-  ]);
 
   useEffect(() => {
     const lastAssistant = [...messages]
@@ -266,7 +206,7 @@ export function useChatController({
     clearSessionChat,
     input,
     messages,
-    removeThreadHistoryEntry,
+    refreshThreadHistory,
     setContextUsage,
     setFeedbackSubmitted,
     setFeedbackSubmittedMessageIndexes,
@@ -292,9 +232,9 @@ export function useChatController({
     setFeedbackSubmitted,
   });
 
-  const canStopStream = status === "submitted" || status === "streaming";
+  const canStopStream = status === "running" || status === "reconnecting";
   const canResumeTurn =
-    status === "error" && getLastUserMessageText(messages).length > 0;
+    status === "failed" && getLastUserMessageText(messages).length > 0;
 
   return {
     input,
@@ -303,6 +243,7 @@ export function useChatController({
     progress,
     toolCalls: visibleToolCalls,
     status,
+    reconnect,
     maxCitationsToShow,
     handleSubmit,
     canStopStream,

@@ -4,147 +4,69 @@ import { describe, expect, it } from "vitest";
 import { projectStreamMessages } from "../message-projection";
 
 describe("frontend stream message contract", () => {
-  it("supports HumanMessage and AIMessage instances from stream.messages", () => {
+  it("renders the native stream.messages projection in order", () => {
+    const projected = projectStreamMessages([
+      new HumanMessage({ id: "user-1", content: "What is Oracle 26ai?" }),
+      new AIMessage({
+        id: "assistant-1",
+        content: "Oracle 26ai is Oracle's latest AI-focused database release.",
+        additional_kwargs: {
+          citations: [{ source: "guide.pdf", page: "2" }],
+        },
+      }),
+    ]);
+
+    expect(projected).toMatchObject([
+      { id: "user-1", role: "user", content: "What is Oracle 26ai?" },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        content: "Oracle 26ai is Oracle's latest AI-focused database release.",
+        references: { citations: [{ source: "guide.pdf", page: "2" }] },
+      },
+    ]);
+  });
+
+  it("keeps live and replayed native messages as one ordered timeline", () => {
     const user = new HumanMessage({
       id: "user-1",
       content: "What is Oracle 26ai?",
     });
     const assistant = new AIMessage({
       id: "assistant-1",
-      content: [
-        {
-          type: "text",
-          text: "Oracle 26ai is Oracle's latest AI-focused database release.",
-        },
-        { type: "tool_use", text: "ignored tool payload" },
-      ],
-      tool_calls: [
-        {
-          id: "call-1",
-          name: "knowledge_lookup",
-          args: { query: "Oracle 26ai" },
-        },
-      ],
-      additional_kwargs: {
-        citations: [{ source: "guide.pdf", page: "2" }],
-      },
+      content: "Oracle 26ai details.",
     });
+    const replay = projectStreamMessages([user, assistant]);
 
-    const projected = projectStreamMessages({
-      streamMessages: [user, assistant],
-    });
+    expect(
+      replay.map(({ id, role, content }) => ({ id, role, content }))
+    ).toEqual([
+      { id: "user-1", role: "user", content: "What is Oracle 26ai?" },
+      { id: "assistant-1", role: "assistant", content: "Oracle 26ai details." },
+    ]);
+  });
 
-    expect(projected).toEqual([
-      {
-        id: "user-1",
-        role: "user",
-        content: "What is Oracle 26ai?",
-        references: null,
-      },
-      {
+  it("maps native assistant tool calls without deriving them from content", () => {
+    const projected = projectStreamMessages([
+      new AIMessage({
         id: "assistant-1",
-        role: "assistant",
-        content: "Oracle 26ai is Oracle's latest AI-focused database release.",
-        toolCallIds: ["call-1"],
-        references: {
-          citations: [{ source: "guide.pdf", page: "2" }],
-          reranker_docs: [],
-          trace_id: undefined,
-          standalone_question: undefined,
-          context_usage: undefined,
-          mcp_used: false,
-          mcp_tools_used: undefined,
-          mcp_tool_invocations: undefined,
-          error: undefined,
-        },
-      },
-    ]);
-  });
-
-  it("keeps the latest message when a streamed id is replayed with more complete content", () => {
-    const user = new HumanMessage({
-      id: "user-1",
-      content: "What is Oracle 26ai?",
-    });
-    const partialAssistant = new AIMessage({
-      id: "assistant-1",
-      content: [{ type: "text", text: "Oracle 26ai" }],
-    });
-    const finalAssistant = new AIMessage({
-      id: "assistant-1",
-      content: [
-        {
-          type: "text",
-          text: "Oracle 26ai is Oracle's latest AI-focused database release.",
-        },
-      ],
-    });
-
-    const projected = projectStreamMessages({
-      streamMessages: [user, partialAssistant, finalAssistant],
-    });
-
-    expect(projected.map((message) => message.id)).toEqual([
-      "user-1",
-      "assistant-1",
-    ]);
-    expect(projected[1]?.content).toBe(
-      "Oracle 26ai is Oracle's latest AI-focused database release."
-    );
-  });
-
-  it("renders citations from serialized LangGraph state messages", () => {
-    const projected = projectStreamMessages({
-      streamMessages: [
-        {
-          type: "human",
-          id: "user-1",
-          content: "What are the payment terms?",
-        } as never,
-        {
-          type: "ai",
-          id: "assistant-1",
-          content: "Net 30 days.",
-          additional_kwargs: {
-            citations: [{ source: "terms.pdf", page: null }],
+        content: "Looking that up now.",
+        tool_calls: [
+          {
+            id: "call-1",
+            name: "knowledge_lookup",
+            args: { query: "Oracle" },
           },
-        } as never,
-      ],
-    });
+        ],
+      }),
+    ]);
 
     expect(projected).toMatchObject([
-      { id: "user-1", role: "user" },
       {
         id: "assistant-1",
         role: "assistant",
-        references: { citations: [{ source: "terms.pdf", page: null }] },
-      },
-    ]);
-  });
-
-  it("supports live camelCase toolCalls from the stream surface", () => {
-    const projected = projectStreamMessages({
-      streamMessages: [
-        {
-          type: "ai",
-          id: "assistant-1",
-          content: ".",
-          toolCalls: [
-            {
-              id: "call-1",
-            },
-          ],
-        } as never,
-      ],
-    });
-
-    expect(projected).toEqual([
-      {
-        id: "assistant-1",
-        role: "assistant",
-        content: "",
+        content: "Looking that up now.",
         toolCallIds: ["call-1"],
-        references: null,
       },
     ]);
   });

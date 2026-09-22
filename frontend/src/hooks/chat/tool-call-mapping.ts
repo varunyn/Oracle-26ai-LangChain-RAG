@@ -1,103 +1,119 @@
-import type { AssembledToolCall } from "@langchain/react";
-import type { BaseMessageWithKwargs } from "@/hooks/chat/references";
+import {
+  AIMessage,
+  type BaseMessage,
+  ToolMessage,
+} from "@langchain/core/messages";
+import type { AssembledToolCall, ToolCallStatus } from "@langchain/react";
 import type { ToolState } from "@/components/ai-elements/tool";
+import type { ChatStatus } from "@/hooks/chat/controller-types";
+import { getMessageContent } from "@/lib/chat/messages";
 
-export type NativeToolCall = AssembledToolCall;
+/** The product view consumes only the documented assembled projection fields. */
+export type NativeToolCall = Pick<
+  AssembledToolCall,
+  "callId" | "namespace" | "name" | "input" | "output" | "status" | "error"
+>;
 
-export type RenderableToolCall = {
+export interface RenderableToolCall {
   callId: string;
-  error?: string;
+  error: string | undefined;
   input: unknown;
   name: string;
   output: unknown;
-  status: "running" | "finished" | "error";
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  status: ToolCallStatus;
 }
 
-function stringField(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
+/**
+ * Seed the root tool projection from the standard messages persisted in a
+ * thread checkpoint. @langchain/react currently performs this seeding for
+ * scoped projections, but not for the root projection during idle hydration.
+ */
+export function hydrateToolCallsFromMessages(
+  messages: readonly BaseMessage[]
+): NativeToolCall[] {
+  const calls: NativeToolCall[] = [];
+  const callIndexes = new Map<string, number>();
 
-function nativeToolCallId(toolCall: NativeToolCall): string | undefined {
-  if (!isRecord(toolCall)) {
-    return;
+  for (const message of messages) {
+    if (AIMessage.isInstance(message)) {
+      for (const toolCall of message.tool_calls ?? []) {
+        if (
+          typeof toolCall.id !== "string" ||
+          toolCall.id.length === 0 ||
+          typeof toolCall.name !== "string" ||
+          toolCall.name.length === 0 ||
+          callIndexes.has(toolCall.id)
+        ) {
+          continue;
+        }
+        callIndexes.set(toolCall.id, calls.length);
+        calls.push({
+          callId: toolCall.id,
+          namespace: [],
+          name: toolCall.name,
+          input: toolCall.args,
+          output: null,
+          status: "running",
+          error: undefined,
+        });
+      }
+      continue;
+    }
+
+    if (!ToolMessage.isInstance(message)) {
+      continue;
+    }
+    const index = callIndexes.get(message.tool_call_id);
+    if (index === undefined) {
+      continue;
+    }
+    const call = calls[index];
+    const content = getMessageContent(message);
+    calls[index] =
+      message.status === "error"
+        ? {
+            ...call,
+            output: null,
+            status: "error",
+            error: content || "Tool execution failed",
+          }
+        : {
+            ...call,
+            output: message.artifact ?? content,
+            status: "finished",
+            error: undefined,
+          };
   }
-  const record: Record<string, unknown> = toolCall;
-  return (
-    stringField(record["callId"]) ??
-    stringField(record["id"]) ??
-    (isRecord(record["call"]) ? stringField(record["call"]["id"]) : undefined)
+
+  return calls;
+}
+
+/** Live lifecycle events are newer than checkpoint-derived replay state. */
+export function mergeHydratedAndLiveToolCalls(
+  hydrated: readonly NativeToolCall[],
+  live: readonly NativeToolCall[]
+): NativeToolCall[] {
+  const merged = new Map(
+    hydrated.map((toolCall) => [toolCall.callId, toolCall] as const)
   );
-}
-
-function normalizeStatus(value: unknown): RenderableToolCall["status"] {
-  if (value === "error") {
-    return "error";
+  for (const toolCall of live) {
+    merged.set(toolCall.callId, toolCall);
   }
-  if (value === "finished" || value === "completed") {
-    return "finished";
-  }
-  return "running";
-}
-
-function resultStatus(
-  result: unknown
-): RenderableToolCall["status"] | undefined {
-  if (!isRecord(result)) {
-    return;
-  }
-  if (result.status === "error") {
-    return "error";
-  }
-  return "finished";
-}
-
-function resultContent(result: unknown): unknown {
-  return isRecord(result) && "content" in result ? result.content : result;
+  return [...merged.values()];
 }
 
 export function toRenderableToolCall(
   toolCall: NativeToolCall
-): RenderableToolCall | null {
-  if (!isRecord(toolCall)) {
-    return null;
-  }
-  const record: Record<string, unknown> = toolCall;
-  const call = isRecord(record["call"]) ? record["call"] : undefined;
-  const resultRecord = isRecord(record["result"])
-    ? record["result"]
-    : undefined;
-  const callId = nativeToolCallId(toolCall);
-  const name =
-    stringField(record["name"]) ??
-    stringField(call?.name) ??
-    stringField(resultRecord?.name);
-  if (!(callId && name)) {
-    return null;
-  }
-  const result = record["result"];
-  const status =
-    resultStatus(result) ??
-    normalizeStatus(record["status"] ?? record["state"]);
-  const output = "output" in record ? record["output"] : resultContent(result);
-  const error =
-    status === "error"
-      ? (stringField(record["error"]) ?? JSON.stringify(resultContent(result)))
-      : stringField(record["error"]);
-
+): RenderableToolCall {
   return {
-    callId,
-    error,
-    input: record["input"] ?? record["args"] ?? call?.args ?? {},
-    name,
+    callId: toolCall.callId,
+    error: toolCall.error,
+    input: toolCall.input,
+    name: toolCall.name,
     output:
-      status === "running" && output == null
-        ? "Waiting for tool result..."
-        : (output ?? "Completed."),
-    status,
+      toolCall.output ??
+      (toolCall.status === "running" ? "Waiting for tool result..." : null),
+    status: toolCall.status,
   };
 }
 
@@ -105,30 +121,23 @@ export function toolCallsForMessage(
   toolCallIds: readonly string[] | undefined,
   toolCalls: readonly NativeToolCall[]
 ): RenderableToolCall[] {
-  const ids = new Set(toolCallIds ?? []);
-  if (ids.size === 0) {
+  if (!toolCallIds?.length) {
     return [];
   }
+  const ids = new Set(toolCallIds);
   return toolCalls
-    .filter((toolCall) => {
-      const id = nativeToolCallId(toolCall);
-      return id != null && ids.has(id);
-    })
-    .map(toRenderableToolCall)
-    .filter((toolCall): toolCall is RenderableToolCall => toolCall != null);
+    .filter((toolCall) => ids.has(toolCall.callId))
+    .map(toRenderableToolCall);
 }
 
 export function filterToolCallsForChatStatus(
   toolCalls: readonly NativeToolCall[],
-  chatStatus: string
+  chatStatus: ChatStatus
 ): NativeToolCall[] {
-  if (chatStatus === "submitted" || chatStatus === "streaming") {
+  if (chatStatus === "running" || chatStatus === "reconnecting") {
     return [...toolCalls];
   }
-  return toolCalls.filter((toolCall) => {
-    const renderable = toRenderableToolCall(toolCall);
-    return renderable != null && renderable.status !== "running";
-  });
+  return toolCalls.filter((toolCall) => toolCall.status !== "running");
 }
 
 export function toolCallStateForStatus(
@@ -141,169 +150,4 @@ export function toolCallStateForStatus(
     return "output-available";
   }
   return "input-available";
-}
-
-function isToolMessage(message: BaseMessageWithKwargs): boolean {
-  const serialized = message as BaseMessageWithKwargs & {
-    type?: unknown;
-    role?: unknown;
-  };
-  const type =
-    typeof serialized.type === "string" ? serialized.type.toLowerCase() : "";
-  const role =
-    typeof serialized.role === "string" ? serialized.role.toLowerCase() : "";
-  return type === "tool" || role === "tool";
-}
-
-function extractToolCallId(
-  message: BaseMessageWithKwargs
-): string | undefined {
-  const serialized = message as BaseMessageWithKwargs & {
-    tool_call_id?: unknown;
-  };
-  return typeof serialized.tool_call_id === "string" &&
-    serialized.tool_call_id.length > 0
-    ? serialized.tool_call_id
-    : undefined;
-}
-
-function extractToolStatus(
-  message: BaseMessageWithKwargs
-): "error" | "success" | undefined {
-  const serialized = message as BaseMessageWithKwargs & {
-    status?: unknown;
-  };
-  if (serialized.status === "error") return "error";
-  if (serialized.status === "success") return "success";
-  return undefined;
-}
-
-function extractContent(value: unknown): unknown {
-  if (value == null) return null;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (trimmed === ".") return "";
-    return value;
-  }
-  if (Array.isArray(value)) {
-    const textParts = value
-      .filter(
-        (part: unknown): part is { type: string; text: string } =>
-          typeof part === "object" &&
-          part != null &&
-          (part as { type?: string }).type === "text"
-      )
-      .map((part) => part.text);
-    return textParts.length > 0 ? textParts.join("") : String(value);
-  }
-  return String(value);
-}
-
-function extractToolCallsFromContentBlocks(
-  content: unknown
-): Array<{ id: string; name: string; args: Record<string, unknown> }> {
-  if (!Array.isArray(content)) return [];
-  return content
-    .filter(
-      (block): block is Record<string, unknown> =>
-        typeof block === "object" &&
-        block != null &&
-        (block.type === "tool_call" || block.type === "tool_use")
-    )
-    .map((block) => ({
-      id: typeof block.id === "string" ? block.id : "",
-      name: typeof block.name === "string" ? block.name : "",
-      args:
-        block.args && typeof block.args === "object"
-          ? (block.args as Record<string, unknown>)
-          : block.input && typeof block.input === "object"
-            ? (block.input as Record<string, unknown>)
-            : {},
-    }))
-    .filter((tc): tc is { id: string; name: string; args: Record<string, unknown> } => tc.id.length > 0 && tc.name.length > 0);
-}
-
-export function deriveToolCallsFromMessages(
-  messages: readonly BaseMessageWithKwargs[]
-): NativeToolCall[] {
-  const toolResultsByCallId = new Map<
-    string,
-    { output: unknown; status: "error" | "success"; error?: string }
-  >();
-
-  for (const message of messages) {
-    const raw = message as BaseMessageWithKwargs & {
-      type?: unknown;
-      tool_calls?: unknown;
-    };
-    if (!isToolMessage(message)) continue;
-    const callId = extractToolCallId(message);
-    if (!callId) continue;
-    const toolStatus = extractToolStatus(message);
-    const content = extractContent(raw.content);
-    toolResultsByCallId.set(callId, {
-      output: content,
-      status: toolStatus === "error" ? "error" : "success",
-      error:
-        toolStatus === "error"
-          ? typeof content === "string"
-            ? content
-            : "Tool execution failed"
-          : undefined,
-    });
-  }
-
-  const result: NativeToolCall[] = [];
-
-  for (const message of messages) {
-    const raw = message as BaseMessageWithKwargs & {
-      type?: unknown;
-      tool_calls?: Array<{
-        id?: string;
-        name?: string;
-        args?: Record<string, unknown>;
-      }>;
-    };
-    if (raw.type !== "ai") continue;
-    let toolCalls = raw.tool_calls;
-    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-      toolCalls = extractToolCallsFromContentBlocks(raw.content) as unknown as Array<{
-        id?: string;
-        name?: string;
-        args?: Record<string, unknown>;
-      }>;
-      if (toolCalls.length === 0) continue;
-    }
-
-    for (const toolCall of toolCalls) {
-      const id =
-        typeof toolCall.id === "string" && toolCall.id.length > 0
-          ? toolCall.id
-          : undefined;
-      const name =
-        typeof toolCall.name === "string" && toolCall.name.length > 0
-          ? toolCall.name
-          : undefined;
-      if (!id || !name) continue;
-
-      const toolResult = toolResultsByCallId.get(id);
-      const output = toolResult?.output ?? null;
-      const status = toolResult?.status === "error" ? "error" : "finished";
-      const error = toolResult?.error;
-
-      result.push({
-        name,
-        callId: id,
-        id,
-        namespace: [],
-        input: toolCall.args ?? {},
-        args: toolCall.args ?? {},
-        output,
-        status,
-        error,
-      });
-    }
-  }
-
-  return result;
 }

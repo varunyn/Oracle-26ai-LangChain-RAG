@@ -39,8 +39,9 @@ export function ChatInputBar({
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const showSuggestions =
-    status !== "submitted" &&
-    status !== "streaming" &&
+    status !== "hydrating" &&
+    status !== "running" &&
+    status !== "reconnecting" &&
     pendingSuggestion == null &&
     !suggestionsLoading;
 
@@ -98,7 +99,7 @@ export function ChatInputBar({
             aria-label="Message"
             className="max-h-60 min-h-12 flex-1 resize-none overflow-y-auto rounded-lg border border-input bg-background px-4 py-3 text-foreground leading-6 transition-colors placeholder:text-muted-foreground focus:border-transparent focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             data-testid="chat-input"
-            disabled={canStopStream}
+            disabled={canStopStream || status === "hydrating"}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleInputKeyDown}
             placeholder="Ask about your documents, policies, or Oracle Cloud data"
@@ -120,7 +121,7 @@ export function ChatInputBar({
               <button
                 className="min-h-12 rounded-lg bg-primary px-6 py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 data-testid="chat-send"
-                disabled={!input.trim()}
+                disabled={!input.trim() || status === "hydrating"}
                 type="submit"
               >
                 Ask

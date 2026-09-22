@@ -63,7 +63,11 @@ async def run_mixed_mcp_setup(
         oracle_retrieval_evidence=retrieval_evidence,
     )
     await release_tool_agent_turn(config, turn)
-    return {"messages": [], "progress": "Planning collection and tool search…"}
+    return {
+        "messages": [],
+        "remaining_steps": turn["tool_round_limit"],
+        "progress": "Planning collection and tool search…",
+    }
 
 
 async def run_mixed_compose_node(

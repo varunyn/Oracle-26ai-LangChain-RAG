@@ -1,10 +1,10 @@
 "use client";
 
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
-import type { AssembledToolCall } from "@langchain/react";
 import { useSyncExternalStore } from "react";
 import { ChatMessageList } from "@/components/chat/ChatMessageList";
 import { projectStreamMessages } from "@/hooks/chat/message-projection";
+import type { NativeToolCall } from "@/hooks/chat/tool-call-mapping";
 
 type Phase = "running" | "final";
 
@@ -98,63 +98,53 @@ const FINAL_STREAM_MESSAGES = [
 const RUNNING_TOOL_CALLS = [
   {
     callId: "calc-1",
-    id: "calc-1",
     name: "calculate_invoice_total",
     namespace: [],
     input: { invoiceId: "INV-42", lineItems: [125, 250.5] },
-    args: { invoiceId: "INV-42", lineItems: [125, 250.5] },
     output: null,
     status: "running",
     error: undefined,
   },
   {
     callId: "lookup-1",
-    id: "lookup-1",
     name: "lookup_vendor_profile",
     namespace: [],
     input: { vendorId: "northwell-001", includeInvoices: true },
-    args: { vendorId: "northwell-001", includeInvoices: true },
     output: null,
     status: "running",
     error: undefined,
   },
-] satisfies AssembledToolCall[];
+] satisfies NativeToolCall[];
 
 const FINAL_TOOL_CALLS = [
   {
     callId: "calc-1",
-    id: "calc-1",
     name: "calculate_invoice_total",
     namespace: [],
     input: { invoiceId: "INV-42", lineItems: [125, 250.5] },
-    args: { invoiceId: "INV-42", lineItems: [125, 250.5] },
     output: { total: 375.5, currency: "USD" },
     status: "finished",
     error: undefined,
   },
   {
     callId: "lookup-1",
-    id: "lookup-1",
     name: "lookup_vendor_profile",
     namespace: [],
     input: { vendorId: "northwell-001", includeInvoices: true },
-    args: { vendorId: "northwell-001", includeInvoices: true },
     output: null,
     status: "error",
     error: "Vendor service timeout",
   },
   {
     callId: "summary-1",
-    id: "summary-1",
     name: "summarize_invoice_risk",
     namespace: [],
     input: { invoiceId: "INV-42", confidence: 0.82 },
-    args: { invoiceId: "INV-42", confidence: 0.82 },
     output: { risk: "medium", reason: "Vendor profile unavailable" },
     status: "finished",
     error: undefined,
   },
-] satisfies AssembledToolCall[];
+] satisfies NativeToolCall[];
 
 function readPhaseSnapshot(): Phase {
   if (typeof window === "undefined") {
@@ -192,13 +182,11 @@ function phaseFixture(phase: Phase) {
   return {
     messages:
       phase === "final"
-        ? projectStreamMessages({ streamMessages: [...FINAL_STREAM_MESSAGES] })
-        : projectStreamMessages({
-            streamMessages: [...RUNNING_STREAM_MESSAGES],
-          }),
+        ? projectStreamMessages([...FINAL_STREAM_MESSAGES])
+        : projectStreamMessages([...RUNNING_STREAM_MESSAGES]),
     toolCalls:
       phase === "final" ? [...FINAL_TOOL_CALLS] : [...RUNNING_TOOL_CALLS],
-    status: phase === "final" ? "ready" : "streaming",
+    status: phase === "final" ? "idle" : "running",
   };
 }
 

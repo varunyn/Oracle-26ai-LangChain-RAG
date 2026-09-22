@@ -27,6 +27,7 @@ class ChatGraphContext(TypedDict, total=False):
 
 class ChatGraphState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
+    remaining_steps: int
     context: ChatGraphContext
     references: dict[str, object]
     progress: str

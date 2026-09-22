@@ -6,11 +6,55 @@ const SIDEBAR_THREAD_ID_2 = "00000000-0000-4000-8000-000000000003";
 const BROWSER_MOCK_THREAD_ID = "00000000-0000-4000-8000-000000000005";
 const CLEAR_ACTIVE_THREAD_ID = "00000000-0000-4000-8000-000000000006";
 const KEEP_THREAD_ID = "00000000-0000-4000-8000-000000000007";
+const RESUME_PATTERN = /resume/i;
 
-type ProtocolMockEvent = {
-  method: "values" | "tools" | "lifecycle";
+interface ProtocolMockEvent {
   data: unknown;
-};
+  method: "values" | "tools" | "lifecycle";
+}
+
+interface ProtocolMessage {
+  content?: unknown;
+  id?: string;
+  type?: string;
+  [key: string]: unknown;
+}
+
+function addStableMessageIds(
+  events: ProtocolMockEvent[],
+  submittedMessages: ProtocolMessage[]
+): ProtocolMockEvent[] {
+  return events.map((event) => {
+    if (
+      event.method !== "values" ||
+      event.data == null ||
+      typeof event.data !== "object" ||
+      !("messages" in event.data) ||
+      !Array.isArray(event.data.messages)
+    ) {
+      return event;
+    }
+
+    const messages = event.data.messages.map(
+      (message: ProtocolMessage, index: number) => {
+        if (message.id) {
+          return message;
+        }
+        const submitted = submittedMessages.find(
+          (candidate) =>
+            candidate.type === message.type &&
+            candidate.content === message.content &&
+            typeof candidate.id === "string"
+        );
+        return {
+          ...message,
+          id: submitted?.id ?? `mock-${message.type ?? "message"}-${index}`,
+        };
+      }
+    );
+    return { ...event, data: { ...event.data, messages } };
+  });
+}
 
 function protocolEvent({ method, data }: ProtocolMockEvent, index: number) {
   return {
@@ -22,11 +66,14 @@ function protocolEvent({ method, data }: ProtocolMockEvent, index: number) {
   };
 }
 
-function protocolSse(events: ProtocolMockEvent[]) {
+function protocolSse(events: ProtocolMockEvent[], sequenceOffset = 0) {
   return events
     .map(
       (event, index) =>
-        `event: event\ndata: ${JSON.stringify(protocolEvent(event, index))}\n`
+        `event: event\ndata: ${JSON.stringify({
+          ...protocolEvent(event, index + sequenceOffset),
+          event_id: `mock-event-${index + sequenceOffset + 1}`,
+        })}\n`
     )
     .join("\n");
 }
@@ -41,8 +88,13 @@ function commandSuccessBody(commandId: unknown) {
 }
 
 async function mockLangGraphProtocol(page: Page, events: ProtocolMockEvent[]) {
+  let submittedMessages: ProtocolMessage[] = [];
   await page.route("**/threads/**/commands", (route) => {
-    const body = route.request().postDataJSON() as { id?: unknown } | null;
+    const body = route.request().postDataJSON() as {
+      id?: unknown;
+      params?: { input?: { messages?: ProtocolMessage[] } };
+    } | null;
+    submittedMessages = body?.params?.input?.messages ?? [];
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -55,7 +107,7 @@ async function mockLangGraphProtocol(page: Page, events: ProtocolMockEvent[]) {
     } | null;
     const streamEvents =
       body?.channels?.includes("values") || body?.channels?.includes("messages")
-        ? events
+        ? addStableMessageIds(events, submittedMessages)
         : [];
     route.fulfill({
       status: 200,
@@ -63,6 +115,109 @@ async function mockLangGraphProtocol(page: Page, events: ProtocolMockEvent[]) {
       body: protocolSse(streamEvents),
     });
   });
+}
+
+async function installLifecycleFixture(
+  page: Page,
+  mode: "drop-once" | "close-once" | "exhaust" | "recover-after-failure"
+) {
+  await page.addInitScript(
+    ({ fixtureMode }) => {
+      const originalFetch = window.fetch.bind(window);
+      let streamRequestCount = 0;
+      let commandCount = 0;
+      let sequence = 0;
+      const encoder = new TextEncoder();
+
+      const eventChunk = (method: string, data: unknown) => {
+        sequence += 1;
+        return encoder.encode(
+          `event: event\ndata: ${JSON.stringify({
+            type: "event",
+            seq: sequence,
+            event_id: `fixture-event-${sequence}`,
+            method,
+            params: { namespace: [], data },
+          })}\n\n`
+        );
+      };
+
+      const answerForMode = () => {
+        if (fixtureMode === "recover-after-failure") {
+          return "The later submission worked.";
+        }
+        if (fixtureMode === "close-once") {
+          return "The clean close was followed by a successful rejoin.";
+        }
+        return "The stream recovered and the answer completed.";
+      };
+
+      window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/threads/") && url.endsWith("/commands")) {
+          commandCount += 1;
+        }
+        if (!(url.includes("/threads/") && url.endsWith("/stream/events"))) {
+          return originalFetch(input, init);
+        }
+
+        streamRequestCount += 1;
+        const body =
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as { channels?: string[] })
+            : {};
+        const channels = body.channels ?? [];
+        const shouldFail =
+          fixtureMode === "exhaust" ||
+          (fixtureMode === "recover-after-failure" && commandCount === 1);
+
+        const shouldDrop =
+          (fixtureMode === "drop-once" || fixtureMode === "close-once") &&
+          streamRequestCount === 1;
+        const readable = new ReadableStream<Uint8Array>({
+          start(controller) {
+            if (shouldFail) {
+              setTimeout(() => {
+                controller.error(new TypeError("fixture network disconnect"));
+              }, 0);
+              return;
+            }
+            if (channels.includes("values")) {
+              controller.enqueue(
+                eventChunk("values", {
+                  messages: [
+                    { type: "human", content: "Recover this stream" },
+                    {
+                      type: "ai",
+                      content: answerForMode(),
+                    },
+                  ],
+                })
+              );
+            }
+            if (channels.includes("lifecycle")) {
+              controller.enqueue(
+                eventChunk("lifecycle", { event: "completed" })
+              );
+            }
+            if (shouldDrop) {
+              controller.close();
+            }
+            // Successful responses intentionally remain open. The SDK pauses
+            // the subscription on the terminal lifecycle event; closing the
+            // Response would correctly be interpreted as another disconnect.
+          },
+        });
+        return Promise.resolve(
+          new Response(readable, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          })
+        );
+      };
+    },
+    { fixtureMode: mode }
+  );
 }
 
 async function selectFlowMode(page: Page, label: string) {
@@ -95,7 +250,7 @@ test.describe("chat streaming", () => {
       })
     ).toBeVisible();
     await expect(
-      suggestions.getByRole("button", { name: /resume/i })
+      suggestions.getByRole("button", { name: RESUME_PATTERN })
     ).toHaveCount(0);
   });
 
@@ -193,7 +348,7 @@ test.describe("chat streaming", () => {
         method?: string;
         params?: {
           input?: {
-            messages?: Array<{ content?: string; type?: string }>;
+            messages?: ProtocolMessage[];
           };
         };
       };
@@ -201,7 +356,7 @@ test.describe("chat streaming", () => {
       const submittedMessage = body.params?.input?.messages?.[0];
       expect(submittedMessage?.type).toBe("human");
       expect(submittedMessage?.content).toBe(prompt);
-      submittedMessageId = "submitted-user";
+      submittedMessageId = submittedMessage?.id;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -218,8 +373,8 @@ test.describe("chat streaming", () => {
             method: "values",
             data: {
               messages: [
-                { type: "human", content: prompt },
-                { type: "ai", content: answer },
+                { id: submittedMessageId, type: "human", content: prompt },
+                { id: "assistant-answer", type: "ai", content: answer },
               ],
             },
           },
@@ -277,6 +432,37 @@ test.describe("chat streaming", () => {
         ]),
       });
     });
+    await page.route(
+      "**/threads/00000000-0000-4000-8000-000000000002/state",
+      (route) => {
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            values: {
+              messages: [{ type: "human", content: "Latest invoice workflow" }],
+            },
+          }),
+        });
+      }
+    );
+    let delayedSwitchState = false;
+    await page.route(
+      `**/threads/${SIDEBAR_THREAD_ID_2}/state`,
+      async (route) => {
+        delayedSwitchState = true;
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            values: {
+              messages: [{ type: "human", content: "Vendor payment terms" }],
+            },
+          }),
+        });
+      }
+    );
 
     await page.goto("/");
 
@@ -291,6 +477,23 @@ test.describe("chat streaming", () => {
       .getByRole("button", { name: "Vendor payment terms", exact: true })
       .click();
 
+    await expect.poll(() => delayedSwitchState).toBe(true);
+    await expect(page.getByTestId("chat-root")).toHaveAttribute(
+      "data-chat-status",
+      "hydrating"
+    );
+    await expect(
+      page
+        .getByTestId("chat-message-list")
+        .getByText("Latest invoice workflow", {
+          exact: true,
+        })
+    ).toHaveCount(0);
+    await expect(
+      page.getByTestId("chat-message-list").getByText("Vendor payment terms", {
+        exact: true,
+      })
+    ).toBeVisible();
     await expect(page.getByTestId("chat-root")).toHaveAttribute(
       "data-thread-id",
       SIDEBAR_THREAD_ID_2
@@ -309,31 +512,49 @@ test.describe("chat streaming", () => {
         "00000000-0000-4000-8000-000000000002"
       );
     });
+    let deleted = false;
     await page.route("**/threads/search**", (route) => {
+      const threads = deleted
+        ? [
+            {
+              thread_id: "00000000-0000-4000-8000-000000000002",
+              created_at: "2026-06-26T10:00:00Z",
+              updated_at: "2026-06-26T10:00:00Z",
+              values: {
+                messages: [
+                  { type: "human", content: "Latest invoice workflow" },
+                ],
+              },
+            },
+          ]
+        : [
+            {
+              thread_id: "00000000-0000-4000-8000-000000000002",
+              created_at: "2026-06-26T10:00:00Z",
+              updated_at: "2026-06-26T10:00:00Z",
+              values: {
+                messages: [
+                  { type: "human", content: "Latest invoice workflow" },
+                ],
+              },
+            },
+            {
+              thread_id: SIDEBAR_THREAD_ID_2,
+              created_at: "2026-06-26T09:00:00Z",
+              updated_at: "2026-06-26T09:00:00Z",
+              values: {
+                messages: [{ type: "human", content: "Vendor payment terms" }],
+              },
+            },
+          ];
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify([
-          {
-            thread_id: "00000000-0000-4000-8000-000000000002",
-            created_at: "2026-06-26T10:00:00Z",
-            updated_at: "2026-06-26T10:00:00Z",
-            values: {
-              messages: [{ type: "human", content: "Latest invoice workflow" }],
-            },
-          },
-          {
-            thread_id: SIDEBAR_THREAD_ID_2,
-            created_at: "2026-06-26T09:00:00Z",
-            updated_at: "2026-06-26T09:00:00Z",
-            values: {
-              messages: [{ type: "human", content: "Vendor payment terms" }],
-            },
-          },
-        ]),
+        body: JSON.stringify(threads),
       });
     });
     await page.route(`**/threads/${SIDEBAR_THREAD_ID_2}`, (route) => {
+      deleted = true;
       route.fulfill({ status: 204 });
     });
 
@@ -357,6 +578,14 @@ test.describe("chat streaming", () => {
         exact: true,
       })
     ).toHaveAttribute("aria-current", "page");
+
+    await page.reload();
+    await expect(
+      page.getByLabel("Chat history").getByRole("button", {
+        name: "Vendor payment terms",
+        exact: true,
+      })
+    ).toHaveCount(0);
   });
 
   test("keeps an existing fallback thread title stable after selecting the thread", async ({
@@ -575,6 +804,7 @@ test.describe("chat streaming", () => {
   test("keeps the submitted question visible while the stream is starting", async ({
     page,
   }) => {
+    let submittedMessageId: string | undefined;
     let releaseStream: (() => void) | undefined;
     const streamStarted = new Promise<void>((resolve) => {
       releaseStream = resolve;
@@ -588,7 +818,11 @@ test.describe("chat streaming", () => {
       });
     });
     await page.route("**/threads/**/commands", (route) => {
-      const body = route.request().postDataJSON() as { id?: unknown } | null;
+      const body = route.request().postDataJSON() as {
+        id?: unknown;
+        params?: { input?: { messages?: ProtocolMessage[] } };
+      } | null;
+      submittedMessageId = body?.params?.input?.messages?.[0]?.id;
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -605,8 +839,12 @@ test.describe("chat streaming", () => {
             method: "values",
             data: {
               messages: [
-                { type: "human", content: PROMPT },
-                { type: "ai", content: "Use Grafana deployment docs." },
+                { id: submittedMessageId, type: "human", content: PROMPT },
+                {
+                  id: "grafana-assistant",
+                  type: "ai",
+                  content: "Use Grafana deployment docs.",
+                },
               ],
             },
           },
@@ -724,21 +962,32 @@ test.describe("chat streaming", () => {
     await expect(page.getByText("Result", { exact: true })).toBeVisible();
   });
 
-  test("replays persisted tool calls after refreshing an existing thread", async ({
+  test("replays persisted tool calls after switching to an existing thread", async ({
     page,
   }) => {
+    const activeThreadId = "00000000-0000-4000-8000-000000000002";
     const threadId = "00000000-0000-4000-8000-000000000008";
     const callId = "persisted-call-1";
     const toolName = "Calculator_solve_equation";
 
     await page.addInitScript((storedThreadId) => {
       window.localStorage.setItem("rag_agent_thread_id", storedThreadId);
-    }, threadId);
+    }, activeThreadId);
     await page.route("**/threads/search**", (route) => {
       route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify([
+          {
+            thread_id: activeThreadId,
+            created_at: "2026-06-30T11:00:00Z",
+            updated_at: "2026-06-30T11:01:00Z",
+            values: {
+              messages: [
+                { type: "human", content: "Review the latest invoice" },
+              ],
+            },
+          },
           {
             thread_id: threadId,
             created_at: "2026-06-30T10:00:00Z",
@@ -755,6 +1004,17 @@ test.describe("chat streaming", () => {
         ]),
       });
     });
+    await page.route(`**/threads/${activeThreadId}/state`, (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          values: {
+            messages: [{ type: "human", content: "Review the latest invoice" }],
+          },
+        }),
+      });
+    });
     await page.route(`**/threads/${threadId}/state`, (route) => {
       route.fulfill({
         status: 200,
@@ -768,7 +1028,7 @@ test.describe("chat streaming", () => {
               },
               {
                 type: "ai",
-                content: [{ type: "tool_call", id: callId }],
+                content: ".",
                 tool_calls: [
                   {
                     id: callId,
@@ -779,12 +1039,9 @@ test.describe("chat streaming", () => {
               },
               {
                 type: "tool",
-                name: toolName,
+                content: '{"solutions":[2,3]}',
                 tool_call_id: callId,
-                content: [{ type: "text", text: '{"solutions":"[2, 3]"}' }],
-                artifact: {
-                  structured_content: { solutions: "[2, 3]" },
-                },
+                name: toolName,
                 status: "success",
               },
               {
@@ -798,6 +1055,13 @@ test.describe("chat streaming", () => {
     });
 
     await page.goto("/");
+    await page
+      .getByLabel("Chat history")
+      .getByRole("button", {
+        name: "Solve x^2 - 5x + 6 = 0 using tools",
+        exact: true,
+      })
+      .click();
 
     const tool = page.locator(
       `[data-tool-type="tool-${toolName}"][data-tool-state="output-available"]`
@@ -836,12 +1100,14 @@ test.describe("chat streaming", () => {
         };
 
         window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
-          const url =
-            typeof input === "string"
-              ? input
-              : input instanceof Request
-                ? input.url
-                : input.toString();
+          let url: string;
+          if (typeof input === "string") {
+            url = input;
+          } else if (input instanceof Request) {
+            url = input.url;
+          } else {
+            url = input.toString();
+          }
 
           if (url.includes("/threads/search")) {
             historyCalls += 1;
@@ -1231,7 +1497,9 @@ test.describe("chat streaming", () => {
     await expect(scrollButton).toBeHidden();
   });
 
-  test("removes the cleared chat from local history", async ({ page }) => {
+  test("refreshes server-owned history after clearing the active chat", async ({
+    page,
+  }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem(
         "rag_agent_thread_id",
@@ -1252,25 +1520,23 @@ test.describe("chat streaming", () => {
             },
           ]
         : [
-              {
-                thread_id: CLEAR_ACTIVE_THREAD_ID,
-                created_at: "2026-06-26T10:00:00Z",
-                updated_at: "2026-06-26T10:00:00Z",
-                values: {
-                  messages: [
-                    { type: "human", content: "Active chat to clear" },
-                  ],
-                },
+            {
+              thread_id: CLEAR_ACTIVE_THREAD_ID,
+              created_at: "2026-06-26T10:00:00Z",
+              updated_at: "2026-06-26T10:00:00Z",
+              values: {
+                messages: [{ type: "human", content: "Active chat to clear" }],
               },
-              {
-                thread_id: KEEP_THREAD_ID,
-                created_at: "2026-06-26T09:00:00Z",
-                updated_at: "2026-06-26T09:00:00Z",
-                values: {
-                  messages: [{ type: "human", content: "Keep this chat" }],
-                },
+            },
+            {
+              thread_id: KEEP_THREAD_ID,
+              created_at: "2026-06-26T09:00:00Z",
+              updated_at: "2026-06-26T09:00:00Z",
+              values: {
+                messages: [{ type: "human", content: "Keep this chat" }],
               },
-            ];
+            },
+          ];
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -1424,10 +1690,149 @@ test.describe("chat streaming", () => {
     );
   });
 
+  test("recovers after a dropped stream", async ({ page }) => {
+    const answer = "The stream recovered and the answer completed.";
+    await installLifecycleFixture(page, "drop-once");
+    await page.route("**/threads/search**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "[]",
+      })
+    );
+    await page.route("**/threads/**/commands", (route) => {
+      const body = route.request().postDataJSON() as { id?: unknown } | null;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: commandSuccessBody(body?.id),
+      });
+    });
+    await page.goto("/");
+    await page
+      .getByRole("textbox", { name: "Message" })
+      .fill("Recover this stream");
+    await page.getByRole("button", { name: "Ask" }).click();
+
+    await expect(page.getByText(answer)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("chat-root")).toHaveAttribute(
+      "data-chat-status",
+      "idle"
+    );
+  });
+
+  test("recovers after a clean server close", async ({ page }) => {
+    const answer = "The clean close was followed by a successful rejoin.";
+    await installLifecycleFixture(page, "close-once");
+    await page.route("**/threads/search**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "[]",
+      })
+    );
+    await page.route("**/threads/**/commands", (route) => {
+      const body = route.request().postDataJSON() as { id?: unknown } | null;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: commandSuccessBody(body?.id),
+      });
+    });
+    await page.goto("/");
+    await page
+      .getByRole("textbox", { name: "Message" })
+      .fill("Rejoin after close");
+    await page.getByRole("button", { name: "Ask" }).click();
+
+    await expect(page.getByText(answer)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("chat-root")).toHaveAttribute(
+      "data-chat-status",
+      "idle"
+    );
+  });
+
+  test("settles exhausted recovery as failed instead of leaving a spinner", async ({
+    page,
+  }) => {
+    await installLifecycleFixture(page, "exhaust");
+    await page.route("**/threads/search**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "[]",
+      })
+    );
+    await page.route("**/threads/**/commands", (route) => {
+      const body = route.request().postDataJSON() as { id?: unknown } | null;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: commandSuccessBody(body?.id),
+      });
+    });
+    await page.goto("/");
+    const input = page.getByRole("textbox", { name: "Message" });
+    await input.fill("This stream will fail");
+    await page.getByRole("button", { name: "Ask" }).click();
+
+    await expect(page.getByTestId("chat-root")).toHaveAttribute(
+      "data-chat-status",
+      "failed",
+      { timeout: 45_000 }
+    );
+    await expect(page.getByTestId("chat-connection-status")).toContainText(
+      "Chat connection failed"
+    );
+    await expect(page.getByTestId("chat-streaming-indicator")).toHaveCount(0);
+    await expect(input).toBeEnabled();
+  });
+
+  test("allows a later submission after an exhausted stream", async ({
+    page,
+  }) => {
+    await installLifecycleFixture(page, "recover-after-failure");
+    await page.route("**/threads/search**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "[]",
+      })
+    );
+    await page.route("**/threads/**/commands", (route) => {
+      const body = route.request().postDataJSON() as { id?: unknown } | null;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: commandSuccessBody(body?.id),
+      });
+    });
+    await page.goto("/");
+    const input = page.getByRole("textbox", { name: "Message" });
+    await input.fill("First attempt");
+    await page.getByRole("button", { name: "Ask" }).click();
+    await expect(page.getByTestId("chat-root")).toHaveAttribute(
+      "data-chat-status",
+      "failed",
+      { timeout: 45_000 }
+    );
+
+    await input.fill("Try again after failure");
+    await page.getByRole("button", { name: "Ask" }).click();
+    await expect(page.getByText("The later submission worked.")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("chat-root")).toHaveAttribute(
+      "data-chat-status",
+      "idle"
+    );
+  });
+
   test("keeps API connection failures out of the browser error overlay", async ({
     page,
   }) => {
     const pageErrors: string[] = [];
+    await installLifecycleFixture(page, "exhaust");
     page.on("pageerror", (error) => {
       pageErrors.push(error.message);
     });
@@ -1440,14 +1845,6 @@ test.describe("chat streaming", () => {
         body: commandSuccessBody(body?.id),
       });
     });
-    await page.route("**/threads/**/stream/events", (route) =>
-      route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        body: JSON.stringify({ message: "LangGraph unavailable" }),
-      })
-    );
-
     await page.goto("/");
 
     await page
@@ -1457,10 +1854,13 @@ test.describe("chat streaming", () => {
 
     await expect(page.getByTestId("chat-root")).toHaveAttribute(
       "data-chat-status",
-      "error",
+      "failed",
       {
         timeout: 15_000,
       }
+    );
+    await expect(page.getByTestId("chat-connection-status")).toContainText(
+      "Chat connection failed"
     );
     expect(pageErrors).toEqual([]);
   });

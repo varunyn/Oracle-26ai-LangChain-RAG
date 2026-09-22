@@ -1,6 +1,10 @@
 "use client";
 
-import { useStream } from "@langchain/react";
+import {
+  StreamProvider,
+  type UseStreamReturn,
+  useStreamContext,
+} from "@langchain/react";
 import {
   createContext,
   type Dispatch,
@@ -9,156 +13,54 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
 import { debugChatStage } from "@/hooks/chat/debug";
+import type { PublicChatGraphState } from "@/hooks/chat/graph-state";
 import { resolveLanggraphApiUrl } from "@/hooks/chat/stream-config";
 
-type StreamValue = ReturnType<typeof useStream>;
-type RunCreatedInfo = { runId: string };
+type ChatStream = UseStreamReturn<PublicChatGraphState>;
 
-function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
+export interface ReconnectState {
+  attempt: number;
+  cause: unknown;
+  delayMs: number;
 }
 
-export function formatProtocolRequestError(
-  status: number,
-  statusText: string,
-  requestUrl: string
-): string {
-  return `Protocol request failed: ${status} ${statusText} (${requestUrl})`;
-}
-
-type LangGraphStreamContextValue = {
-  threadId: string | null;
+interface LangGraphStreamContextValue {
+  reconnect: ReconnectState | null;
   setThreadId:
     | Dispatch<SetStateAction<string | null>>
     | ((threadId: string | null) => void);
-  stream: StreamValue;
-  transportError: Error | null;
-};
+  stream: ChatStream;
+  threadId: string | null;
+}
 
 const LangGraphStreamContext =
   createContext<LangGraphStreamContextValue | null>(null);
 
-export function LangGraphStreamProvider({
+function StreamBridge({
   threadId,
   setThreadId,
   children,
+  reconnect,
 }: {
   threadId: string | null;
   setThreadId:
     | Dispatch<SetStateAction<string | null>>
     | ((threadId: string | null) => void);
   children: ReactNode;
+  reconnect: ReconnectState | null;
 }) {
-  const langgraphApiUrl = useMemo(() => resolveLanggraphApiUrl(), []);
-  const [transportErrorState, setTransportErrorState] = useState<{
-    error: Error | null;
-    threadId: string | null;
-  }>({
-    error: null,
-    threadId,
-  });
-  const threadIdRef = useRef<string | null>(threadId);
-  const mountedRef = useRef(false);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    threadIdRef.current = threadId;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [threadId]);
-
-  const transportError =
-    transportErrorState.threadId === threadId
-      ? transportErrorState.error
-      : null;
-
-  const instrumentedFetch = useMemo(
-    () =>
-      async (
-        input: RequestInfo | URL,
-        init?: RequestInit
-      ): Promise<Response> => {
-        const requestUrl =
-          typeof input === "string"
-            ? input
-            : input instanceof Request
-              ? input.url
-              : input.toString();
-        try {
-          const response = await fetch(input, init);
-          const nextError = response.ok
-            ? null
-            : new Error(
-                formatProtocolRequestError(
-                  response.status,
-                  response.statusText,
-                  requestUrl
-                )
-              );
-          if (
-            mountedRef.current &&
-            (requestUrl.includes("/threads/") ||
-              requestUrl.includes("/threads/search"))
-          ) {
-            setTransportErrorState({
-              error: nextError,
-              threadId: threadIdRef.current,
-            });
-          }
-          return response;
-        } catch (error) {
-          if (
-            mountedRef.current &&
-            (requestUrl.includes("/threads/") ||
-              requestUrl.includes("/threads/search"))
-          ) {
-            setTransportErrorState({
-              error: toError(error),
-              threadId: threadIdRef.current,
-            });
-          }
-          throw error;
-        }
-      },
-    []
-  );
-
-  const handleCreated = useCallback((info: RunCreatedInfo) => {
-    debugChatStage("LangGraphStreamProvider.onCreated", { runId: info.runId });
-  }, []);
-
-  const stream = useStream({
-    apiUrl: langgraphApiUrl,
-    assistantId: "chat_agent",
-    fetch: instrumentedFetch,
-    threadId,
-    onCreated: handleCreated,
-    onThreadId: (id) => {
-      if (id) {
-        threadIdRef.current = id;
-        debugChatStage("LangGraphStreamProvider.onThreadId", {
-          previousThreadId: threadId,
-          nextThreadId: id,
-        });
-        setThreadId(id);
-      }
-    },
-  });
+  const stream = useStreamContext<PublicChatGraphState>();
 
   useEffect(() => {
     debugChatStage("LangGraphStreamProvider.state", {
       threadId,
       streamThreadId: stream.threadId,
-      messageCount: Array.isArray(stream.messages) ? stream.messages.length : 0,
-      toolCallCount: Array.isArray(stream.toolCalls)
-        ? stream.toolCalls.length
-        : 0,
+      messageCount: stream.messages.length,
+      toolCallCount: stream.toolCalls.length,
       isLoading: stream.isLoading,
       hasError: stream.error != null,
     });
@@ -173,15 +75,77 @@ export function LangGraphStreamProvider({
 
   return (
     <LangGraphStreamContext.Provider
-      value={{
-        threadId,
-        setThreadId,
-        stream,
-        transportError,
-      }}
+      value={{ threadId, setThreadId, stream, reconnect }}
     >
       {children}
     </LangGraphStreamContext.Provider>
+  );
+}
+
+export function LangGraphStreamProvider({
+  threadId,
+  setThreadId,
+  children,
+}: {
+  threadId: string | null;
+  setThreadId:
+    | Dispatch<SetStateAction<string | null>>
+    | ((threadId: string | null) => void);
+  children: ReactNode;
+}) {
+  const [reconnect, setReconnect] = useState<ReconnectState | null>(null);
+  const mountedRef = useRef(false);
+  const pendingReconnectRef = useRef<ReconnectState | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    if (pendingReconnectRef.current != null) {
+      setReconnect(pendingReconnectRef.current);
+      pendingReconnectRef.current = null;
+    }
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const handleThreadId = useCallback(
+    (nextThreadId: string) => setThreadId(nextThreadId),
+    [setThreadId]
+  );
+
+  const handleReconnect = useCallback((next: ReconnectState) => {
+    if (!mountedRef.current) {
+      pendingReconnectRef.current = next;
+      return;
+    }
+    setReconnect(next);
+  }, []);
+  const handleConnected = useCallback(() => {
+    pendingReconnectRef.current = null;
+    if (!mountedRef.current) {
+      return;
+    }
+    setReconnect(null);
+  }, []);
+
+  return (
+    <StreamProvider<PublicChatGraphState>
+      apiUrl={resolveLanggraphApiUrl()}
+      assistantId="chat_agent"
+      maxReconnectAttempts={3}
+      onConnected={handleConnected}
+      onReconnect={handleReconnect}
+      onThreadId={handleThreadId}
+      threadId={threadId}
+    >
+      <StreamBridge
+        reconnect={reconnect}
+        setThreadId={setThreadId}
+        threadId={threadId}
+      >
+        {children}
+      </StreamBridge>
+    </StreamProvider>
   );
 }
 

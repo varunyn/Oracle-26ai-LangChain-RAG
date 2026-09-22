@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import TypeAlias, TypedDict, TypeGuard
+from typing import Literal, TypeAlias, TypedDict, TypeGuard
 
 from langchain_core.messages import (
     AIMessage,
@@ -165,12 +165,14 @@ async def call_llm_node(
     state: MCPSubGraphState,
     config: RunnableConfig,
     runtime: Runtime[ChatGraphContext],
+    *,
+    mode: Literal["mcp", "mixed"] = "mcp",
 ) -> MCPSubGraphState:
     turn = await reconstruct_tool_agent_turn(
         state={"messages": state.get("messages", [])},
         parent_config=config,
         runtime=runtime,
-        mode="mcp",
+        mode=mode,
     )
     try:
         tools = turn["tools"]
@@ -221,12 +223,14 @@ async def run_tools_node(
     state: MCPSubGraphState,
     config: RunnableConfig,
     runtime: Runtime[ChatGraphContext],
+    *,
+    mode: Literal["mcp", "mixed"] = "mcp",
 ) -> MCPSubGraphState:
     turn = await reconstruct_tool_agent_turn(
         state={"messages": state.get("messages", [])},
         parent_config=config,
         runtime=runtime,
-        mode="mcp",
+        mode=mode,
     )
     try:
         tools = turn["tools"]

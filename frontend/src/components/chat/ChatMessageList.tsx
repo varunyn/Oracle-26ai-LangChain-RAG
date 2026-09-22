@@ -77,7 +77,8 @@ export function ChatMessageList({
   enableUserFeedback,
 }: ChatMessageListProps): React.ReactElement {
   "use memo";
-  const isStreamingTurn = status === "submitted" || status === "streaming";
+  const isStreamingTurn =
+    status === "hydrating" || status === "running" || status === "reconnecting";
   const showStreamingIndicator =
     isStreamingTurn && !hasActiveAssistantOutput(messages, toolCalls);
   const showEmptyState = messages.length === 0 && !isStreamingTurn;
@@ -119,7 +120,9 @@ export function ChatMessageList({
             const isLastMessage = index === messages.length - 1;
             const isStreaming =
               isLastMessage &&
-              (status === "submitted" || status === "streaming");
+              (status === "hydrating" ||
+                status === "running" ||
+                status === "reconnecting");
             const displayContent = textContent;
             const messageReferences: MessageReferences | null =
               message.role === "assistant"

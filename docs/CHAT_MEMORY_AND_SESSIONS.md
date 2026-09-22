@@ -31,6 +31,10 @@ This doc describes conversation memory, **sessions**, and **threads** in the cur
 
 The sidebar is an in-memory projection of `threads.search(...)`. It is replaced by server results and does not persist conversation summaries in browser storage.
 
+When the active thread changes, the existing native stream controller rebinds to and hydrates that thread in place. The UI stays in the `hydrating` state until the `@langchain/react` projection has loaded the selected thread, so messages from the previous thread cannot flash during a switch. Starting a new chat resets the same controller to an unbound, empty thread state with no inherited messages.
+
+Deleting a thread calls the Agent Server delete operation first. After the delete succeeds, the sidebar is refreshed from `threads.search(...)`; it is never removed from a browser-side history cache. A reload therefore cannot restore a deleted thread unless it still exists in Agent Server persistence.
+
 MCP tool activity now uses the native Agent Server `tools` channel. Final replay/history metadata remains attached to assistant messages in fields such as `mcp_tool_invocations`.
 
 ## Where it’s implemented

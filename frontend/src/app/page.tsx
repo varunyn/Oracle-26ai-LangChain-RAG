@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import { ChatInputBar } from "@/components/chat/ChatInputBar";
+import { ChatConnectionStatus } from "@/components/chat/chat-connection-status";
 import { ProcessedSourcesPanel } from "@/components/chat/ProcessedSourcesPanel";
 import { useAppConfig } from "@/components/config-provider";
 import { useToast } from "@/components/toaster";
@@ -42,9 +43,7 @@ export default function Chat() {
     clearChat,
     threadHistory,
     startNewChat,
-    updateThreadTitle,
     refreshThreadHistory,
-    removeThreadHistoryEntry,
     isReady,
   } = chatSession;
   if (!isReady) {
@@ -57,9 +56,7 @@ export default function Chat() {
         clearChat={clearChat}
         onNewChat={startNewChat}
         onRefreshThreadHistory={refreshThreadHistory}
-        onRemoveThreadHistoryEntry={removeThreadHistoryEntry}
         onSelectThread={setThreadId}
-        onUpdateThreadTitle={updateThreadTitle}
         sessionId={sessionId}
         threadHistory={threadHistory}
         threadId={threadId}
@@ -68,36 +65,17 @@ export default function Chat() {
   );
 }
 
-type ChatPageContentProps = {
+interface ChatPageContentProps {
   appConfig: ReturnType<typeof useAppConfig>["config"];
-  threadId: string | null;
-  sessionId: string;
   clearChat: ReturnType<typeof useChatSession>["clearChat"];
-  threadHistory: ReturnType<typeof useChatSession>["threadHistory"];
-  onSelectThread: ReturnType<typeof useChatSession>["setThreadId"];
   onNewChat: ReturnType<typeof useChatSession>["startNewChat"];
-  onRemoveThreadHistoryEntry: ReturnType<
-    typeof useChatSession
-  >["removeThreadHistoryEntry"];
-  onUpdateThreadTitle: ReturnType<typeof useChatSession>["updateThreadTitle"];
   onRefreshThreadHistory: ReturnType<
     typeof useChatSession
   >["refreshThreadHistory"];
-};
-
-type ChatMessageLike = {
-  role?: string;
-  content?: string;
-};
-
-function deriveThreadTitle(messages: ChatMessageLike[]): string | null {
-  const firstUserMessage = messages.find((message) => message.role === "user");
-  const content = firstUserMessage?.content || "";
-  const normalized = content.replace(/\s+/g, " ").trim();
-  if (!normalized) {
-    return null;
-  }
-  return normalized.length > 56 ? `${normalized.slice(0, 53)}...` : normalized;
+  onSelectThread: ReturnType<typeof useChatSession>["setThreadId"];
+  sessionId: string;
+  threadHistory: ReturnType<typeof useChatSession>["threadHistory"];
+  threadId: string | null;
 }
 
 function ChatPageContent({
@@ -108,12 +86,10 @@ function ChatPageContent({
   threadHistory,
   onSelectThread,
   onNewChat,
-  onRemoveThreadHistoryEntry,
-  onUpdateThreadTitle,
   onRefreshThreadHistory,
 }: ChatPageContentProps) {
   const { toast } = useToast();
-  const { stream } = useLangGraphStream();
+  const { reconnect, stream } = useLangGraphStream();
   const sessionUI = useSessionUIState(appConfig);
   const [mainView, setMainView] = useState<MainView>("chat");
   const chat = useChatController({
@@ -126,25 +102,15 @@ function ChatPageContent({
     flowMode: sessionUI.flowMode,
     toast,
     clearSessionChat: clearChat,
-    removeThreadHistoryEntry: onRemoveThreadHistoryEntry,
+    refreshThreadHistory: onRefreshThreadHistory,
   });
   const mutations = useChatMutations(sessionUI.collectionName);
 
   useEffect(() => {
-    const title = deriveThreadTitle(chat.messages as ChatMessageLike[]);
-    const threadAlreadyTracked = threadHistory.some(
-      (thread) => thread.id === threadId
-    );
-    if (threadId && title && !threadAlreadyTracked) {
-      onUpdateThreadTitle(threadId, title);
-    }
-  }, [chat.messages, onUpdateThreadTitle, threadHistory, threadId]);
-
-  useEffect(() => {
-    if (chat.status !== "ready") {
+    if (chat.status !== "idle") {
       return;
     }
-    void onRefreshThreadHistory(stream.client).catch(() => undefined);
+    onRefreshThreadHistory(stream.client).catch(() => undefined);
   }, [chat.status, onRefreshThreadHistory, stream.client]);
 
   return (
@@ -219,6 +185,7 @@ function ChatPageContent({
             </button>
           </div>
         </div>
+        <ChatConnectionStatus reconnect={reconnect} status={chat.status} />
         {mainView === "chat" ? (
           <>
             <ChatMessageList

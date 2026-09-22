@@ -4,7 +4,7 @@ import { useCallback } from "react";
 import type {
   ClearSessionChat,
   MessageLike,
-  RemoveThreadHistoryEntry,
+  RefreshThreadHistory,
   SendOverrides,
   ToastApi,
 } from "@/hooks/chat/controller-types";
@@ -50,7 +50,7 @@ export function useChatActions(args: {
   clearSessionChat: ClearSessionChat;
   input: string;
   messages: MessageLike[];
-  removeThreadHistoryEntry: RemoveThreadHistoryEntry;
+  refreshThreadHistory: RefreshThreadHistory;
   setContextUsage: Dispatch<SetStateAction<ContextUsage | null>>;
   setFeedbackSubmitted: Dispatch<SetStateAction<boolean>>;
   setFeedbackSubmittedMessageIndexes: Dispatch<SetStateAction<Set<number>>>;
@@ -78,7 +78,7 @@ export function useChatActions(args: {
     clearSessionChat,
     input,
     messages,
-    removeThreadHistoryEntry,
+    refreshThreadHistory,
     setContextUsage,
     setFeedbackSubmitted,
     setFeedbackSubmittedMessageIndexes,
@@ -257,10 +257,20 @@ export function useChatActions(args: {
       setContextUsage,
     });
     setFeedbackSubmittedMessageIndexes(new Set());
+    try {
+      await refreshThreadHistory(stream.client);
+    } catch (error) {
+      console.error("Thread history refresh failed after clear:", error);
+      debugChatStage("clearChat.refreshFailed", {
+        threadId,
+        error: String(error),
+      });
+    }
     debugChatStage("clearChat.succeeded", { threadId });
     toast.success("Chat cleared");
   }, [
     clearSessionChat,
+    refreshThreadHistory,
     setContextUsage,
     setFeedbackSubmitted,
     setFeedbackSubmittedMessageIndexes,
@@ -296,7 +306,7 @@ export function useChatActions(args: {
         return;
       }
 
-      removeThreadHistoryEntry(normalizedThreadId);
+      await refreshThreadHistory(stream.client);
 
       debugChatStage("deleteThread.succeeded", {
         activeThreadId: threadId,
@@ -304,14 +314,7 @@ export function useChatActions(args: {
       });
       toast.success("Chat deleted");
     },
-    [
-      clearSessionChat,
-      removeThreadHistoryEntry,
-      handleClearChat,
-      stream,
-      threadId,
-      toast,
-    ]
+    [refreshThreadHistory, handleClearChat, stream, threadId, toast]
   );
 
   return {

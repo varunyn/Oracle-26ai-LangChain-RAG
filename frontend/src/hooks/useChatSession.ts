@@ -27,7 +27,7 @@ type ThreadSearchResult = {
   };
 };
 
-type ThreadHistoryClient = {
+export type ThreadHistoryClient = {
   threads: {
     search: (query: {
       limit: number;
@@ -105,27 +105,6 @@ function sortAndLimit(history: ChatThreadSummary[]): ChatThreadSummary[] {
   return [...deduped.values()]
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, MAX_STORED_THREADS);
-}
-
-export function updateThreadHistoryTitle(
-  history: ChatThreadSummary[],
-  threadId: string,
-  title: string
-): ChatThreadSummary[] {
-  const now = Date.now();
-  const existing = history.find((thread) => thread.id === threadId);
-  if (!existing) {
-    return sortAndLimit([
-      { id: threadId, title, createdAt: now, updatedAt: now },
-      ...history,
-    ]);
-  }
-  if (existing.title === title) {
-    return history;
-  }
-  return history.map((thread) =>
-    thread.id === threadId ? { ...thread, title } : thread
-  );
 }
 
 function sameThreadHistory(
@@ -265,25 +244,6 @@ export function useChatSession() {
     writeSessionState({ ...state, threadId: null, hydrated: true });
   }, [state]);
 
-  const updateThreadTitle = useCallback(
-    (threadId: string, title: string) => {
-      const cleanTitle = title.trim();
-      if (!(threadId.trim() && cleanTitle)) {
-        return;
-      }
-      const threadHistory = updateThreadHistoryTitle(
-        state.threadHistory,
-        threadId,
-        cleanTitle
-      );
-      if (threadHistory === state.threadHistory) {
-        return;
-      }
-      writeSessionState({ ...state, threadHistory, hydrated: true });
-    },
-    [state]
-  );
-
   const refreshThreadHistory = useCallback(
     async (client: ThreadHistoryClient) => {
       const loaded = await loadThreadHistory(client);
@@ -302,28 +262,8 @@ export function useChatSession() {
     []
   );
 
-  const removeThreadHistoryEntry = useCallback(
-    (threadId: string) => {
-      const nextThreadId = threadId.trim();
-      if (!nextThreadId) {
-        return;
-      }
-      const threadHistory = state.threadHistory.filter(
-        (thread) => thread.id !== nextThreadId
-      );
-      if (threadHistory.length === state.threadHistory.length) {
-        return;
-      }
-      writeSessionState({ ...state, threadHistory, hydrated: true });
-    },
-    [state]
-  );
-
-  function clearChat<TMessage, TContext>(helpers: {
+  function clearChat<TContext>(helpers: {
     threadId?: string | null;
-    setMessages?: (
-      value: TMessage[] | ((prev: TMessage[]) => TMessage[])
-    ) => void;
     setFeedbackSubmitted: (
       value: boolean | ((prev: boolean) => boolean)
     ) => void;
@@ -339,12 +279,9 @@ export function useChatSession() {
     });
     writeSessionState({
       threadId: null,
-      threadHistory: previousThreadId
-        ? state.threadHistory.filter((thread) => thread.id !== previousThreadId)
-        : state.threadHistory,
+      threadHistory: state.threadHistory,
       hydrated: true,
     });
-    helpers.setMessages?.([]);
     helpers.setFeedbackSubmitted(false);
     helpers.setContextUsage(null);
   }
@@ -356,9 +293,7 @@ export function useChatSession() {
     clearChat,
     threadHistory: state.threadHistory,
     startNewChat,
-    updateThreadTitle,
     refreshThreadHistory,
-    removeThreadHistoryEntry,
     isReady: state.hydrated,
   };
 }

@@ -1,8 +1,15 @@
 # Changelog
 
+## 2026-09-22
+
+- Restored persisted tool cards when switching to an idle thread by hydrating the typed root tool projection from standard LangChain assistant tool calls and matching tool-result messages, while preserving native live lifecycle events as the newer source.
+
 ## 2026-09-21
 
 - Refreshed the frontend's compatible dependency lines without taking React, TypeScript, ESLint, Vitest, Streamdown, or LangChain React across planned minor or major migration boundaries. The batch includes Next.js 16.3.5 security fixes, React 19.2.8, LangChain Core 1.2.12, `@langchain/react` 1.0.35, current Radix UI and Lucide releases, and same-line build, test, CSS, and analysis tooling updates.
+- Added the Streamdown 2.6 renderer integration specification and dependency-ordered tickets. A disposable implementation reproduced the upstream streamed-math corruption in Chromium, so the hard gate correctly blocked and rolled back the upgrade without retaining a fallback or partial integration.
+- Added the `@langchain/react` 1.1 runtime redesign specification. It makes native message and tool projections authoritative, defines explicit connection lifecycle states, removes compatibility paths, and keeps Agent Server thread history server-owned.
+- Implemented the `@langchain/react` 1.1.1 runtime redesign: one typed stream now owns messages, native tool calls, lifecycle/reconnect state, checkpoint metadata, and thread hydration; browser storage retains only the selected thread ID, with legacy reconciliation and fallback paths removed.
 
 ## 2026-09-14
 

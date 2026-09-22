@@ -15,7 +15,11 @@ from src.rag_agent.graphs.nodes.mcp import run_mcp_compose, run_mcp_setup
 from src.rag_agent.graphs.nodes.mixed import run_mixed_compose_node, run_mixed_mcp_setup
 from src.rag_agent.graphs.nodes.rag import run_rag_node
 from src.rag_agent.graphs.state import ChatGraphContext, ChatGraphState
-from src.rag_agent.graphs.tool_agent_execution import build_tool_agent_sub_graph
+from src.rag_agent.graphs.tool_agent_execution import (
+    call_llm_node,
+    run_tools_node,
+)
+from src.rag_agent.graphs.tool_agent_execution import route as route_tool_execution
 from src.rag_agent.utils.langfuse_tracing import add_langfuse_callbacks
 
 
@@ -75,6 +79,40 @@ async def _run_mixed_compose_graph_node(
     return await run_mixed_compose_node(state, get_config(), runtime)
 
 
+async def _run_mcp_llm_graph_node(
+    state: ChatGraphState,
+    *,
+    runtime: Runtime[ChatGraphContext],
+) -> ChatGraphState:
+    # The execution helper returns the same partial state keys used by the
+    # root graph; its narrower protocol state is widened at this boundary.
+    return cast(ChatGraphState, await call_llm_node(state, get_config(), runtime, mode="mcp"))
+
+
+async def _run_mcp_tools_graph_node(
+    state: ChatGraphState,
+    *,
+    runtime: Runtime[ChatGraphContext],
+) -> ChatGraphState:
+    return cast(ChatGraphState, await run_tools_node(state, get_config(), runtime, mode="mcp"))
+
+
+async def _run_mixed_llm_graph_node(
+    state: ChatGraphState,
+    *,
+    runtime: Runtime[ChatGraphContext],
+) -> ChatGraphState:
+    return cast(ChatGraphState, await call_llm_node(state, get_config(), runtime, mode="mixed"))
+
+
+async def _run_mixed_tools_graph_node(
+    state: ChatGraphState,
+    *,
+    runtime: Runtime[ChatGraphContext],
+) -> ChatGraphState:
+    return cast(ChatGraphState, await run_tools_node(state, get_config(), runtime, mode="mixed"))
+
+
 async def _run_rag_graph_node(
     state: ChatGraphState,
     *,
@@ -112,12 +150,12 @@ def build_chat_agent(
     )
     graph.add_node("direct", _run_direct_graph_node)
     graph.add_node("mcp_setup", _run_mcp_setup_graph_node)
-    mcp_agent = build_tool_agent_sub_graph()
-    graph.add_node("mcp_agent", mcp_agent)
+    graph.add_node("mcp_agent", _run_mcp_llm_graph_node)
+    graph.add_node("mcp_tools", _run_mcp_tools_graph_node)
     graph.add_node("mcp_compose", _run_mcp_compose_graph_node)
     graph.add_node("mixed_setup", _run_mixed_setup_graph_node)
-    mixed_agent = build_tool_agent_sub_graph()
-    graph.add_node("mixed_agent", mixed_agent)
+    graph.add_node("mixed_agent", _run_mixed_llm_graph_node)
+    graph.add_node("mixed_tools", _run_mixed_tools_graph_node)
     graph.add_node("mixed_compose", _run_mixed_compose_graph_node)
     graph.add_node("rag", _run_rag_graph_node)
     graph.set_entry_point("bootstrap")
@@ -134,9 +172,19 @@ def build_chat_agent(
     graph.add_edge("mixed_route", "mixed_retrieval")
     graph.add_edge("mixed_retrieval", "mixed_setup")
     graph.add_edge("mixed_setup", "mixed_agent")
-    graph.add_edge("mixed_agent", "mixed_compose")
+    graph.add_conditional_edges(
+        "mixed_agent",
+        route_tool_execution,
+        {"run_tools": "mixed_tools", "__end__": "mixed_compose"},
+    )
+    graph.add_edge("mixed_tools", "mixed_agent")
     graph.add_edge("mcp_setup", "mcp_agent")
-    graph.add_edge("mcp_agent", "mcp_compose")
+    graph.add_conditional_edges(
+        "mcp_agent",
+        route_tool_execution,
+        {"run_tools": "mcp_tools", "__end__": "mcp_compose"},
+    )
+    graph.add_edge("mcp_tools", "mcp_agent")
     graph.add_edge("rag_progress", "rag")
     graph.add_edge("direct", END)
     graph.add_edge("mcp_compose", END)

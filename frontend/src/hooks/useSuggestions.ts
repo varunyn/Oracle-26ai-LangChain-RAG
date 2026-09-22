@@ -129,21 +129,25 @@ export function useSuggestions({
   }, [messages, pendingSuggestion]);
 
   useEffect(() => {
-    if (status === "submitted" || status === "streaming") {
+    if (
+      status === "hydrating" ||
+      status === "running" ||
+      status === "reconnecting"
+    ) {
       activeRequestRef.current?.controller.abort();
       activeRequestRef.current = null;
       queueMicrotask(() => {
         setSuggestionsLoading(false);
         setDynamicSuggestions(null);
       });
-    } else if (status === "error") {
+    } else if (status === "failed") {
       queueMicrotask(() => setPendingSuggestion(null));
     }
   }, [status]);
 
   useEffect(() => {
     if (
-      status !== "ready" ||
+      status !== "idle" ||
       messages.length === 0 ||
       !selectedModel ||
       !threadId
