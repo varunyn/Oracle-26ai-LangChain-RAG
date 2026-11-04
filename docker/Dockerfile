@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
 # -----------------------------------------------------------------------------
 # Base runner
 # -----------------------------------------------------------------------------
-FROM python:3.11-slim-bookworm AS base-runner
+FROM python:3.15-slim-bookworm AS base-runner
 
 WORKDIR /app
 
